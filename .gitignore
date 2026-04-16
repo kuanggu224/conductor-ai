@@ -5,3 +5,9 @@ __pycache__/
 .idea/
 .vscode/
 .pytest_cache/
+.conductor/
+.conductor_artifacts/
+.conductor_logs/
+AGENT.md
+conductor_architecture_v1.md
+TASK.md

@@ -1,0 +1,11 @@
+# 临时配置文件，禁用设计协作
+{
+  "execution_scope": {
+    "requirement_design_enabled": true,
+    "design_detail_enabled": true,
+    "design_collaboration_enabled": false,
+    "backend_development_enabled": true,
+    "frontend_development_enabled": true,
+    "testing_enabled": true
+  }
+}

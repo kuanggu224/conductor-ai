@@ -1,0 +1,94 @@
+"""BoardSnapshot 组装测试。"""
+
+from conductor.board.service import BoardService
+from conductor.config.cli import CLISelectionConfig
+from conductor.config.llm import LLMHTTPConfig, LLMRuntimeConfig, LLMUsagePolicy
+from conductor.controller.lead_controller import LeadController
+from conductor.domain.models import Artifact, Project, ProjectStatus, SharedProjectState, WorkItem
+from conductor.execution.runner import Runner
+from conductor.state.store import InMemoryStateStore
+from conductor.workflow.template import WorkflowTemplate
+
+
+def test_board_service_builds_snapshot_from_state() -> None:
+    state_store = InMemoryStateStore()
+    controller = LeadController(
+        workflow_template=WorkflowTemplate(),
+        state_store=state_store,
+        runner=Runner(state_store),
+    )
+    state = controller.initialize_project("实现一个包含 API 和测试的功能")
+    for _ in range(8):
+        if state.project_status.value in {"completed", "blocked"}:
+            break
+        state = controller.advance(state)
+
+    snapshot = BoardService().build_snapshot(
+        state,
+        cli_config=CLISelectionConfig(codex_model="gpt-5.4-mini", codex_reasoning_effort="medium"),
+        llm_runtime_config=LLMRuntimeConfig(
+            local=LLMHTTPConfig(base_url="http://127.0.0.1:11434/v1", model_name="local-test", enabled=False),
+            cloud=LLMHTTPConfig(base_url="https://api.example.com/v1", model_name="cloud-test", enabled=False),
+            usage=LLMUsagePolicy(runner_enabled=False),
+        ),
+    )
+
+    assert snapshot.project_id == state.project.id
+    assert snapshot.project_status == state.project_status.value
+    assert snapshot.workitems
+    assert snapshot.artifacts
+    assert snapshot.artifacts[0].title
+    assert snapshot.artifacts[0].content
+    assert snapshot.artifacts[0].source_backend_label
+    assert snapshot.project_agents
+    assert snapshot.project_agents[0].reason
+    assert snapshot.design_collaboration.enabled is True
+    assert snapshot.design_collaboration.current_document_title
+    assert snapshot.design_collaboration.agents
+    assert snapshot.recent_events
+    assert snapshot.execution_runtime.available is True
+    assert snapshot.execution_runtime.headline
+    assert snapshot.execution_runtime.stage_label
+    assert snapshot.execution_runtime.stage_progress_label
+    assert snapshot.execution_runtime.task_position_label
+    assert snapshot.execution_runtime.output_summary
+    assert snapshot.execution_runtime.working_directory
+
+
+def test_board_service_extracts_code_execution_reports() -> None:
+    state = SharedProjectState(
+        project=Project(id="project-1", goal="实现前后端", current_stage="development", project_root="C:/demo"),
+        project_status=ProjectStatus.IN_PROGRESS,
+        current_stage="development",
+        workitems=[
+            WorkItem(id="workitem-backend", description="后端实现", stage="development", kind="api_implementation"),
+            WorkItem(id="workitem-frontend", description="前端实现", stage="development", kind="ui_implementation"),
+        ],
+        artifacts=[
+            Artifact(
+                id="artifact-backend",
+                project_id="project-1",
+                workitem_id="workitem-backend",
+                agent_id="agent-backend",
+                kind="api_implementation",
+                title="代码执行报告 - workitem-backend",
+                content="backend report",
+                source_backend="agent_cli/codex",
+            ),
+            Artifact(
+                id="artifact-frontend",
+                project_id="project-1",
+                workitem_id="workitem-frontend",
+                agent_id="agent-frontend",
+                kind="ui_implementation",
+                title="代码执行报告 - workitem-frontend",
+                content="frontend report",
+                source_backend="agent_cli/codex",
+            ),
+        ],
+    )
+
+    snapshot = BoardService().build_snapshot(state, cli_config=CLISelectionConfig())
+
+    assert len(snapshot.code_execution_artifacts) == 2
+    assert snapshot.code_execution_artifacts[0].source_backend_label == "Codex CLI"

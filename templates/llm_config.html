@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Conductor LLM 设置</title>
+    <style>
+        :root {
+            --bg: #f4efe6;
+            --panel: #fffdf8;
+            --line: #d8cdbb;
+            --text: #1d1b18;
+            --muted: #6b6258;
+            --accent: #1f5c4a;
+            --accent-soft: #d7ebe4;
+            --warn: #955b2a;
+            --warn-soft: #f6e4d4;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: "Segoe UI", "PingFang SC", sans-serif;
+            color: var(--text);
+            background:
+                radial-gradient(circle at top right, #efe6d7 0, transparent 32%),
+                linear-gradient(180deg, #f8f3ea 0%, var(--bg) 100%);
+        }
+        .page {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 32px 20px 48px;
+        }
+        .hero {
+            display: grid;
+            gap: 14px;
+            margin-bottom: 22px;
+        }
+        h1 {
+            margin: 0;
+            font-size: 40px;
+            line-height: 1;
+            letter-spacing: -0.04em;
+        }
+        p {
+            margin: 0;
+            color: var(--muted);
+        }
+        .chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .chip {
+            display: inline-flex;
+            align-items: center;
+            padding: 6px 10px;
+            border-radius: 999px;
+            background: var(--accent-soft);
+            color: var(--accent);
+            font-size: 13px;
+            text-decoration: none;
+        }
+        .chip.warn {
+            background: var(--warn-soft);
+            color: var(--warn);
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 18px;
+        }
+        .grid.single {
+            grid-template-columns: 1fr;
+            margin-top: 18px;
+        }
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 18px;
+            padding: 18px;
+        }
+        .panel h2 {
+            margin: 0 0 14px;
+            font-size: 18px;
+        }
+        label {
+            display: block;
+            margin: 12px 0 6px;
+            color: var(--muted);
+            font-size: 13px;
+        }
+        input {
+            width: 100%;
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            padding: 11px 12px;
+            background: #fff;
+            font-size: 14px;
+        }
+        .check {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin-top: 12px;
+        }
+        .check input {
+            width: auto;
+        }
+        .actions {
+            margin-top: 18px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        button {
+            border: 0;
+            border-radius: 12px;
+            background: var(--accent);
+            color: #fff;
+            padding: 12px 18px;
+            font-size: 15px;
+            cursor: pointer;
+        }
+        @media (max-width: 760px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="page">
+        <section class="hero">
+            <h1>LLM 设置</h1>
+            <p>本页写入本地配置文件 <code>.conductor/llm.config.json</code>，该目录已被 git 忽略。保存后会热更新当前 Agent 的混合 LLM 后端。</p>
+            <div class="chips">
+                <a class="chip" href="/">返回项目看板</a>
+                {% if saved %}
+                <span class="chip warn">配置已保存</span>
+                {% endif %}
+            </div>
+        </section>
+
+        <form method="post" action="/settings/llm">
+            <div class="grid">
+                <section class="panel">
+                    <h2>本地模型</h2>
+                    <label for="local_base_url">服务地址</label>
+                    <input id="local_base_url" name="local_base_url" value="{{ config.local.base_url }}">
+
+                    <label for="local_model">模型名称</label>
+                    <input id="local_model" name="local_model" value="{{ config.local.model_name }}">
+
+                    <label for="local_api_key">API Key</label>
+                    <input id="local_api_key" name="local_api_key" type="password" value="{{ config.local.api_key or '' }}">
+
+                    <label for="local_timeout">超时时间（秒）</label>
+                    <input id="local_timeout" name="local_timeout" value="{{ config.local.timeout_seconds }}">
+
+                    <label class="check">
+                        <input type="checkbox" name="local_enabled" {% if config.local.enabled %}checked{% endif %}>
+                        启用本地模型
+                    </label>
+                </section>
+
+                <section class="panel">
+                    <h2>云端模型</h2>
+                    <label for="cloud_base_url">服务地址</label>
+                    <input id="cloud_base_url" name="cloud_base_url" value="{{ config.cloud.base_url }}">
+
+                    <label for="cloud_model">模型名称</label>
+                    <input id="cloud_model" name="cloud_model" value="{{ config.cloud.model_name }}">
+
+                    <label for="cloud_api_key">API Key</label>
+                    <input id="cloud_api_key" name="cloud_api_key" type="password" value="{{ config.cloud.api_key or '' }}">
+
+                    <label for="cloud_timeout">超时时间（秒）</label>
+                    <input id="cloud_timeout" name="cloud_timeout" value="{{ config.cloud.timeout_seconds }}">
+
+                    <label class="check">
+                        <input type="checkbox" name="cloud_enabled" {% if config.cloud.enabled %}checked{% endif %}>
+                        启用云端模型
+                    </label>
+                </section>
+            </div>
+
+            <div class="grid single">
+                <section class="panel">
+                    <h2>Runner LLM 策略</h2>
+                    <p>启用后，产品/设计、后端研发、前端研发、测试 Agent 都可以用 LLM 产出文档型结果；不会写文件、不会执行 CLI、不会修改代码。</p>
+                    <label for="runner_preferred_backend">优先后端类型</label>
+                    <input id="runner_preferred_backend" name="runner_preferred_backend" value="{{ config.usage.preferred_backend }}">
+
+                    <label class="check">
+                        <input type="checkbox" name="runner_llm_enabled" {% if config.usage.runner_enabled %}checked{% endif %}>
+                        启用全部 Agent 的 LLM 文档测试模式
+                    </label>
+                </section>
+            </div>
+
+            <div class="actions">
+                <button type="submit">保存配置</button>
+                <span class="chip">环境变量仍会覆盖本地配置文件</span>
+            </div>
+        </form>
+    </div>
+</body>
+</html>

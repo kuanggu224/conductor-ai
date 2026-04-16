@@ -1,0 +1,40 @@
+{
+  "local": {
+    "local_llm_base_url": "http://127.0.0.1:11434/v1",
+    "local_llm_model": "local-demo-model",
+    "local_llm_api_key": null,
+    "local_llm_timeout": 30.0,
+    "local_llm_enabled": false
+  },
+  "cloud": {
+    "cloud_llm_base_url": "https://api.openai.com/v1",
+    "cloud_llm_model": "gpt-demo-model",
+    "cloud_llm_api_key": null,
+    "cloud_llm_timeout": 30.0,
+    "cloud_llm_enabled": false
+  },
+  "usage": {
+    "runner_enabled": false,
+    "runner_allowed_roles": [
+      "designer",
+      "backend_engineer",
+      "frontend_engineer",
+      "tester"
+    ],
+    "runner_allowed_kinds": [
+      "design_overview",
+      "ui_design",
+      "api_design",
+      "test_design",
+      "generic_implementation",
+      "api_implementation",
+      "data_implementation",
+      "ui_implementation",
+      "acceptance_check",
+      "automated_test",
+      "api_validation",
+      "ui_validation"
+    ],
+    "preferred_backend": "cloud"
+  }
+}

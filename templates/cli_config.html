@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Conductor Agent CLI 设置</title>
+    <style>
+        :root {
+            --bg: #f4efe6;
+            --panel: #fffdf8;
+            --line: #d8cdbb;
+            --text: #1d1b18;
+            --muted: #6b6258;
+            --accent: #1f5c4a;
+            --accent-soft: #d7ebe4;
+            --warn: #955b2a;
+            --warn-soft: #f6e4d4;
+            --disabled: #e8e2d7;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: "Segoe UI", "PingFang SC", sans-serif;
+            color: var(--text);
+            background:
+                radial-gradient(circle at top right, #efe6d7 0, transparent 32%),
+                linear-gradient(180deg, #f8f3ea 0%, var(--bg) 100%);
+        }
+        .page {
+            max-width: 980px;
+            margin: 0 auto;
+            padding: 32px 20px 48px;
+        }
+        .hero {
+            display: grid;
+            gap: 14px;
+            margin-bottom: 22px;
+        }
+        h1 {
+            margin: 0;
+            font-size: 40px;
+            line-height: 1;
+            letter-spacing: -0.04em;
+        }
+        p {
+            margin: 0;
+            color: var(--muted);
+            line-height: 1.6;
+        }
+        .chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .chip {
+            display: inline-flex;
+            align-items: center;
+            padding: 6px 10px;
+            border-radius: 999px;
+            background: var(--accent-soft);
+            color: var(--accent);
+            font-size: 13px;
+            text-decoration: none;
+        }
+        .chip.warn {
+            background: var(--warn-soft);
+            color: var(--warn);
+        }
+        .panel {
+            display: grid;
+            gap: 14px;
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 18px;
+            padding: 18px;
+            margin-top: 18px;
+        }
+        .option {
+            display: grid;
+            grid-template-columns: auto minmax(0, 1fr);
+            gap: 12px;
+            align-items: start;
+            padding: 14px;
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            background: #fffaf0;
+        }
+        .option.disabled {
+            background: var(--disabled);
+            opacity: 0.78;
+        }
+        .option input[type="checkbox"] {
+            margin-top: 4px;
+        }
+        .option strong {
+            display: block;
+            margin-bottom: 4px;
+        }
+        code {
+            display: inline-block;
+            margin-top: 6px;
+            background: #f5efe3;
+            border-radius: 8px;
+            padding: 3px 6px;
+            font-size: 12px;
+            word-break: break-all;
+        }
+        .field {
+            margin-top: 10px;
+            padding: 10px 12px;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            background: #fff;
+            min-width: 280px;
+            font: inherit;
+        }
+        .actions {
+            margin-top: 18px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        button {
+            border: 0;
+            border-radius: 12px;
+            background: var(--accent);
+            color: #fff;
+            padding: 12px 18px;
+            font-size: 15px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div class="page">
+        <section class="hero">
+            <h1>Agent CLI 设置</h1>
+            <p>系统会扫描当前机器 PATH 中可用的 Agent CLI，例如 Codex、Claude Code、Qwen。你可以勾选允许平台使用的 CLI，再按角色绑定默认 CLI，并为 Codex 配置代码执行模型与推理强度。</p>
+            <div class="chips">
+                <a class="chip" href="/">返回项目看板</a>
+                <a class="chip" href="/settings/execution">执行范围</a>
+                <a class="chip" href="/settings/llm">LLM 设置</a>
+                {% if saved %}
+                <span class="chip warn">配置已保存</span>
+                {% endif %}
+            </div>
+        </section>
+
+        <form method="post" action="/settings/cli">
+            <section class="panel">
+                <h2 style="margin:0;">可用 Agent CLI</h2>
+                {% for tool in cli_options %}
+                <label class="option {% if not tool.available %}disabled{% endif %}">
+                    <input
+                        type="checkbox"
+                        name="selected_cli_names"
+                        value="{{ tool.name }}"
+                        {% if tool.selected %}checked{% endif %}
+                        {% if not tool.available %}disabled{% endif %}
+                    >
+                    <span>
+                        <strong>{{ tool.label }}</strong>
+                        <p>
+                            {% if tool.available %}
+                            已检测到，可用于后续 Agent 执行。
+                            {% else %}
+                            当前未在 PATH 中检测到，不能被选择。
+                            {% endif %}
+                        </p>
+                        <code>{{ tool.path or "未检测到可执行路径" }}</code>
+                    </span>
+                </label>
+                {% endfor %}
+            </section>
+
+            <section class="panel">
+                <h2 style="margin:0;">Agent 与 CLI 绑定</h2>
+                <p>先勾选允许使用的 Agent CLI，再为各个预置 Agent 选择默认绑定。这里的绑定会直接影响多 Agent 的真实 CLI 执行路径。</p>
+                {% for role in role_cli_options %}
+                <label class="option">
+                    <span></span>
+                    <span>
+                        <strong>{{ role.role_label }}</strong>
+                        <p><code>{{ role.role_name }}</code></p>
+                        <p>{{ role.mission }}</p>
+                        <select class="field" name="role_cli_binding_{{ role.role_name }}">
+                            {% for choice in role.choices %}
+                            <option value="{{ choice.name }}" {% if role.selected_cli == choice.name %}selected{% endif %}>{{ choice.label }}</option>
+                            {% endfor %}
+                        </select>
+                    </span>
+                </label>
+                {% endfor %}
+            </section>
+
+            <section class="panel">
+                <h2 style="margin:0;">Codex 执行参数</h2>
+                <p>当 backend 或 frontend 绑定到 Codex CLI 时，会使用这里的模型和推理强度进行真实代码修改。</p>
+                <label class="option">
+                    <span></span>
+                    <span>
+                        <strong>Codex 模型</strong>
+                        <input class="field" type="text" name="codex_model" value="{{ config.codex_model }}">
+                    </span>
+                </label>
+                <label class="option">
+                    <span></span>
+                    <span>
+                        <strong>推理强度</strong>
+                        <select class="field" name="codex_reasoning_effort">
+                            {% for choice in ["low", "medium", "high", "xhigh"] %}
+                            <option value="{{ choice }}" {% if config.codex_reasoning_effort == choice %}selected{% endif %}>{{ choice }}</option>
+                            {% endfor %}
+                        </select>
+                    </span>
+                </label>
+            </section>
+
+            <div class="actions">
+                <button type="submit">保存配置</button>
+                <span class="chip">这里配置 Agent CLI 绑定与 Codex 执行参数，不影响 tester 的基础测试命令选择</span>
+            </div>
+        </form>
+    </div>
+</body>
+</html>

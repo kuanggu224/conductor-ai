@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Conductor 执行范围设置</title>
+    <style>
+        :root {
+            --bg: #f4efe6;
+            --panel: #fffdf8;
+            --line: #d8cdbb;
+            --text: #1d1b18;
+            --muted: #6b6258;
+            --accent: #1f5c4a;
+            --accent-soft: #d7ebe4;
+            --warn: #955b2a;
+            --warn-soft: #f6e4d4;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: "Segoe UI", "PingFang SC", sans-serif;
+            color: var(--text);
+            background:
+                radial-gradient(circle at top right, #efe6d7 0, transparent 32%),
+                linear-gradient(180deg, #f8f3ea 0%, var(--bg) 100%);
+        }
+        .page {
+            max-width: 980px;
+            margin: 0 auto;
+            padding: 32px 20px 48px;
+        }
+        .hero {
+            display: grid;
+            gap: 14px;
+            margin-bottom: 22px;
+        }
+        h1 {
+            margin: 0;
+            font-size: 40px;
+            line-height: 1;
+            letter-spacing: -0.04em;
+        }
+        p {
+            margin: 0;
+            color: var(--muted);
+            line-height: 1.6;
+        }
+        .chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .chip {
+            display: inline-flex;
+            align-items: center;
+            padding: 6px 10px;
+            border-radius: 999px;
+            background: var(--accent-soft);
+            color: var(--accent);
+            font-size: 13px;
+            text-decoration: none;
+        }
+        .chip.warn {
+            background: var(--warn-soft);
+            color: var(--warn);
+        }
+        .panel {
+            display: grid;
+            gap: 14px;
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 18px;
+            padding: 18px;
+        }
+        .option {
+            display: grid;
+            grid-template-columns: auto minmax(0, 1fr);
+            gap: 12px;
+            align-items: start;
+            padding: 14px;
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            background: #fffaf0;
+        }
+        .option input {
+            margin-top: 4px;
+        }
+        .option strong {
+            display: block;
+            margin-bottom: 4px;
+        }
+        .actions {
+            margin-top: 18px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        button {
+            border: 0;
+            border-radius: 12px;
+            background: var(--accent);
+            color: #fff;
+            padding: 12px 18px;
+            font-size: 15px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div class="page">
+        <section class="hero">
+            <h1>执行范围设置</h1>
+            <p>控制新创建项目会规划哪些环节。保存后会写入 <code>.conductor/execution.config.json</code>，并立即影响后续新项目；已有项目不会被重写。</p>
+            <div class="chips">
+                <a class="chip" href="/">返回项目看板</a>
+                <a class="chip" href="/settings/cli">CLI 设置</a>
+                <a class="chip" href="/settings/llm">LLM 设置</a>
+                {% if saved %}
+                <span class="chip warn">配置已保存</span>
+                {% endif %}
+            </div>
+        </section>
+
+        <form method="post" action="/settings/execution">
+            <section class="panel">
+                <label class="option">
+                    <input type="checkbox" name="requirement_design_enabled" {% if config.requirement_design_enabled %}checked{% endif %}>
+                    <span>
+                        <strong>需求/总体设计</strong>
+                        <p>生成 `design_overview`，由产品/设计 Agent 形成需求理解和总体方案。建议保持开启。</p>
+                    </span>
+                </label>
+
+                <label class="option">
+                    <input type="checkbox" name="design_detail_enabled" {% if config.design_detail_enabled %}checked{% endif %}>
+                    <span>
+                        <strong>设计细化</strong>
+                        <p>根据需求关键词生成 UI 设计、API 设计、测试设计等补充 WorkItem。</p>
+                    </span>
+                </label>
+
+                <label class="option">
+                    <input type="checkbox" name="design_collaboration_enabled" {% if config.design_collaboration_enabled %}checked{% endif %}>
+                    <span>
+                        <strong>需求阶段多 Agent 协作评审</strong>
+                        <p>在总体设计产物完成后，后端、前端、测试 Agent 串行审阅同一份 draft，再由产品/设计 Agent 统一修订。</p>
+                    </span>
+                </label>
+
+                <label class="option">
+                    <input type="checkbox" name="backend_development_enabled" {% if config.backend_development_enabled %}checked{% endif %}>
+                    <span>
+                        <strong>后端研发文档</strong>
+                        <p>生成 API、数据结构、通用实现说明等后端研发 WorkItem。当前仍只产出文档，不写代码。</p>
+                    </span>
+                </label>
+
+                <label class="option">
+                    <input type="checkbox" name="frontend_development_enabled" {% if config.frontend_development_enabled %}checked{% endif %}>
+                    <span>
+                        <strong>前端研发文档</strong>
+                        <p>生成 UI/页面实现说明 WorkItem。当前仍只产出文档，不写代码。</p>
+                    </span>
+                </label>
+
+                <label class="option">
+                    <input type="checkbox" name="testing_enabled" {% if config.testing_enabled %}checked{% endif %}>
+                    <span>
+                        <strong>测试/验收文档</strong>
+                        <p>生成验收检查、自动化测试说明、API/UI 验证等测试 WorkItem。当前仍只产出文档，不执行测试命令。</p>
+                    </span>
+                </label>
+            </section>
+
+            <div class="actions">
+                <button type="submit">保存配置</button>
+                <span class="chip">配置只影响后续新项目</span>
+            </div>
+        </form>
+    </div>
+</body>
+</html>

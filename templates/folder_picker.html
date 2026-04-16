@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>选择项目目录</title>
+    <style>
+        :root {
+            --bg: #eef0e8;
+            --panel: #fffdf6;
+            --line: #d6d1c3;
+            --text: #171a16;
+            --muted: #6d7167;
+            --accent: #245f4c;
+            --accent-soft: #dcece3;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: "Segoe UI", "PingFang SC", sans-serif;
+            color: var(--text);
+            background: linear-gradient(180deg, #fbf6ec 0%, var(--bg) 100%);
+        }
+        .page {
+            max-width: 980px;
+            margin: 0 auto;
+            padding: 32px 20px 48px;
+        }
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 18px;
+            padding: 18px;
+            display: grid;
+            gap: 14px;
+        }
+        .row {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .btn, .folder {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 14px;
+            border-radius: 12px;
+            text-decoration: none;
+            border: 1px solid var(--line);
+            background: #fff;
+            color: var(--text);
+        }
+        .btn.primary {
+            background: var(--accent);
+            color: #fff;
+            border: 0;
+        }
+        .folder-list {
+            display: grid;
+            gap: 10px;
+            max-height: 560px;
+            overflow: auto;
+        }
+        .muted {
+            color: var(--muted);
+        }
+        code {
+            display: block;
+            padding: 12px 14px;
+            border-radius: 12px;
+            background: #f7f2e8;
+            border: 1px solid var(--line);
+            word-break: break-all;
+        }
+    </style>
+</head>
+<body>
+    <div class="page">
+        <section class="panel">
+            <h1 style="margin:0;">选择项目目录</h1>
+            <p class="muted">这里选择的目录会作为项目工作目录，后续 artifact、日志、CLI 执行都会落到该目录下的 <code style="display:inline; padding:2px 6px;">.conductor</code>。</p>
+            <code>{{ current_path }}</code>
+            <div class="row">
+                <a class="btn primary" href="/?requirement={{ requirement | urlencode }}&project_root={{ current_path | urlencode }}">使用这个目录并返回</a>
+                {% if parent_path %}
+                <a class="btn" href="/folders/pick?current_path={{ parent_path | urlencode }}&requirement={{ requirement | urlencode }}">上一级</a>
+                {% endif %}
+                <a class="btn" href="/?requirement={{ requirement | urlencode }}&project_root={{ current_path | urlencode }}">返回看板</a>
+            </div>
+        </section>
+
+        <section class="panel" style="margin-top:18px;">
+            <h2 style="margin:0;">子目录</h2>
+            <div class="folder-list">
+                {% for child in children %}
+                <div class="row">
+                    <a class="folder" href="/folders/pick?current_path={{ child | urlencode }}&requirement={{ requirement | urlencode }}">{{ child }}</a>
+                    <a class="btn" href="/?requirement={{ requirement | urlencode }}&project_root={{ child | urlencode }}">选择</a>
+                </div>
+                {% endfor %}
+                {% if not children %}
+                <p class="muted">当前目录下没有可进入的子目录，或者无法读取目录内容。</p>
+                {% endif %}
+            </div>
+        </section>
+    </div>
+</body>
+</html>

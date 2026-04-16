@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Conductor 项目中控台</title>
+    <style>
+        :root { --bg:#020617; --panel:rgba(10,15,30,.84); --panel-2:rgba(15,23,42,.78); --panel-3:rgba(2,6,23,.92); --line:rgba(51,65,85,.75); --text:#e2e8f0; --muted:#94a3b8; --cyan:#22d3ee; --blue:#60a5fa; --purple:#a78bfa; --green:#34d399; --amber:#fbbf24; --red:#fb7185; }
+        * { box-sizing:border-box; } html,body { margin:0; min-height:100%; }
+        body { font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; color:var(--text); background:radial-gradient(circle at 12% 0%, rgba(34,211,238,.14), transparent 20%),radial-gradient(circle at 88% 0%, rgba(168,85,247,.16), transparent 22%),radial-gradient(circle at 50% 100%, rgba(59,130,246,.12), transparent 26%),linear-gradient(180deg,#020617 0%,#020817 40%,#02040d 100%); overflow-x:hidden; }
+        body::before { content:""; position:fixed; inset:0; pointer-events:none; background:linear-gradient(to right, rgba(148,163,184,.05) 1px, transparent 1px),linear-gradient(to bottom, rgba(148,163,184,.05) 1px, transparent 1px); background-size:40px 40px; mask-image:radial-gradient(ellipse 60% 60% at 50% 50%, black 70%, transparent 100%); }
+        .page { max-width:1440px; margin:0 auto; padding:0 20px 32px; position:relative; z-index:1; }
+        .card { position:relative; border:1px solid var(--line); background:var(--panel); border-radius:22px; box-shadow:0 20px 50px rgba(0,0,0,.35); backdrop-filter:blur(16px); overflow:hidden; }
+        .card::before { content:""; position:absolute; inset:0; pointer-events:none; background:linear-gradient(180deg, rgba(255,255,255,.03), transparent 20%); }
+        .header { position:sticky; top:0; z-index:20; margin:0 -20px; padding:0 20px; backdrop-filter:blur(16px); background:rgba(2,6,23,.82); border-bottom:1px solid rgba(51,65,85,.55); }
+        .header-inner { max-width:1440px; height:72px; margin:0 auto; display:flex; align-items:center; justify-content:space-between; gap:16px; }
+        .brand { display:flex; align-items:center; gap:14px; min-width:0; }
+        .brand-mark { width:40px; height:40px; border-radius:12px; display:grid; place-items:center; background:linear-gradient(135deg, #06b6d4 0%, #3b82f6 55%, #9333ea 100%); color:#fff; font-weight:700; box-shadow:0 0 18px rgba(6,182,212,.35); }
+        .brand h1 { margin:0; font-size:20px; font-weight:700; color:#fff; } .brand h1 span { color:var(--cyan); }
+        .brand-status { display:flex; align-items:center; gap:8px; margin-top:4px; font-size:12px; color:var(--muted); } .brand-status::before { content:""; width:8px; height:8px; border-radius:50%; background:var(--green); box-shadow:0 0 10px rgba(52,211,153,.8); }
+        .header-actions { display:flex; align-items:center; gap:10px; flex-wrap:wrap; justify-content:flex-end; }
+        .time-chip, .tag { display:inline-flex; align-items:center; gap:8px; padding:8px 12px; border-radius:999px; border:1px solid var(--line); background:rgba(15,23,42,.65); color:rgba(34,211,238,.86); font-size:12px; font-family:Consolas, monospace; }
+        .btn, .nav-link, .switcher button { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:40px; padding:0 14px; border-radius:12px; font-size:14px; border:1px solid transparent; text-decoration:none; transition:.2s ease; cursor:pointer; }
+        .btn-ghost, .nav-link { background:transparent; border-color:var(--line); color:var(--muted); } .btn-ghost:hover, .nav-link:hover { color:#fff; background:rgba(15,23,42,.72); }
+        .btn-primary { background:rgba(6,182,212,.12); color:var(--cyan); border-color:rgba(6,182,212,.55); box-shadow:0 0 22px rgba(6,182,212,.12); } .btn-primary:hover { background:rgba(6,182,212,.2); }
+        .switcher { margin-top:18px; padding:4px; display:flex; gap:6px; } .switcher button { flex:1; min-width:0; background:transparent; color:var(--muted); border:0; font-weight:600; } .switcher button.active { background:var(--cyan); color:#061018; box-shadow:0 10px 24px rgba(34,211,238,.18); } .switcher button:not(.active):hover { color:#fff; background:rgba(15,23,42,.72); }
+        .stats-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-top:20px; }
+        .stat-card { padding:18px; } .stat-icon { width:42px; height:42px; border-radius:999px; display:grid; place-items:center; margin-bottom:18px; background:rgba(2,6,23,.9); color:var(--cyan); border:1px solid var(--line); }
+        .stat-value { font-size:34px; line-height:1; font-weight:700; color:#fff; } .stat-label { margin-top:8px; color:var(--muted); font-size:14px; } .stat-sub { margin-top:6px; color:rgba(34,211,238,.72); font-size:12px; font-style:italic; }
+        .view { display:none; margin-top:20px; } .view.active { display:block; }
+        .dashboard-grid, .meeting-layout, .runtime-layout, .artifact-layout { display:grid; grid-template-columns:minmax(0,2fr) minmax(320px,1fr); gap:20px; }
+        .left-stack, .right-stack, .stack { display:grid; gap:18px; }
+        .section-title { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px; padding-bottom:14px; border-bottom:1px solid var(--line); }
+        .section-title h2 { margin:0; font-size:18px; color:#fff; } .section-title p { margin:6px 0 0; color:var(--muted); font-size:13px; }
+        .muted { color:var(--muted); } .empty { border:1px dashed var(--line); border-radius:18px; padding:24px; color:var(--muted); line-height:1.7; background:rgba(15,23,42,.45); }
+        .chips { display:flex; flex-wrap:wrap; gap:8px; } .chip { display:inline-flex; align-items:center; justify-content:center; min-height:28px; padding:0 10px; border-radius:999px; font-size:12px; border:1px solid rgba(34,211,238,.18); background:rgba(34,211,238,.08); color:var(--cyan); }
+        .chip.blue { border-color:rgba(96,165,250,.18); background:rgba(96,165,250,.1); color:var(--blue); } .chip.green { border-color:rgba(52,211,153,.2); background:rgba(52,211,153,.12); color:var(--green); } .chip.warn { border-color:rgba(251,191,36,.2); background:rgba(251,191,36,.12); color:var(--amber); } .chip.error { border-color:rgba(251,113,133,.2); background:rgba(251,113,133,.1); color:var(--red); } .chip.muted { border-color:rgba(148,163,184,.14); background:rgba(148,163,184,.08); color:var(--muted); }
+        .project-item,.artifact-item,.workitem-item,.review-item { border:1px solid var(--line); background:rgba(15,23,42,.55); border-radius:16px; padding:14px; }
+        .project-item + .project-item,.artifact-item + .artifact-item,.workitem-item + .workitem-item,.review-item + .review-item { margin-top:10px; }
+        .meeting-layout { display:grid; grid-template-columns:1.1fr .9fr; gap:18px; }
+        .meeting-table { position:relative; min-height:460px; border-radius:24px; background:radial-gradient(circle at 20% 15%, rgba(34,211,238,.14), transparent 22%),radial-gradient(circle at 80% 15%, rgba(168,85,247,.16), transparent 22%),radial-gradient(circle at 80% 85%, rgba(59,130,246,.12), transparent 24%),linear-gradient(180deg, rgba(2,6,23,.96), rgba(15,23,42,.88)); border:1px solid var(--line); overflow:hidden; }
+        .meeting-table::before { content:""; position:absolute; inset:0; background:linear-gradient(to right, rgba(148,163,184,.06) 1px, transparent 1px),linear-gradient(to bottom, rgba(148,163,184,.06) 1px, transparent 1px); background-size:40px 40px; }
+        .table-core { position:absolute; left:16%; right:8%; top:32%; min-height:150px; border-radius:64px; border:2px solid rgba(34,211,238,.4); background:rgba(15,23,42,.84); display:grid; place-items:center; text-align:center; padding:24px; box-shadow:0 0 30px rgba(34,211,238,.08); }
+        .table-core strong { display:block; margin-bottom:8px; font-size:24px; color:#fff; } .table-core p { margin:0; color:var(--muted); line-height:1.6; }
+        .meeting-status { margin-top:14px; display:inline-flex; align-items:center; justify-content:center; min-height:32px; padding:0 14px; border-radius:999px; background:rgba(96,165,250,.12); color:var(--blue); border:1px solid rgba(96,165,250,.35); font-size:12px; text-transform:uppercase; letter-spacing:.08em; }
+        .meeting-agent.active { border-color:rgba(34,211,238,.72) !important; box-shadow:0 0 30px rgba(34,211,238,.24) !important; animation:pulseNode 1.8s ease-in-out infinite; } .meeting-agent.done { border-color:rgba(52,211,153,.5) !important; } .meeting-agent.waiting { opacity:.58; }
+        .doc-box,.review-box,.runtime-box { border-radius:18px; border:1px solid var(--line); background:rgba(2,6,23,.76); padding:16px; }
+        .doc-content,.review-content,.artifact-content,.runtime-summary-content,.console-output { margin-top:12px; max-height:280px; overflow:auto; padding:14px; border-radius:14px; background:rgba(2,6,23,.96); border:1px solid rgba(51,65,85,.6); white-space:pre-wrap; word-break:break-word; font-family:Consolas,"SFMono-Regular",monospace; line-height:1.6; font-size:13px; }
+        .review-list { display:grid; gap:10px; max-height:420px; overflow:auto; padding-right:4px; }
+        .runtime-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin-top:16px; }
+        .runtime-item { border-radius:16px; border:1px solid var(--line); background:rgba(2,6,23,.78); padding:12px 14px; }
+        .runtime-item strong { display:block; margin-top:4px; color:#fff; font-size:14px; line-height:1.5; word-break:break-word; }
+        .runtime-progress { margin-top:16px; } .progress-head { display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.08em; }
+        .progress-track { margin-top:10px; height:12px; border-radius:999px; overflow:hidden; background:rgba(15,23,42,.95); border:1px solid var(--line); } .progress-fill { height:100%; border-radius:inherit; background:linear-gradient(90deg,var(--cyan),var(--blue),var(--purple)); background-size:200% 100%; } .runtime-running .progress-fill { animation:flowBar 1.6s linear infinite; }
+        @keyframes flowBar { from { background-position:0 0; } to { background-position:200% 0; } }
+        @media (max-width:1280px) { .dashboard-grid,.meeting-layout,.runtime-layout,.artifact-layout { grid-template-columns:1fr; } .stats-grid { grid-template-columns:repeat(2,1fr); } }
+        @media (max-width:1080px) { .header-inner { height:auto; padding:14px 0; flex-direction:column; align-items:stretch; } }
+        @media (max-width:720px) { .page { padding:0 0 24px; } .stats-grid { grid-template-columns:1fr; } .switcher { flex-wrap:wrap; } }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="header-inner">
+            <div class="brand">
+                <div class="brand-mark">C</div>
+                <div>
+                    <h1>Conductor <span>Orchestrator</span></h1>
+                    <div class="brand-status">System Online</div>
+                </div>
+            </div>
+            <div class="header-actions">
+                <div class="time-chip">Asia/Shanghai | 2026-04-15</div>
+                <a class="nav-link" href="/settings/execution">执行范围</a>
+                <a class="nav-link" href="/settings/cli">CLI 设置</a>
+                <a class="nav-link" href="/settings/llm">LLM 设置</a>
+            </div>
+        </div>
+    </header>
+
+    <div class="page">
+        <div class="card switcher">
+            <button class="active" data-view-button="dashboard">工作流概览</button>
+            <button data-view-button="collaboration">需求协作</button>
+            <button data-view-button="runtime">运行中控</button>
+            <button data-view-button="artifacts">产物与报告</button>
+        </div>
+
+        <div class="view active" data-view="dashboard">
+            <div class="stats-grid">
+                <div class="card stat-card">
+                    <div class="stat-icon">T</div>
+                    <div class="stat-value">{% if snapshot %}{{ snapshot.workitems | length }}{% else %}0{% endif %}</div>
+                    <div class="stat-label">Active Tasks</div>
+                    <div class="stat-sub">当前工作项总数</div>
+                </div>
+                <div class="card stat-card">
+                    <div class="stat-icon" style="color: var(--purple);">S</div>
+                    <div class="stat-value" id="project-status-value">{% if snapshot %}{{ snapshot.project_status_label }}{% else %}空闲{% endif %}</div>
+                    <div class="stat-label">System Status</div>
+                    <div class="stat-sub" id="task-status-message">{% if task_status %}{{ task_status.action_label or task_status.message }}{% else %}无后台任务{% endif %}</div>
+                </div>
+                <div class="card stat-card">
+                    <div class="stat-icon" style="color: var(--blue);">R</div>
+                    <div class="stat-value">{{ available_role_labels | length }}</div>
+                    <div class="stat-label">Role Pool</div>
+                    <div class="stat-sub">{{ available_role_labels | join(" / ") }}</div>
+                </div>
+                <div class="card stat-card">
+                    <div class="stat-icon" style="color: var(--green);">P</div>
+                    <div class="stat-value" id="current-stage-value">{% if snapshot %}{{ snapshot.current_stage_label }}{% else %}-{% endif %}</div>
+                    <div class="stat-label">Pipeline Stage</div>
+                    <div class="stat-sub" id="project-id-sub">{% if snapshot %}{{ snapshot.project_id }}{% else %}等待项目创建{% endif %}</div>
+                </div>
+            </div>
+
+            <div class="dashboard-grid">
+                <div class="left-stack">
+                    <section class="card" style="padding:22px;">
+                        <div class="section-title">
+                            <div>
+                                <h2>Multi-Agent Workflow</h2>
+                                <p>项目主流程、阶段状态与当前推进环节。</p>
+                            </div>
+                            <span class="tag">STREAMING</span>
+                        </div>
+                        {% if snapshot %}
+                        <div style="display:grid;gap:14px;">
+                            {% set stages = ['design', 'development', 'testing'] %}
+                            {% for stage in stages %}
+                            {% set stage_label = '设计' if stage == 'design' else ('研发' if stage == 'development' else '测试') %}
+                            {% set stage_workitems = snapshot.workitems | selectattr('stage', 'equalto', stage) | list %}
+                            <div style="border:1px solid var(--line);border-radius:18px;padding:16px;background:rgba(2,6,23,.82);{% if snapshot.current_stage == stage %}box-shadow:0 0 0 1px rgba(34,211,238,.25),0 0 24px rgba(34,211,238,.12);border-color:rgba(34,211,238,.4);{% endif %}">
+                                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+                                    <div>
+                                        <div class="muted" style="font-size:12px;text-transform:uppercase;letter-spacing:.08em;">{% if snapshot.current_stage == stage %}active{% else %}standby{% endif %}</div>
+                                        <div style="margin-top:6px;font-size:20px;color:white;font-weight:700;">{{ loop.index }}. {{ stage_label }}</div>
+                                    </div>
+                                    <span class="chip {% if snapshot.current_stage == stage %}blue{% else %}muted{% endif %}">{{ stage_workitems | length }} 个任务</span>
+                                </div>
+                                <div style="margin-top:12px;" class="muted">
+                                    {% if stage_workitems %}
+                                        {% for item in stage_workitems[:4] %}
+                                            {{ item.kind_label }}{% if not loop.last %} / {% endif %}
+                                        {% endfor %}
+                                    {% else %}
+                                        当前未生成该阶段任务
+                                    {% endif %}
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                        <div class="empty">先创建项目，主流程舞台才会开始显示阶段与任务。</div>
+                        {% endif %}
+                    </section>
+
+                    <section class="card" style="padding:22px;">
+                        <div class="section-title">
+                            <div>
+                                <h2>项目控制台</h2>
+                                <p>输入需求、设置目录并启动流程。</p>
+                            </div>
+                            {% if snapshot %}<span class="tag">{{ snapshot.project_status_label }}</span>{% endif %}
+                        </div>
+                        <form method="get" action="/projects/create" style="display:grid;gap:12px;">
+                            <div>
+                                <div class="muted" style="font-size:12px;text-transform:uppercase;letter-spacing:.08em;">自然语言需求</div>
+                                <input id="requirement-input" type="text" name="requirement" value="{{ requirement }}" placeholder="例如：实现一个包含 API、前端交互和自动化测试的最小系统" style="width:100%;margin-top:8px;padding:13px 14px;border-radius:14px;border:1px solid var(--line);background:var(--panel-3);color:var(--text);">
+                            </div>
+                            <div>
+                                <div class="muted" style="font-size:12px;text-transform:uppercase;letter-spacing:.08em;">项目目录</div>
+                                <input id="project-root-input" type="text" name="project_root" value="{{ project_root }}" placeholder="例如：C:\projects\demo" style="width:100%;margin-top:8px;padding:13px 14px;border-radius:14px;border:1px solid var(--line);background:var(--panel-3);color:var(--text);">
+                            </div>
+                            <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                                <a id="folder-picker-link" class="btn btn-ghost" href="/folders/pick?current_path={{ project_root | urlencode }}&requirement={{ requirement | urlencode }}">选择文件夹</a>
+                                <button class="btn btn-primary" type="submit">创建项目</button>
+                                {% if snapshot %}
+                                    {% if task_status and task_status.running %}
+                                    <span class="btn btn-ghost" style="cursor:default;">正在{{ task_status.action_label }}</span>
+                                    {% else %}
+                                    <a class="btn btn-ghost" href="/projects/{{ snapshot.project_id }}/step">单步推进</a>
+                                    <a class="btn btn-primary" href="/projects/{{ snapshot.project_id }}/run">运行到终态</a>
+                                    {% endif %}
+                                {% endif %}
+                            </div>
+                        </form>
+                        {% if snapshot %}
+                        <div style="margin-top:14px;" class="muted">项目目录：{{ snapshot.project_root }}</div>
+                        <div style="margin-top:10px;" class="muted">{{ snapshot.project_goal }}</div>
+                        {% endif %}
+                    </section>
+                </div>
+
+                <div class="right-stack">
+                    <section class="card" style="padding:18px;">
+                        <div class="section-title" style="margin-bottom:16px;">
+                            <div>
+                                <h2>System Telemetry</h2>
+                                <p>当前运行态和实例载荷。</p>
+                            </div>
+                            <span class="tag">LIVE</span>
+                        </div>
+                        <div style="height:190px;border-radius:16px;border:1px solid var(--line);background:linear-gradient(to right, rgba(148,163,184,.08) 1px, transparent 1px),linear-gradient(to bottom, rgba(148,163,184,.08) 1px, transparent 1px),linear-gradient(180deg, rgba(15,23,42,.72), rgba(2,6,23,.86));background-size:28px 28px,28px 28px,auto;position:relative;overflow:hidden;">
+                            <svg viewBox="0 0 100 100" preserveAspectRatio="none" style="width:100%;height:100%;">
+                                <defs><linearGradient id="telemetryGradient" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#22d3ee" stop-opacity="0.85" /><stop offset="55%" stop-color="#60a5fa" stop-opacity="0.85" /><stop offset="100%" stop-color="#a78bfa" stop-opacity="0.85" /></linearGradient></defs>
+                                <path d="M0 78 C10 74, 20 64, 30 58 S50 44, 60 52 S78 70, 100 26" fill="none" stroke="url(#telemetryGradient)" stroke-width="2.5"/>
+                                <path d="M0 100 L0 78 C10 74, 20 64, 30 58 S50 44, 60 52 S78 70, 100 26 L100 100 Z" fill="url(#telemetryGradient)" fill-opacity="0.12"/>
+                            </svg>
+                        </div>
+                    </section>
+
+                    <section class="card" style="padding:18px;">
+                        <div class="section-title">
+                            <div>
+                                <h2>Active Instances</h2>
+                                <p>当前项目 Agent 与最近项目实例。</p>
+                            </div>
+                        </div>
+                        {% if snapshot and snapshot.project_agents %}
+                            {% for agent in snapshot.project_agents %}
+                            <div class="project-item">
+                                <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">
+                                    <div>
+                                        <div style="color:white;font-weight:600;">{{ agent.role_label }}</div>
+                                        <div class="muted" style="margin-top:4px;">{{ agent.agent_id }}</div>
+                                        <div class="muted" style="margin-top:8px;">{{ agent.reason }}</div>
+                                    </div>
+                                    <span class="chip blue">{{ agent.related_kinds | length }} kinds</span>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        {% else %}
+                            <div class="empty">当前项目尚未激活 Agent。</div>
+                        {% endif %}
+                        <div style="margin-top:18px;" class="muted">最近项目</div>
+                        {% for project in project_summaries[:4] %}
+                        <a class="project-item" href="/projects/{{ project.project_id }}">
+                            <div style="color:white;font-weight:600;">{{ project.project_id }}</div>
+                            <div class="muted">{{ project.status_label }} / {{ project.current_stage_label }}</div>
+                            <div class="muted">{{ project.goal }}</div>
+                        </a>
+                        {% endfor %}
+                    </section>
+                </div>
+            </div>
+        </div>
+
+        <div class="view" data-view="collaboration">
+            {% if snapshot and snapshot.design_collaboration.enabled %}
+            <div class="card" style="padding:22px;">
+                <div class="section-title">
+                    <div>
+                        <h2>需求设计会议桌</h2>
+                        <p>同一草案，多角色审阅，统一修订。</p>
+                    </div>
+                    <span class="tag">{{ snapshot.design_collaboration.status_label }}</span>
+                </div>
+                <div class="meeting-layout">
+                    <div class="meeting-table">
+                        <div class="meeting-agent agent-1 {% if snapshot.design_collaboration.agents | length > 0 %}{{ snapshot.design_collaboration.agents[0].status }}{% endif %}" style="position:absolute;width:96px;height:96px;border-radius:50%;border:2px solid rgba(148,163,184,.32);background:radial-gradient(circle at 30% 30%, rgba(30,41,59,.95), rgba(2,6,23,.96));display:grid;place-items:center;text-align:center;padding:8px;box-shadow:0 12px 24px rgba(0,0,0,.35);left:16%;top:8%;">{% if snapshot.design_collaboration.agents | length > 0 %}<div><strong style="display:block;color:white;font-size:12px;line-height:1.3;">{{ snapshot.design_collaboration.agents[0].label }}</strong><small style="display:block;margin-top:4px;color:var(--muted);font-size:11px;">{{ snapshot.design_collaboration.agents[0].status_label }}</small></div>{% endif %}</div>
+                        <div class="meeting-agent agent-2 {% if snapshot.design_collaboration.agents | length > 1 %}{{ snapshot.design_collaboration.agents[1].status }}{% endif %}" style="position:absolute;width:96px;height:96px;border-radius:50%;border:2px solid rgba(148,163,184,.32);background:radial-gradient(circle at 30% 30%, rgba(30,41,59,.95), rgba(2,6,23,.96));display:grid;place-items:center;text-align:center;padding:8px;box-shadow:0 12px 24px rgba(0,0,0,.35);right:18%;top:8%;">{% if snapshot.design_collaboration.agents | length > 1 %}<div><strong style="display:block;color:white;font-size:12px;line-height:1.3;">{{ snapshot.design_collaboration.agents[1].label }}</strong><small style="display:block;margin-top:4px;color:var(--muted);font-size:11px;">{{ snapshot.design_collaboration.agents[1].status_label }}</small></div>{% endif %}</div>
+                        <div class="meeting-agent agent-3 {% if snapshot.design_collaboration.agents | length > 2 %}{{ snapshot.design_collaboration.agents[2].status }}{% endif %}" style="position:absolute;width:96px;height:96px;border-radius:50%;border:2px solid rgba(148,163,184,.32);background:radial-gradient(circle at 30% 30%, rgba(30,41,59,.95), rgba(2,6,23,.96));display:grid;place-items:center;text-align:center;padding:8px;box-shadow:0 12px 24px rgba(0,0,0,.35);left:2%;top:38%;">{% if snapshot.design_collaboration.agents | length > 2 %}<div><strong style="display:block;color:white;font-size:12px;line-height:1.3;">{{ snapshot.design_collaboration.agents[2].label }}</strong><small style="display:block;margin-top:4px;color:var(--muted);font-size:11px;">{{ snapshot.design_collaboration.agents[2].status_label }}</small></div>{% endif %}</div>
+                        <div class="meeting-agent agent-4 {% if snapshot.design_collaboration.agents | length > 3 %}{{ snapshot.design_collaboration.agents[3].status }}{% endif %}" style="position:absolute;width:96px;height:96px;border-radius:50%;border:2px solid rgba(148,163,184,.32);background:radial-gradient(circle at 30% 30%, rgba(30,41,59,.95), rgba(2,6,23,.96));display:grid;place-items:center;text-align:center;padding:8px;box-shadow:0 12px 24px rgba(0,0,0,.35);left:16%;bottom:8%;">{% if snapshot.design_collaboration.agents | length > 3 %}<div><strong style="display:block;color:white;font-size:12px;line-height:1.3;">{{ snapshot.design_collaboration.agents[3].label }}</strong><small style="display:block;margin-top:4px;color:var(--muted);font-size:11px;">{{ snapshot.design_collaboration.agents[3].status_label }}</small></div>{% endif %}</div>
+                        <div class="meeting-agent agent-5 waiting" style="position:absolute;width:96px;height:96px;border-radius:50%;border:2px solid rgba(148,163,184,.32);background:radial-gradient(circle at 30% 30%, rgba(30,41,59,.95), rgba(2,6,23,.96));display:grid;place-items:center;text-align:center;padding:8px;box-shadow:0 12px 24px rgba(0,0,0,.35);right:18%;bottom:8%;opacity:.58;"><div><strong style="display:block;color:white;font-size:12px;line-height:1.3;">Conductor</strong><small style="display:block;margin-top:4px;color:var(--muted);font-size:11px;">流程控制</small></div></div>
+                        <div class="table-core">
+                            <div>
+                                <strong>{{ snapshot.design_collaboration.current_step_label }}</strong>
+                                <p>{{ snapshot.design_collaboration.current_document_title }}</p>
+                                <div class="meeting-status">{{ snapshot.design_collaboration.status_label }}</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="stack">
+                        <div class="doc-box">
+                            <div class="section-title" style="margin:0;padding:0;border:0;">
+                                <div>
+                                    <h2>当前需求文档</h2>
+                                    <p>{{ snapshot.design_collaboration.current_document_title }}</p>
+                                </div>
+                                {% if snapshot.design_collaboration.current_document_source %}
+                                <span class="tag">{{ snapshot.design_collaboration.current_document_source }}</span>
+                                {% endif %}
+                            </div>
+                            <div class="doc-content">{{ snapshot.design_collaboration.current_document_content or "暂无需求文档内容" }}</div>
+                        </div>
+                        <div class="review-box">
+                            <div class="section-title" style="margin:0;padding:0;border:0;">
+                                <div>
+                                    <h2>Review 内容</h2>
+                                    <p>每轮 reviewer 基于同一份草案给出审阅意见。</p>
+                                </div>
+                                <span class="tag">{{ snapshot.design_collaboration.reviews | length }} 条</span>
+                            </div>
+                            <div class="review-list">
+                                {% for review in snapshot.design_collaboration.reviews %}
+                                <div class="review-item">
+                                    <div class="chips">
+                                        <span class="chip">第 {{ review.round_index }} 轮</span>
+                                        <span class="chip blue">{{ review.role_label }}</span>
+                                        <span class="chip {% if review.decision == 'request_changes' %}warn{% else %}green{% endif %}">{{ review.decision_label }}</span>
+                                    </div>
+                                    <div class="review-content">{{ review.content }}</div>
+                                </div>
+                                {% endfor %}
+                                {% if not snapshot.design_collaboration.reviews %}
+                                <div class="empty">还没有 review 内容。协作评审开始后会逐步出现在这里。</div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% else %}
+            <div class="empty">当前项目还没有进入需求协作阶段。</div>
+            {% endif %}
+        </div>
+
+        <div class="view" data-view="runtime">
+            {% if snapshot %}
+            <div class="stack">
+                <section class="card" style="padding:22px;">
+                    <div class="section-title">
+                        <div>
+                            <h2>当前执行上下文</h2>
+                            <p>运行中的 Agent、后端、CLI、模型与工作目录。</p>
+                        </div>
+                        {% if snapshot.execution_runtime.available %}<span class="tag" id="runtime-state-tag">{{ snapshot.execution_runtime.state_label }}</span>{% endif %}
+                    </div>
+                    {% if snapshot.execution_runtime.available %}
+                    <div id="runtime-panel" class="{% if snapshot.execution_runtime.is_running %}runtime-running{% endif %}">
+                        <div class="chips">
+                            <span class="chip {% if snapshot.execution_runtime.is_running %}blue{% else %}muted{% endif %}" id="runtime-chip-state">{{ snapshot.execution_runtime.state_label }}</span>
+                            <span class="chip blue" id="runtime-chip-stage">{{ snapshot.execution_runtime.stage_label }}</span>
+                            <span class="chip" id="runtime-chip-workitem">{{ snapshot.execution_runtime.workitem_id }}</span>
+                            <span class="chip" id="runtime-chip-kind">{{ snapshot.execution_runtime.workitem_kind_label }}</span>
+                        </div>
+                        <div style="margin-top:16px;">
+                            <div style="font-size:26px;line-height:1.2;color:white;font-weight:700;" id="runtime-headline">{{ snapshot.execution_runtime.headline }}</div>
+                            <div class="muted" style="margin-top:8px;line-height:1.7;" id="runtime-description">{% if snapshot.execution_runtime.is_running %}当前任务正在执行，流式输出会持续更新。{% else %}当前没有运行中的任务，这里显示最近一次执行上下文。{% endif %}</div>
+                        </div>
+                        <div class="runtime-progress">
+                            <div class="progress-head"><span id="runtime-stage-progress-label">{{ snapshot.execution_runtime.stage_progress_label }}</span><span id="runtime-task-position-label">{{ snapshot.execution_runtime.task_position_label }}</span></div>
+                            <div class="progress-track"><div class="progress-fill" id="runtime-progress-fill" style="width: {{ snapshot.execution_runtime.stage_progress_percent }}%;"></div></div>
+                        </div>
+                        <div class="runtime-grid">
+                            <div class="runtime-item"><div class="label">当前 Agent</div><strong id="runtime-agent-label">{{ snapshot.execution_runtime.agent_label }}</strong></div>
+                            <div class="runtime-item"><div class="label">执行后端</div><strong id="runtime-backend-label">{{ snapshot.execution_runtime.backend_label }}</strong></div>
+                            <div class="runtime-item"><div class="label">CLI</div><strong id="runtime-cli-label">{{ snapshot.execution_runtime.cli_label }}</strong></div>
+                            <div class="runtime-item"><div class="label">模型</div><strong id="runtime-model-label">{{ snapshot.execution_runtime.model_label }}</strong></div>
+                            <div class="runtime-item"><div class="label">执行模式</div><strong id="runtime-mode-label">{{ snapshot.execution_runtime.execution_mode_label }}</strong></div>
+                            <div class="runtime-item"><div class="label">工作目录</div><strong id="runtime-working-directory">{{ snapshot.execution_runtime.working_directory }}</strong></div>
+                        </div>
+                        <div class="runtime-box" style="margin-top:16px;">
+                            <div class="label" id="runtime-output-summary-title">{{ snapshot.execution_runtime.output_summary_title }}</div>
+                            <div class="runtime-summary-content" id="runtime-output-summary">{{ snapshot.execution_runtime.output_summary }}</div>
+                        </div>
+                    </div>
+                    {% else %}
+                    <div class="empty">当前还没有可展示的执行上下文。</div>
+                    {% endif %}
+                </section>
+
+                <section class="card" style="padding:22px;">
+                    <div class="section-title">
+                        <div>
+                            <h2>CLI 实时输出</h2>
+                            <p>Agent CLI 与 Harness 的流式日志。</p>
+                        </div>
+                        <span class="tag" id="runtime-stream-status">等待输出</span>
+                    </div>
+                    <div class="console-output" id="runtime-stream-log">等待 CLI 输出…</div>
+                </section>
+            </div>
+            {% else %}
+            <div class="empty">当前还没有项目运行态数据。</div>
+            {% endif %}
+        </div>
+
+        <div class="view" data-view="artifacts">
+            {% if snapshot %}
+            <div class="artifact-layout">
+                <section class="card" style="padding:22px;">
+                    <div class="section-title">
+                        <div>
+                            <h2>研发执行报告</h2>
+                            <p>后端 / 前端真实代码级 CLI 执行报告与验证结果。</p>
+                        </div>
+                        <span class="tag">{{ snapshot.code_execution_artifacts | length }} 条</span>
+                    </div>
+                    <div class="artifact-grid">
+                        {% for artifact in snapshot.code_execution_artifacts %}
+                        <div class="artifact-item">
+                            <div class="chips">
+                                <span class="chip blue">{{ artifact.source_backend_label }}</span>
+                                <span class="chip">{{ artifact.agent_label }}</span>
+                                <span class="chip muted">v{{ artifact.version }}</span>
+                            </div>
+                            <div style="margin-top:10px;color:white;font-weight:600;">{{ artifact.title }}</div>
+                            <div class="muted">WorkItem：{{ artifact.workitem_id }} / 文件：{{ artifact.path }}</div>
+                            <div class="artifact-content">{{ artifact.content }}</div>
+                        </div>
+                        {% endfor %}
+                        {% if not snapshot.code_execution_artifacts %}
+                        <div class="empty">当前还没有后端/前端的真实代码执行报告。</div>
+                        {% endif %}
+                    </div>
+                </section>
+
+                <div class="dashboard-grid">
+                    <section class="card" style="padding:22px;">
+                        <div class="section-title">
+                            <div>
+                                <h2>项目产物</h2>
+                                <p>文档、协作产物、测试报告与执行结果。</p>
+                            </div>
+                            <span class="tag">{{ snapshot.artifacts | length }} 个</span>
+                        </div>
+                        <div class="artifact-grid">
+                            {% for artifact in snapshot.artifacts %}
+                            <div class="artifact-item">
+                                <div class="chips">
+                                    <span class="chip {% if artifact.source_backend in ['mock', 'mock_fallback'] %}warn{% else %}blue{% endif %}">{{ artifact.source_backend_label }}</span>
+                                    <span class="chip">{{ artifact.kind_label }}</span>
+                                    <span class="chip muted">v{{ artifact.version }}</span>
+                                </div>
+                                <div style="margin-top:10px;color:white;font-weight:600;">{{ artifact.title }}</div>
+                                <div class="muted">来源 WorkItem：{{ artifact.workitem_id }}</div>
+                                <div class="artifact-content">{{ artifact.content }}</div>
+                            </div>
+                            {% endfor %}
+                            {% if not snapshot.artifacts %}
+                            <div class="empty">当前还没有项目产物。</div>
+                            {% endif %}
+                        </div>
+                    </section>
+
+                    <section class="card" style="padding:22px;">
+                        <div class="section-title">
+                            <div>
+                                <h2>工作项矩阵</h2>
+                                <p>阶段、类型、状态与所属 Agent。</p>
+                            </div>
+                            <span class="tag">{{ snapshot.workitems | length }} 个</span>
+                        </div>
+                        <div class="artifact-grid">
+                            {% for workitem in snapshot.workitems %}
+                            <div class="workitem-item">
+                                <div class="chips">
+                                    <span class="chip">{{ workitem.stage_label }}</span>
+                                    <span class="chip blue">{{ workitem.kind_label }}</span>
+                                    <span class="chip {% if workitem.status == 'failed' %}error{% elif workitem.status == 'done' %}green{% else %}muted{% endif %}">{{ workitem.status_label }}</span>
+                                </div>
+                                <div style="margin-top:10px;color:white;font-weight:600;">{{ workitem.id }}</div>
+                                <div class="muted">{{ workitem.description }}</div>
+                                <div class="chips" style="margin-top:10px;">
+                                    <span class="chip">{{ workitem.owner_agent_label }}</span>
+                                    <span class="chip muted">重试 {{ workitem.retry_text }}</span>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </section>
+                </div>
+            </div>
+            {% else %}
+            <div class="empty">当前还没有项目产物。</div>
+            {% endif %}
+        </div>
+    </div>
+
+    <script>
+        (function () {
+            const STORAGE_KEY = "conductor.activeView";
+            const buttons = document.querySelectorAll("[data-view-button]");
+            const views = document.querySelectorAll("[data-view]");
+            const setActive = (name) => {
+                buttons.forEach((button) => button.classList.toggle("active", button.dataset.viewButton === name));
+                views.forEach((view) => view.classList.toggle("active", view.dataset.view === name));
+                localStorage.setItem(STORAGE_KEY, name);
+                if (window.location.hash !== `#${name}`) {
+                    window.history.replaceState(null, "", `#${name}`);
+                }
+            };
+            buttons.forEach((button) => {
+                button.addEventListener("click", () => setActive(button.dataset.viewButton));
+            });
+            const initialView = (window.location.hash || "").replace("#", "") || localStorage.getItem(STORAGE_KEY) || "dashboard";
+            const allowedViews = new Set(Array.from(buttons).map((button) => button.dataset.viewButton));
+            setActive(allowedViews.has(initialView) ? initialView : "dashboard");
+            window.addEventListener("hashchange", () => {
+                const nextView = (window.location.hash || "").replace("#", "");
+                if (allowedViews.has(nextView)) {
+                    setActive(nextView);
+                }
+            });
+        })();
+
+        (function () {
+            const requirementInput = document.querySelector('input[name="requirement"]');
+            const projectRootInput = document.getElementById("project-root-input");
+            const pickerLink = document.getElementById("folder-picker-link");
+            if (!requirementInput || !projectRootInput || !pickerLink) return;
+            const syncPickerLink = () => {
+                const params = new URLSearchParams({ current_path: projectRootInput.value || ".", requirement: requirementInput.value || "" });
+                pickerLink.href = `/folders/pick?${params.toString()}`;
+            };
+            requirementInput.addEventListener("input", syncPickerLink);
+            projectRootInput.addEventListener("input", syncPickerLink);
+            syncPickerLink();
+        })();
+
+        (function () {
+            const projectId = "{{ snapshot.project_id if snapshot else '' }}";
+            const logNode = document.getElementById("runtime-stream-log");
+            const statusNode = document.getElementById("runtime-stream-status");
+            if (!projectId || !logNode || !statusNode || typeof EventSource === "undefined") return;
+            const source = new EventSource(`/projects/${projectId}/runtime/stream`);
+            source.onmessage = (event) => {
+                const payload = JSON.parse(event.data);
+                const lines = payload.lines || [];
+                logNode.textContent = lines.length ? lines.join("\n") : "等待 CLI 输出…";
+                logNode.scrollTop = logNode.scrollHeight;
+                statusNode.textContent = payload.running ? `${payload.cli_name || payload.backend || "CLI"} 运行中` : payload.status === "completed" ? "执行完成" : payload.status === "failed" ? "执行失败" : "等待输出";
+            };
+        })();
+
+        (function () {
+            const projectId = "{{ snapshot.project_id if snapshot else '' }}";
+            if (!projectId) return;
+
+            const updateText = (id, value, fallback = "-") => {
+                const node = document.getElementById(id);
+                if (!node) return;
+                node.textContent = value || fallback;
+            };
+
+            const updateRuntime = (runtime) => {
+                if (!runtime || !runtime.available) return;
+                const runtimePanel = document.getElementById("runtime-panel");
+                if (runtimePanel) {
+                    runtimePanel.classList.toggle("runtime-running", Boolean(runtime.is_running));
+                }
+                updateText("runtime-state-tag", runtime.state_label);
+                updateText("runtime-chip-state", runtime.state_label);
+                updateText("runtime-chip-stage", runtime.stage_label);
+                updateText("runtime-chip-workitem", runtime.workitem_id);
+                updateText("runtime-chip-kind", runtime.workitem_kind_label);
+                updateText("runtime-headline", runtime.headline);
+                updateText(
+                    "runtime-description",
+                    runtime.is_running ? "当前任务正在执行，流式输出会持续更新。" : "当前没有运行中的任务，这里显示最近一次执行上下文。"
+                );
+                updateText("runtime-stage-progress-label", runtime.stage_progress_label);
+                updateText("runtime-task-position-label", runtime.task_position_label);
+                updateText("runtime-agent-label", runtime.agent_label);
+                updateText("runtime-backend-label", runtime.backend_label);
+                updateText("runtime-cli-label", runtime.cli_label);
+                updateText("runtime-model-label", runtime.model_label);
+                updateText("runtime-mode-label", runtime.execution_mode_label);
+                updateText("runtime-working-directory", runtime.working_directory);
+                updateText("runtime-output-summary-title", runtime.output_summary_title);
+                updateText("runtime-output-summary", runtime.output_summary);
+                const progressFill = document.getElementById("runtime-progress-fill");
+                if (progressFill) {
+                    progressFill.style.width = `${runtime.stage_progress_percent || 0}%`;
+                }
+            };
+
+            const refreshLiveState = async () => {
+                try {
+                    const response = await fetch(`/projects/${projectId}/live`, {
+                        headers: { "Accept": "application/json" },
+                        cache: "no-store",
+                    });
+                    if (!response.ok) return;
+                    const payload = await response.json();
+                    updateText("project-status-value", payload.project_status_label, "空闲");
+                    updateText("current-stage-value", payload.current_stage_label, "-");
+                    updateText(
+                        "task-status-message",
+                        payload.task_status?.running
+                            ? `${payload.task_status.action_label || "任务"}进行中`
+                            : (payload.task_status?.error || payload.task_status?.message || "无后台任务"),
+                        "无后台任务"
+                    );
+                    updateRuntime(payload.execution_runtime);
+                } catch (error) {
+                    // 局部更新失败不应影响当前页面使用。
+                }
+            };
+
+            refreshLiveState();
+            window.setInterval(refreshLiveState, 2000);
+        })();
+    </script>
+</body>
+</html>
