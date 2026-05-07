@@ -45,8 +45,8 @@
 - 支持从 Conductor manifest 读取平台需求产物。
 - 支持读取模型直出文本文件作为 direct baseline。
 - 支持输出 JSON 和 Markdown 对比报告。
-- 需求评分支持中英文 aspect 同义词匹配，避免中文需求产物被英文标签误判。
-- Run Manifest schema 已升级到 `1.2`，包含 `requirement_evaluations` 和 `summary.requirement_quality_score`。
+- 需求评分支持中英文 aspect 同义词匹配和中文关键词变体匹配，避免中文需求产物被英文标签或同义表达误判。
+- Run Manifest schema 已升级到 `1.18`，包含 `requirement_evaluations`、`summary.requirement_quality_score` 和运行审计摘要。
 - `requirement_spec` 的协作 accepted 后还会执行需求质量评分；评分未通过时不会冻结需求规格。
 - 需求协作/质量门禁失败时，会自动创建新的 `requirement_spec` 返工 WorkItem，并把失败原因和上轮产物作为返工上下文。
 - `python -m app.requirement_benchmark compare` 支持 `--direct-llm local|cloud`，可自动生成不接入平台的模型直出 baseline。
@@ -108,7 +108,7 @@ python -m app.requirement_benchmark run-suite `
 
 - 在 plain direct baseline 下，需求阶段平台链路已经能显著放大小模型的需求规格输出质量。
 - 本次通过不是 mock/fallback 通过，platform/direct 两侧都使用同一个本地真实模型。
-- `expense_approval` 和 `csv_cleaner` 的平台产物仍出现 keyword coverage 偏低提示，后续需要校准中文关键词抽取，但不影响本轮质量门禁通过。
+- `expense_approval` 和 `csv_cleaner` 曾出现 keyword coverage 偏低提示；当前评分器已补充中文关键词变体、命中计数和缺失关键词明细，后续仍需用更多真实 case 校准。
 
 ## 测评命令
 
@@ -178,7 +178,7 @@ python -m app.requirement_benchmark run-suite `
 
 ## 下一步
 
-1. 校准评分器：增强中文领域关键词抽取、实体覆盖和范围扩张检测，降低 keyword coverage 误报。
-2. 扩大真实测评：加入动态评审队伍、更多复杂 case 和云模型对照。
+1. 扩大真实测评：加入动态评审队伍、更多复杂 case 和云模型/本地模型对照。
+2. 继续校准评分器：增强领域实体覆盖、范围扩张检测和中文分词边界处理。
 3. 根据真实测评结果继续调整需求 prompt、动态评审席位规则和质量门禁阈值。
 4. 将需求冻结产物继续向设计/开发/测试阶段传递，验证完整项目闭环。

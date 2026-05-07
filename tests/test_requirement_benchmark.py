@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from conductor.requirement_benchmark import (
+    RequirementBenchmarkCase,
     build_direct_requirement_prompt,
     compare_requirement_documents,
     default_requirement_benchmark_cases,
@@ -161,6 +162,45 @@ def test_requirement_evaluator_counts_translated_domain_keyword_aliases() -> Non
     assert expense.checks["keyword_coverage"] is True
     assert csv.metrics["keyword_coverage"] == 100
     assert csv.checks["keyword_coverage"] is True
+
+
+def test_requirement_evaluator_counts_chinese_keyword_variants() -> None:
+    case = RequirementBenchmarkCase(
+        id="chinese-variants",
+        name="Chinese Keyword Variants",
+        requirement="阅读清单需要书名、保留数据和筛选。",
+        expected_keywords=["书名", "保留数据", "筛选"],
+    )
+    document = """
+    目标：用户维护个人阅读清单。
+    范围：表单字段使用图书标题，数据保存到 localStorage，列表支持按条件过滤。
+    验收标准：刷新后仍可见，选择过滤条件后列表更新。
+    风险与假设：本地存储容量有限。
+    测试验证：覆盖新增、过滤和刷新后仍可见。
+    """
+
+    evaluation = evaluate_requirement_document(document, case)
+
+    assert evaluation.metrics["keyword_coverage"] == 100
+    assert evaluation.metrics["matched_keyword_count"] == 3
+    assert evaluation.metrics["expected_keyword_count"] == 3
+    assert evaluation.checks["keyword_coverage"] is True
+
+
+def test_requirement_evaluator_reports_missing_keywords() -> None:
+    case = RequirementBenchmarkCase(
+        id="missing-keywords",
+        name="Missing Keywords",
+        requirement="CSV cleaner",
+        expected_keywords=["CSV", "去重", "无效"],
+    )
+    document = "目标：读取 CSV。范围：只做文件读取。验收标准：可以打开文件。"
+
+    evaluation = evaluate_requirement_document(document, case)
+
+    assert evaluation.metrics["matched_keyword_count"] == 1
+    assert evaluation.metrics["expected_keyword_count"] == 3
+    assert any("Missing keywords: 去重, 无效" in finding for finding in evaluation.findings)
 
 
 def test_requirement_case_extracts_chinese_domain_terms_from_continuous_text() -> None:

@@ -145,6 +145,26 @@ KEYWORD_ALIASES: dict[str, tuple[str, ...]] = {
     "duplicate": ("duplicate", "deduplicate", "重复", "去重", "重复行"),
     "invalid": ("invalid", "malformed", "无效", "非法", "异常", "错误", "坏行"),
     "export": ("export", "download", "导出", "下载", "输出"),
+    "书名": ("书名", "书籍", "书目", "标题", "图书名称"),
+    "作者": ("作者", "创作者"),
+    "状态": ("状态", "阅读状态", "进度", "流转状态", "审批状态"),
+    "评分": ("评分", "分数", "评级", "打分"),
+    "保留数据": ("保留数据", "保存数据", "持久化", "localstorage", "刷新后保留", "刷新后仍可见"),
+    "添加": ("添加", "新增", "创建", "录入"),
+    "筛选": ("筛选", "过滤", "按状态筛选", "按条件过滤"),
+    "报销": ("报销", "费用", "支出", "expense", "reimbursement"),
+    "费用": ("费用", "报销", "支出", "金额", "expense"),
+    "提交": ("提交", "发起", "申请", "录入", "submit"),
+    "审批": ("审批", "批准", "通过", "同意", "approve"),
+    "批准": ("批准", "审批通过", "同意", "approve"),
+    "拒绝": ("拒绝", "驳回", "退回", "不同意", "reject"),
+    "错误": ("错误", "异常", "校验", "无效", "错误提示", "error"),
+    "文件": ("文件", "表格文件", "csv"),
+    "读取": ("读取", "导入", "上传", "解析"),
+    "去重": ("去重", "删除重复", "重复行", "duplicate"),
+    "重复": ("重复", "重复行", "去重", "duplicate"),
+    "空格": ("空格", "首尾空格", "修剪", "trim"),
+    "无效": ("无效", "非法", "坏行", "异常", "invalid"),
 }
 
 
@@ -251,6 +271,7 @@ def evaluate_requirement_document(
     """Evaluate whether a requirement document is complete enough to guide downstream agents."""
     text = document.lower()
     keyword_coverage = _coverage(case.expected_keywords, text)
+    missing_keywords = _missing_keywords(case.expected_keywords, text)
     aspect_coverage = _aspect_coverage(case.required_aspects, text)
     checks = {
         "keyword_coverage": keyword_coverage >= 70,
@@ -287,7 +308,11 @@ def evaluate_requirement_document(
     if not checks["not_mock_or_placeholder"]:
         findings.append("Document appears to be a mock, fallback, or platform placeholder output.")
     if not checks["keyword_coverage"]:
-        findings.append("Requirement keywords are not sufficiently covered.")
+        missing_text = ", ".join(missing_keywords[:8])
+        findings.append(
+            "Requirement keywords are not sufficiently covered."
+            + (f" Missing keywords: {missing_text}." if missing_text else "")
+        )
     if not checks["aspect_coverage"]:
         findings.append("Required aspects are not sufficiently covered.")
     if not checks["has_scope_boundary"]:
@@ -313,6 +338,8 @@ def evaluate_requirement_document(
         checks=checks,
         metrics={
             "keyword_coverage": keyword_coverage,
+            "matched_keyword_count": len(case.expected_keywords) - len(missing_keywords),
+            "expected_keyword_count": len(case.expected_keywords),
             "aspect_coverage": aspect_coverage,
             "document_chars": len(document),
         },
@@ -512,8 +539,18 @@ def _coverage(expected: list[str], text: str) -> int:
     """Return percentage of expected terms found in text."""
     if not expected:
         return 100
-    matched = sum(1 for term in expected if _keyword_present(term, text))
+    matched = len(_matched_keywords(expected, text))
     return int((matched / len(expected)) * 100)
+
+
+def _matched_keywords(expected: list[str], text: str) -> list[str]:
+    """Return expected keywords that are present through exact or alias matching."""
+    return [term for term in expected if _keyword_present(term, text)]
+
+
+def _missing_keywords(expected: list[str], text: str) -> list[str]:
+    """Return expected keywords that are absent after alias expansion."""
+    return [term for term in expected if not _keyword_present(term, text)]
 
 
 def _keyword_present(term: str, text: str) -> bool:
