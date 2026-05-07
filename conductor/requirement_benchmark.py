@@ -148,6 +148,48 @@ KEYWORD_ALIASES: dict[str, tuple[str, ...]] = {
 }
 
 
+CJK_KEYWORD_TERMS: tuple[str, ...] = (
+    "\u6dfb\u52a0",
+    "\u65b0\u589e",
+    "\u521b\u5efa",
+    "\u4e66\u540d",
+    "\u4f5c\u8005",
+    "\u9605\u8bfb\u72b6\u6001",
+    "\u72b6\u6001",
+    "\u8bc4\u5206",
+    "\u5907\u6ce8",
+    "\u7b5b\u9009",
+    "\u8fc7\u6ee4",
+    "\u5bfc\u51fa",
+    "\u4e0b\u8f7d",
+    "\u5237\u65b0\u540e",
+    "\u4fdd\u7559\u6570\u636e",
+    "\u6301\u4e45\u5316",
+    "\u4fdd\u5b58",
+    "\u62a5\u9500",
+    "\u8d39\u7528",
+    "\u63d0\u4ea4",
+    "\u53d1\u8d77",
+    "\u7533\u8bf7",
+    "\u5ba1\u6279",
+    "\u6279\u51c6",
+    "\u62d2\u7edd",
+    "\u9a73\u56de",
+    "\u9519\u8bef",
+    "\u5f02\u5e38",
+    "\u6821\u9a8c",
+    "\u65e0\u6548",
+    "\u6e05\u6d17",
+    "\u6587\u4ef6",
+    "\u8bfb\u53d6",
+    "\u5bfc\u5165",
+    "\u53bb\u91cd",
+    "\u91cd\u590d",
+    "\u7a7a\u683c",
+    "\u4fee\u526a",
+)
+
+
 def default_requirement_benchmark_cases() -> list[RequirementBenchmarkCase]:
     """Return fixed cases for requirement-stage regression."""
     return [
@@ -522,14 +564,32 @@ def _extract_requirement_keywords(requirement: str, limit: int = 12) -> list[str
     candidates = re.findall(r"[A-Za-z][A-Za-z0-9_-]{2,}|[\u4e00-\u9fff]{2,}", requirement)
     keywords: list[str] = []
     for candidate in candidates:
-        normalized = candidate.strip().lower()
-        if not normalized or normalized in STOPWORDS:
-            continue
-        if normalized not in [item.lower() for item in keywords]:
-            keywords.append(candidate.strip())
+        extracted = _extract_cjk_keywords(candidate) if _contains_cjk(candidate) else [candidate.strip()]
+        for item in extracted:
+            normalized = item.strip().lower()
+            if not normalized or normalized in STOPWORDS:
+                continue
+            if normalized not in [keyword.lower() for keyword in keywords]:
+                keywords.append(item.strip())
+            if len(keywords) >= limit:
+                break
         if len(keywords) >= limit:
             break
     return keywords
+
+
+def _contains_cjk(text: str) -> bool:
+    """Return whether text contains Chinese/Japanese/Korean unified ideographs."""
+    return any("\u4e00" <= char <= "\u9fff" for char in text)
+
+
+def _extract_cjk_keywords(text: str) -> list[str]:
+    """Extract known Chinese domain terms from a continuous CJK span."""
+    matches = [term for term in CJK_KEYWORD_TERMS if term in text]
+    if matches:
+        return matches
+    stripped = text.strip()
+    return [stripped] if 2 <= len(stripped) <= 8 else []
 
 
 def _infer_required_aspects(requirement: str) -> list[str]:

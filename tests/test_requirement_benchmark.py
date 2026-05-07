@@ -9,6 +9,7 @@ from conductor.requirement_benchmark import (
     default_requirement_benchmark_cases,
     evaluate_requirement_artifact_from_manifest,
     evaluate_requirement_document,
+    build_requirement_case_from_text,
     run_direct_requirement_baseline,
     run_requirement_llm_preflight,
     write_requirement_comparison_report,
@@ -160,6 +161,32 @@ def test_requirement_evaluator_counts_translated_domain_keyword_aliases() -> Non
     assert expense.checks["keyword_coverage"] is True
     assert csv.metrics["keyword_coverage"] == 100
     assert csv.checks["keyword_coverage"] is True
+
+
+def test_requirement_case_extracts_chinese_domain_terms_from_continuous_text() -> None:
+    case = build_requirement_case_from_text(
+        "zh-freeform",
+        "\u505a\u4e00\u4e2a\u8bfb\u4e66\u6e05\u5355\uff0c"
+        "\u652f\u6301\u6dfb\u52a0\u4e66\u540d\u4f5c\u8005\u548c\u8bc4\u5206\uff0c"
+        "\u6309\u9605\u8bfb\u72b6\u6001\u7b5b\u9009\uff0c"
+        "\u5237\u65b0\u540e\u4fdd\u7559\u6570\u636e\uff0c"
+        "\u5e76\u5bfc\u51fa CSV\u3002",
+    )
+    document = """
+    \u76ee\u6807\uff1a\u4e2a\u4eba\u8bfb\u4e66\u6e05\u5355\u3002
+    \u8303\u56f4\uff1a\u7528\u6237\u53ef\u4ee5\u65b0\u589e\u4e66\u540d\u3001\u4f5c\u8005\u548c\u8bc4\u5206\uff0c\u6309\u9605\u8bfb\u72b6\u6001\u8fc7\u6ee4\uff0c\u4f7f\u7528 localStorage \u4fdd\u5b58\u3002
+    \u9a8c\u6536\u6807\u51c6\uff1a\u5237\u65b0\u540e\u4fdd\u7559\u6570\u636e\uff0c\u70b9\u51fb\u5bfc\u51fa CSV \u53ef\u4e0b\u8f7d\u3002
+    \u98ce\u9669\u4e0e\u5047\u8bbe\uff1aCSV \u7f16\u7801\u9700\u8981\u786e\u8ba4\u3002
+    \u6d4b\u8bd5\u9a8c\u8bc1\uff1a\u8986\u76d6\u65b0\u589e\u3001\u7b5b\u9009\u3001\u6301\u4e45\u5316\u548c\u5bfc\u51fa\u3002
+    """
+
+    evaluation = evaluate_requirement_document(document, case)
+
+    assert "\u6dfb\u52a0" in case.expected_keywords
+    assert "\u5237\u65b0\u540e" in case.expected_keywords
+    assert "\u5bfc\u51fa" in case.expected_keywords
+    assert evaluation.metrics["keyword_coverage"] >= 70
+    assert evaluation.checks["keyword_coverage"] is True
 
 
 def test_requirement_comparison_requires_platform_delta() -> None:
