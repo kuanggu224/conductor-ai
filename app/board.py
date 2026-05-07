@@ -43,7 +43,7 @@ from conductor.config.llm import (
     save_llm_runtime_config,
 )
 from conductor.controller.engine import ConductorEngine
-from conductor.diagnostics import build_platform_diagnostics
+from conductor.diagnostics import build_platform_diagnostics, build_requirement_llm_preflight_probe
 from conductor.domain.models import SharedProjectState, TaskAssignment
 from conductor.io.encoding import configure_utf8_stdio
 from conductor.io.requirements import RequirementInputError, load_requirement_text
@@ -798,13 +798,22 @@ def llm_settings_api() -> JSONResponse:
 
 
 @app.get("/api/diagnostics")
-def diagnostics_api(probe_llm: bool = False) -> JSONResponse:
+def diagnostics_api(probe_llm: bool = False, preflight_llm: bool = False) -> JSONResponse:
     """Return current CLI, LLM, config, and encoding diagnostics."""
+    llm_runtime_config = load_llm_runtime_config()
     diagnostics = build_platform_diagnostics(
         cli_config=load_cli_selection_config(),
         project_root=ROOT_DIR,
-        llm_runtime_config=load_llm_runtime_config(),
-        probe_llm=probe_llm,
+        llm_runtime_config=llm_runtime_config,
+        probe_llm=probe_llm or preflight_llm,
+        preflight_probe=(
+            build_requirement_llm_preflight_probe(
+                llm_runtime_config,
+                ROOT_DIR / ".conductor" / "diagnostics",
+            )
+            if preflight_llm
+            else None
+        ),
     )
     return JSONResponse(diagnostics.to_dict())
 

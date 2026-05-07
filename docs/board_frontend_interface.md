@@ -548,6 +548,7 @@ GET /projects/{project_id}/runtime/stream
 
 `GET /api/diagnostics` 默认只读取本地配置和已发现 CLI，不访问网络。
 如需探测已启用的 OpenAI-compatible LLM `/models` 接口，可传 `?probe_llm=true`。
+如需执行轻量 chat-completion 连通性验证，可传 `?preflight_llm=true`。
 
 但这不是当前必须项。
 

@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 from conductor.config.llm import load_llm_runtime_config
-from conductor.diagnostics import build_platform_diagnostics
+from conductor.diagnostics import build_platform_diagnostics, build_requirement_llm_preflight_probe
 from conductor.io.encoding import configure_utf8_stdio
 
 configure_utf8_stdio()
@@ -39,30 +39,16 @@ def main(argv: list[str] | None = None) -> int:
         llm_runtime_config=llm_runtime_config,
         probe_llm=args.probe_llm or args.preflight_llm,
         preflight_probe=(
-            _build_diagnostic_preflight_probe(llm_runtime_config, Path(args.project_root).expanduser().resolve())
+            build_requirement_llm_preflight_probe(
+                llm_runtime_config,
+                Path(args.project_root).expanduser().resolve() / ".conductor" / "diagnostics",
+            )
             if args.preflight_llm
             else None
         ),
     )
     print(json.dumps(diagnostics.to_dict(), ensure_ascii=False, indent=2))
     return 0 if diagnostics.ok else 2
-
-
-def _build_diagnostic_preflight_probe(runtime_config, project_root: Path):
-    """Build a lightweight chat-completion probe for enabled LLM diagnostics."""
-    from conductor.requirement_benchmark import run_requirement_llm_preflight
-
-    def probe(backend: str) -> tuple[bool, str]:
-        config = runtime_config.local if backend == "local" else runtime_config.cloud
-        result = run_requirement_llm_preflight(
-            backend=backend,
-            config=config,
-            output_dir=project_root / ".conductor" / "diagnostics",
-        )
-        return result.success, result.error
-
-    return probe
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

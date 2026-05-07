@@ -1,6 +1,8 @@
 from fastapi.testclient import TestClient
 
 from app import board
+from conductor.agents.llm import LLMHTTPConfig
+from conductor.config.llm import LLMRuntimeConfig, LLMUsagePolicy
 
 
 def test_project_api_returns_snapshot_payload() -> None:
@@ -84,6 +86,36 @@ def test_diagnostics_api_returns_platform_health_snapshot(monkeypatch) -> None:
     assert "role_bindings" in payload
     assert "llm_backends" in payload
     assert payload["llm_backends"][0]["server_status"] == "not_checked"
+
+
+def test_diagnostics_api_can_run_llm_preflight(monkeypatch) -> None:
+    monkeypatch.setattr("conductor.diagnostics.discover_cli_tools", lambda: [])
+    monkeypatch.setattr(
+        board,
+        "load_llm_runtime_config",
+        lambda: LLMRuntimeConfig(
+            local=LLMHTTPConfig(base_url="http://local.test/v1", model_name="local-model", enabled=False),
+            cloud=LLMHTTPConfig(
+                base_url="https://cloud.test/v1",
+                model_name="cloud-model",
+                api_key="secret",
+                enabled=True,
+            ),
+            usage=LLMUsagePolicy(),
+        ),
+    )
+    monkeypatch.setattr(
+        board,
+        "build_requirement_llm_preflight_probe",
+        lambda *_: (lambda backend: (True, "")),
+    )
+    client = TestClient(board.app)
+
+    response = client.get("/api/diagnostics?preflight_llm=true")
+
+    assert response.status_code == 200
+    cloud = {item["backend"]: item for item in response.json()["llm_backends"]}["cloud"]
+    assert cloud["preflight_success"] is True
 
 
 def test_project_detail_api_returns_404_for_missing_project() -> None:

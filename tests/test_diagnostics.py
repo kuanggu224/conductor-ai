@@ -3,7 +3,7 @@
 from conductor.config.cli import CLISelectionConfig
 from conductor.agents.llm import LLMHTTPConfig
 from conductor.config.llm import LLMRuntimeConfig, LLMUsagePolicy
-from conductor.diagnostics import build_platform_diagnostics
+from conductor.diagnostics import build_platform_diagnostics, build_requirement_llm_preflight_probe
 
 
 def test_platform_diagnostics_marks_ready_bindings(monkeypatch, tmp_path) -> None:
@@ -170,3 +170,23 @@ def test_platform_diagnostics_does_not_fail_when_models_endpoint_is_missing_but_
     assert cloud.model_list_error == "HTTP 404"
     assert cloud.preflight_success is True
     assert cloud.preflight_error == ""
+
+
+def test_requirement_llm_preflight_probe_selects_backend_config(monkeypatch, tmp_path) -> None:
+    calls = []
+
+    def fake_preflight(*, backend, config, output_dir):
+        calls.append((backend, config.model_name, output_dir))
+        return type("Result", (), {"success": True, "error": ""})()
+
+    monkeypatch.setattr("conductor.requirement_benchmark.run_requirement_llm_preflight", fake_preflight)
+    runtime_config = LLMRuntimeConfig(
+        local=LLMHTTPConfig(base_url="http://local.test/v1", model_name="local-model"),
+        cloud=LLMHTTPConfig(base_url="https://cloud.test/v1", model_name="cloud-model", enabled=True),
+        usage=LLMUsagePolicy(),
+    )
+
+    probe = build_requirement_llm_preflight_probe(runtime_config, tmp_path)
+
+    assert probe("cloud") == (True, "")
+    assert calls == [("cloud", "cloud-model", tmp_path)]

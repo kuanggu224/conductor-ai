@@ -135,6 +135,27 @@ def build_platform_diagnostics(
     )
 
 
+def build_requirement_llm_preflight_probe(
+    runtime_config: LLMRuntimeConfig,
+    output_dir: str | Path,
+) -> PreflightProbe:
+    """Build a lightweight chat-completion probe for enabled LLM diagnostics."""
+    from conductor.requirement_benchmark import run_requirement_llm_preflight
+
+    diagnostics_dir = Path(output_dir)
+
+    def probe(backend: str) -> tuple[bool, str]:
+        config = runtime_config.local if backend == "local" else runtime_config.cloud
+        result = run_requirement_llm_preflight(
+            backend=backend,
+            config=config,
+            output_dir=diagnostics_dir,
+        )
+        return result.success, result.error
+
+    return probe
+
+
 def _build_llm_backend_diagnostics(
     runtime_llm_config: LLMRuntimeConfig,
     *,
@@ -330,4 +351,5 @@ __all__ = [
     "PlatformDiagnostics",
     "RoleBindingDiagnostic",
     "build_platform_diagnostics",
+    "build_requirement_llm_preflight_probe",
 ]

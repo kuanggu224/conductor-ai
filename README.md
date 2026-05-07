@@ -89,9 +89,11 @@ Board exposes the same health snapshot for frontends:
 
 - `GET /api/diagnostics`
 - `GET /api/diagnostics?probe_llm=true`
+- `GET /api/diagnostics?preflight_llm=true`
 
 The default API call is read-only and does not touch network services. The
-`probe_llm=true` variant checks enabled OpenAI-compatible model endpoints.
+`probe_llm=true` variant checks enabled OpenAI-compatible model endpoints. The
+`preflight_llm=true` variant also runs a lightweight chat-completion probe.
 
 ### Windows PowerShell UTF-8
 
