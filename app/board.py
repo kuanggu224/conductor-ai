@@ -596,6 +596,7 @@ def _task_center_payload(state: SharedProjectState, status: str | None = None) -
         "project_id": state.project.id,
         "status_filter": status or "",
         "total": len(assignments),
+        "summary": task_center.summary(state),
         "tasks": [
             _task_assignment_payload(
                 assignment,

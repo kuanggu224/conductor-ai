@@ -88,6 +88,9 @@ def test_project_tasks_api_returns_task_center_assignments() -> None:
     payload = response.json()
     assert payload["project_id"] == state.project.id
     assert payload["total"] == 1
+    assert payload["summary"]["total"] == 1
+    assert payload["summary"]["claimable"] == 1
+    assert payload["summary"]["blocked_by_dependencies"] == 0
     task = payload["tasks"][0]
     assert task["workitem_id"] == state.workitems[0].id
     assert task["status"] == "queued"

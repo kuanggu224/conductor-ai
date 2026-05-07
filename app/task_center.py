@@ -141,6 +141,7 @@ def _list_payload(
         "project_id": state.project.id,
         "status_filter": status or "",
         "total": len(assignments),
+        "summary": service.summary(state),
         "tasks": [_assignment_payload(state, assignment, service)["task"] for assignment in assignments],
     }
 

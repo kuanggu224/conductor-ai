@@ -25,6 +25,9 @@ def test_task_center_cli_lists_claims_and_completes_persisted_assignment(tmp_pat
     assert list_code == 0
     assert list_payload["project_id"] == state.project.id
     assert list_payload["total"] == 1
+    assert list_payload["summary"]["total"] == 1
+    assert list_payload["summary"]["claimable"] == 1
+    assert list_payload["summary"]["blocked_by_dependencies"] == 0
     assert list_payload["tasks"][0]["status"] == "queued"
     assert list_payload["tasks"][0]["claimable"] is True
     assert list_payload["tasks"][0]["unmet_dependency_ids"] == []

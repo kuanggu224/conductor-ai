@@ -40,6 +40,26 @@ class TaskCenterService:
             if status is None or assignment.status.value == status
         ]
 
+    def summary(self, state: SharedProjectState) -> dict[str, int]:
+        """Return compact Task Center counts for dashboards and reports."""
+        counts = {
+            "total": len(state.task_assignments),
+            "claimable": 0,
+            "blocked_by_dependencies": 0,
+            "queued": 0,
+            "claimed": 0,
+            "completed": 0,
+            "failed": 0,
+            "blocked": 0,
+        }
+        for assignment in state.task_assignments:
+            counts[assignment.status.value] = counts.get(assignment.status.value, 0) + 1
+            if self.claimable(state, assignment):
+                counts["claimable"] += 1
+            elif assignment.status == TaskAssignmentStatus.QUEUED and self.unmet_dependency_ids(state, assignment):
+                counts["blocked_by_dependencies"] += 1
+        return counts
+
     def claim(
         self,
         project_id: str,
