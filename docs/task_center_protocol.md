@@ -141,11 +141,12 @@ Summary payloads include:
 
 ## Audit Outputs
 
-Run Manifest schema `1.8` records:
+Run Manifest schema `1.9` records:
 
 - `task_assignments[].claimable`
 - `task_assignments[].unmet_dependency_ids`
 - `summary.task_center_summary`
+- `platform_diagnostics`
 
 Project reports include a `## Task Center` section with summary counts and one
 line per assignment.

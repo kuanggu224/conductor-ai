@@ -189,6 +189,7 @@ class ConductorEngine:
             cli_config=self.cli_selection_config,
             run_profile=self.run_profile,
             report_path=report_path,
+            llm_runtime_config=self.llm_runtime_config,
         )
 
     def _sync_logs(self, state: SharedProjectState) -> None:

@@ -9,6 +9,8 @@ from pathlib import Path
 
 from conductor.config.cli import CLISelectionConfig
 from conductor.config.execution import RunProfile
+from conductor.config.llm import LLMRuntimeConfig
+from conductor.diagnostics import build_platform_diagnostics
 from conductor.domain.models import SharedProjectState
 from conductor.requirement_benchmark import build_requirement_case_from_text, evaluate_requirement_document
 from conductor.task_center.service import TaskCenterService
@@ -33,6 +35,7 @@ class RunManifest:
     selected_cli_names: list[str]
     role_cli_bindings: dict[str, str | None]
     summary: dict[str, object]
+    platform_diagnostics: dict[str, object]
     agents: list[dict[str, object]]
     executions: list[dict[str, object]]
     cli_runs: list[dict[str, object]]
@@ -58,6 +61,7 @@ class RunManifestWriter:
         cli_config: CLISelectionConfig,
         run_profile: str | RunProfile,
         report_path: str | Path,
+        llm_runtime_config: LLMRuntimeConfig | None = None,
     ) -> Path:
         """Write and return the manifest path."""
         path = self._manifest_path(state.project.id, state.project.project_root)
@@ -68,8 +72,14 @@ class RunManifestWriter:
         requirement_evaluations = self._requirement_evaluations(state)
         requirement_coverage_results = self._requirement_coverage_results(state)
         task_center = TaskCenterService(_ManifestStateStore(state))
+        platform_diagnostics = build_platform_diagnostics(
+            cli_config=cli_config,
+            project_root=state.project.project_root or Path.cwd(),
+            llm_runtime_config=llm_runtime_config,
+            probe_llm=False,
+        ).to_dict()
         manifest = RunManifest(
-            schema_version="1.8",
+            schema_version="1.9",
             run_id=f"{state.project.id}:{generated_at}",
             project_id=state.project.id,
             generated_at=generated_at,
@@ -96,6 +106,7 @@ class RunManifestWriter:
                 "requirement_coverage_status": self._requirement_coverage_status(requirement_coverage_results),
                 "task_center_summary": task_center.summary(state),
             },
+            platform_diagnostics=platform_diagnostics,
             agents=[self._agent_record(state, activation, cli_config) for activation in state.agent_activations],
             executions=executions,
             cli_runs=[
