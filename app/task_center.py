@@ -10,6 +10,7 @@ from pathlib import Path
 
 from conductor.domain.models import SharedProjectState, TaskAssignment, TaskAssignmentStatus
 from conductor.io.encoding import configure_utf8_stdio
+from conductor.task_center.context import TaskContextBuilder
 from conductor.state.file_store import FileStateStore
 from conductor.task_center.service import TaskCenterError, TaskCenterService
 
@@ -30,6 +31,11 @@ def build_parser() -> argparse.ArgumentParser:
     list_parser.add_argument("--status", choices=[status.value for status in TaskAssignmentStatus])
 
     subparsers.add_parser("summary", parents=[common], help="Print task-center summary counts.")
+
+    context_parser = subparsers.add_parser("context", parents=[common], help="Print one assignment with input artifact content.")
+    context_parser.add_argument("assignment_id")
+    context_parser.add_argument("--no-content", action="store_true", help="Only print artifact metadata.")
+    context_parser.add_argument("--max-content-chars", type=int, default=12000)
 
     claim_parser = subparsers.add_parser("claim", parents=[common], help="Claim one queued assignment.")
     claim_parser.add_argument("assignment_id")
@@ -71,6 +77,14 @@ def main(argv: list[str] | None = None) -> int:
             )
         elif args.command == "summary":
             payload = _summary_payload(state, service)
+        elif args.command == "context":
+            payload = TaskContextBuilder().build(
+                state,
+                args.assignment_id,
+                service=service,
+                include_content=not args.no_content,
+                max_content_chars=args.max_content_chars,
+            )
         elif args.command == "claim":
             result = service.claim(
                 state.project.id,

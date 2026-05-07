@@ -33,6 +33,7 @@ Use the persisted project root:
 python -m app.task_center summary --project-root <project-root>
 python -m app.task_center list --project-root <project-root>
 python -m app.task_center list --project-root <project-root> --status queued
+python -m app.task_center context <assignment-id> --project-root <project-root>
 python -m app.task_center claim-next --project-root <project-root> --agent-id <agent-id> --role backend_engineer
 python -m app.task_center claim <assignment-id> --project-root <project-root> --agent-id <agent-id>
 python -m app.task_center complete <assignment-id> --project-root <project-root> --result-summary "done"
@@ -49,6 +50,7 @@ Endpoints:
 - `GET /api/projects/{project_id}/tasks`
 - `GET /api/projects/{project_id}/tasks?status=queued`
 - `GET /api/projects/{project_id}/tasks/summary`
+- `GET /api/projects/{project_id}/tasks/{assignment_id}/context`
 - `POST /api/projects/{project_id}/tasks/claim-next`
 - `POST /api/projects/{project_id}/tasks/{assignment_id}/claim`
 - `POST /api/projects/{project_id}/tasks/{assignment_id}/complete`
@@ -99,6 +101,21 @@ Summary responses include:
 - `ok` for CLI responses
 - `project_id`
 - `summary`
+
+Context responses from `context` and `/context` include:
+
+- `ok`
+- `project_id`
+- `project_goal`
+- `project_root`
+- `assignment`
+- `workitem`
+- `input_artifacts`
+- `output_artifacts`
+
+`input_artifacts[]` includes metadata and, by default, `content` read from the
+artifact file path when available. Use CLI `--no-content` or API
+`?include_content=false` when only metadata is needed.
 
 Mutation responses from `claim`, `claim-next`, `complete`, and `fail` include:
 

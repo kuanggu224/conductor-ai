@@ -1,10 +1,11 @@
 """Task Center CLI tests."""
 
 import json
+from dataclasses import replace
 
 from app.task_center import main
 from conductor.controller.engine import ConductorEngine
-from conductor.domain.models import TaskAssignmentStatus, WorkItemStatus
+from conductor.domain.models import Artifact, TaskAssignmentStatus, WorkItemStatus
 from conductor.state.file_store import FileStateStore
 
 
@@ -103,6 +104,43 @@ def test_task_center_cli_prints_summary_only(tmp_path, capsys) -> None:
     assert payload["summary"]["total"] == 1
     assert payload["summary"]["claimable"] == 1
     assert "tasks" not in payload
+
+
+def test_task_center_cli_prints_assignment_context_with_input_artifacts(tmp_path, capsys) -> None:
+    project_root = tmp_path / "project"
+    state_store = FileStateStore(project_root / ".conductor" / "state")
+    engine = ConductorEngine(
+        log_dir=project_root / ".conductor" / "logs",
+        artifact_dir=project_root / ".conductor" / "artifacts",
+        state_store=state_store,
+    )
+    state = engine.create_project(requirement="Build a local reading list with CSV export", project_root=str(project_root))
+    artifact = engine.artifact_store.save_markdown(
+        Artifact(
+            id="artifact-context",
+            project_id=state.project.id,
+            workitem_id="workitem-upstream",
+            agent_id="agent-designer",
+            kind="frozen_requirement_spec",
+            title="Frozen Requirement",
+            content="Acceptance: add book, persist refresh, export CSV.",
+        ),
+        project_root=state.project.project_root,
+    )
+    state = state_store.add_artifact(state.project.id, artifact)
+    assignment = replace(state.task_assignments[0], input_artifact_ids=[artifact.id])
+    state = state_store.upsert_task_assignment(state.project.id, assignment)
+
+    code = main(["context", assignment.id, "--project-root", str(project_root)])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert payload["project_id"] == state.project.id
+    assert payload["assignment"]["id"] == assignment.id
+    assert payload["assignment"]["input_artifact_ids"]
+    assert payload["workitem"]["id"] == assignment.workitem_id
+    assert payload["input_artifacts"]
+    assert "content" in payload["input_artifacts"][0]
 
 
 def test_task_center_cli_rejects_return_before_claim(tmp_path, capsys) -> None:

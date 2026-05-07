@@ -53,6 +53,7 @@ CLI entrypoint:
 ```bash
 python -m app.task_center list --project-root <project-root>
 python -m app.task_center summary --project-root <project-root>
+python -m app.task_center context <assignment-id> --project-root <project-root>
 python -m app.task_center claim-next --project-root <project-root> --agent-id <agent-id> [--role <role>]
 python -m app.task_center claim <assignment-id> --project-root <project-root> --agent-id <agent-id>
 python -m app.task_center complete <assignment-id> --project-root <project-root> --result-summary "done"
@@ -63,6 +64,7 @@ Board API endpoints:
 
 - `GET /api/projects/{project_id}/tasks`
 - `GET /api/projects/{project_id}/tasks/summary`
+- `GET /api/projects/{project_id}/tasks/{assignment_id}/context`
 - `POST /api/projects/{project_id}/tasks/claim-next`
 - `POST /api/projects/{project_id}/tasks/{assignment_id}/claim`
 - `POST /api/projects/{project_id}/tasks/{assignment_id}/complete`

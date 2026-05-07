@@ -47,6 +47,7 @@ from conductor.diagnostics import build_platform_diagnostics, build_requirement_
 from conductor.domain.models import SharedProjectState, TaskAssignment
 from conductor.io.encoding import configure_utf8_stdio
 from conductor.io.requirements import RequirementInputError, load_requirement_text
+from conductor.task_center.context import TaskContextBuilder
 from conductor.task_center.service import TaskCenterError, TaskCenterService
 from conductor.todo.service import (
     TODO_SESSION_COOKIE,
@@ -547,6 +548,28 @@ async def claim_project_task_api(project_id: str, assignment_id: str, payload: T
             "task": _task_assignment_payload(transition.assignment, transition.state),
         }
     )
+
+
+@app.get("/api/projects/{project_id}/tasks/{assignment_id}/context")
+def project_task_context_api(
+    project_id: str,
+    assignment_id: str,
+    include_content: bool = True,
+    max_content_chars: int = 12000,
+) -> JSONResponse:
+    """Return one assignment with input artifact content for external workers."""
+    state = _require_project_state(project_id)
+    try:
+        payload = TaskContextBuilder(engine.artifact_store).build(
+            state,
+            assignment_id,
+            service=_task_center_service(),
+            include_content=include_content,
+            max_content_chars=max_content_chars,
+        )
+    except TaskCenterError as error:
+        raise HTTPException(status_code=error.status_code, detail=str(error)) from error
+    return JSONResponse(payload)
 
 
 @app.post("/api/projects/{project_id}/tasks/{assignment_id}/complete")

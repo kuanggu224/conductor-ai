@@ -1,8 +1,11 @@
+from dataclasses import replace
+
 from fastapi.testclient import TestClient
 
 from app import board
 from conductor.agents.llm import LLMHTTPConfig
 from conductor.config.llm import LLMRuntimeConfig, LLMUsagePolicy
+from conductor.domain.models import Artifact
 
 
 def test_project_api_returns_snapshot_payload() -> None:
@@ -223,6 +226,39 @@ def test_project_task_claim_and_complete_protocol() -> None:
     completed_list = client.get(f"/api/projects/{state.project.id}/tasks?status=completed")
     assert completed_list.status_code == 200
     assert completed_list.json()["total"] == 1
+
+
+def test_project_task_context_api_returns_input_artifact_content() -> None:
+    client = TestClient(board.app)
+    state = board.engine.create_project(
+        requirement="Build a local reading list with CSV export",
+        project_root="",
+    )
+    artifact = board.engine.artifact_store.save_markdown(
+        Artifact(
+            id="artifact-context",
+            project_id=state.project.id,
+            workitem_id="workitem-upstream",
+            agent_id="agent-designer",
+            kind="frozen_requirement_spec",
+            title="Frozen Requirement",
+            content="Acceptance: add book, persist refresh, export CSV.",
+        ),
+        project_root=state.project.project_root,
+    )
+    state = board.engine.state_store.add_artifact(state.project.id, artifact)
+    assignment = replace(state.task_assignments[0], input_artifact_ids=[artifact.id])
+    board.engine.state_store.upsert_task_assignment(state.project.id, assignment)
+
+    response = client.get(f"/api/projects/{state.project.id}/tasks/{assignment.id}/context")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["assignment"]["id"] == assignment.id
+    assert payload["assignment"]["input_artifact_ids"]
+    assert payload["workitem"]["id"] == assignment.workitem_id
+    assert payload["input_artifacts"]
+    assert "content" in payload["input_artifacts"][0]
 
 
 def test_project_task_claim_rejects_non_queued_assignment() -> None:
