@@ -190,7 +190,13 @@ class ProjectLogStore:
     def _task_center_lines(self, state: SharedProjectState) -> list[str]:
         """Render Task Center assignment readiness for human reports."""
         task_center = TaskCenterService(_ReportStateStore(state))
-        lines: list[str] = []
+        summary = task_center.summary(state)
+        lines: list[str] = [
+            "- Summary: "
+            f"total={summary['total']} | queued={summary['queued']} | claimed={summary['claimed']} | "
+            f"completed={summary['completed']} | failed={summary['failed']} | "
+            f"claimable={summary['claimable']} | blocked_by_dependencies={summary['blocked_by_dependencies']}"
+        ]
         for assignment in state.task_assignments:
             unmet = task_center.unmet_dependency_ids(state, assignment)
             unmet_text = ", ".join(unmet) if unmet else "-"
