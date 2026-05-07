@@ -139,6 +139,7 @@ def test_task_center_cli_prints_assignment_context_with_input_artifacts(tmp_path
     assert payload["assignment"]["id"] == assignment.id
     assert payload["assignment"]["input_artifact_ids"]
     assert payload["workitem"]["id"] == assignment.workitem_id
+    assert "Return Protocol" in payload["execution_brief"]
     assert payload["input_artifacts"]
     assert "content" in payload["input_artifacts"][0]
 
@@ -183,6 +184,7 @@ def test_task_center_cli_claim_next_can_include_context(tmp_path, capsys) -> Non
     assert code == 0
     assert payload["task"]["status"] == "claimed"
     assert payload["context"]["assignment"]["id"] == assignment.id
+    assert "Return Protocol" in payload["context"]["execution_brief"]
     assert payload["context"]["input_artifacts"][0]["id"] == artifact.id
     assert "content" in payload["context"]["input_artifacts"][0]
 

@@ -46,6 +46,7 @@ class TaskContextBuilder:
             "project_id": state.project.id,
             "project_goal": state.project.goal,
             "project_root": state.project.project_root,
+            "execution_brief": self._execution_brief(state, assignment, input_artifacts),
             "assignment": {
                 **asdict(assignment),
                 "status": assignment.status.value,
@@ -56,6 +57,33 @@ class TaskContextBuilder:
             "input_artifacts": input_artifacts,
             "output_artifacts": output_artifacts,
         }
+
+    def _execution_brief(
+        self,
+        state: SharedProjectState,
+        assignment: TaskAssignment,
+        input_artifacts: list[dict[str, object]],
+    ) -> str:
+        criteria = "\n".join(f"- {item}" for item in self._workitem_criteria(state, assignment)) or "- Not specified"
+        inputs = "\n".join(f"- {item['id']} ({item['kind']}): {item['title']}" for item in input_artifacts) or "- None"
+        return (
+            f"Project: {state.project.goal}\n"
+            f"TaskAssignment: {assignment.id}\n"
+            f"WorkItem: {assignment.workitem_id}\n"
+            f"Role: {assignment.role}\n\n"
+            "Acceptance Criteria:\n"
+            f"{criteria}\n\n"
+            "Input Artifacts To Read:\n"
+            f"{inputs}\n\n"
+            "Return Protocol:\n"
+            "- Complete with a concise result_summary.\n"
+            "- Attach output_artifact_content or --output-file when returning substantive work.\n"
+            "- Use fail/blocked_reason if the task cannot be completed safely."
+        )
+
+    def _workitem_criteria(self, state: SharedProjectState, assignment: TaskAssignment) -> list[str]:
+        workitem = next((item for item in state.workitems if item.id == assignment.workitem_id), None)
+        return list(workitem.acceptance_criteria) if workitem else []
 
     def _artifact_payload(
         self,

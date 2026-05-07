@@ -120,6 +120,7 @@ Context responses from `context` and `/context` include:
 - `project_id`
 - `project_goal`
 - `project_root`
+- `execution_brief`
 - `assignment`
 - `workitem`
 - `input_artifacts`
@@ -128,6 +129,9 @@ Context responses from `context` and `/context` include:
 `input_artifacts[]` includes metadata and, by default, `content` read from the
 artifact file path when available. Use CLI `--no-content` or API
 `?include_content=false` when only metadata is needed.
+`execution_brief` is a compact instruction block for external workers. It
+summarizes the project, assignment, acceptance criteria, input artifacts, and
+return protocol.
 
 Mutation responses from `claim`, `claim-next`, `complete`, and `fail` include:
 

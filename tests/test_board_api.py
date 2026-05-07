@@ -287,6 +287,7 @@ def test_project_task_context_api_returns_input_artifact_content() -> None:
     assert payload["assignment"]["id"] == assignment.id
     assert payload["assignment"]["input_artifact_ids"]
     assert payload["workitem"]["id"] == assignment.workitem_id
+    assert "Return Protocol" in payload["execution_brief"]
     assert payload["input_artifacts"]
     assert "content" in payload["input_artifacts"][0]
 
@@ -319,6 +320,7 @@ def test_project_task_claim_api_can_include_context() -> None:
     payload = response.json()
     assert payload["task"]["status"] == "claimed"
     assert payload["context"]["assignment"]["id"] == assignment.id
+    assert "Return Protocol" in payload["context"]["execution_brief"]
     assert payload["context"]["input_artifacts"][0]["id"] == artifact.id
     assert "content" in payload["context"]["input_artifacts"][0]
 
