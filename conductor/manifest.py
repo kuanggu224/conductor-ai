@@ -40,6 +40,7 @@ class RunManifest:
     requirement_evaluations: list[dict[str, object]]
     requirement_coverage_results: list[dict[str, object]]
     workitems: list[dict[str, object]]
+    task_assignments: list[dict[str, object]]
     artifacts: list[dict[str, object]]
     artifact_files: list[str]
     files: dict[str, object]
@@ -66,7 +67,7 @@ class RunManifestWriter:
         requirement_evaluations = self._requirement_evaluations(state)
         requirement_coverage_results = self._requirement_coverage_results(state)
         manifest = RunManifest(
-            schema_version="1.5",
+            schema_version="1.6",
             run_id=f"{state.project.id}:{generated_at}",
             project_id=state.project.id,
             generated_at=generated_at,
@@ -116,6 +117,22 @@ class RunManifestWriter:
                     "acceptance_criteria": list(item.acceptance_criteria),
                 }
                 for item in state.workitems
+            ],
+            task_assignments=[
+                {
+                    "id": assignment.id,
+                    "workitem_id": assignment.workitem_id,
+                    "role": assignment.role,
+                    "status": assignment.status.value,
+                    "assigned_agent_id": assignment.assigned_agent_id or "",
+                    "claim_reason": assignment.claim_reason,
+                    "dependencies": list(assignment.dependencies),
+                    "input_artifact_ids": list(assignment.input_artifact_ids),
+                    "output_artifact_ids": list(assignment.output_artifact_ids),
+                    "result_summary": assignment.result_summary,
+                    "blocked_reason": assignment.blocked_reason or "",
+                }
+                for assignment in state.task_assignments
             ],
             artifacts=[
                 {
