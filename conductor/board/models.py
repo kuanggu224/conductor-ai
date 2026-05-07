@@ -189,6 +189,7 @@ class BoardSnapshot:
     route_lines: list[str] = field(default_factory=list)
     project_agents: list[BoardProjectAgentView] = field(default_factory=list)
     activation_nodes: list[BoardActivationNodeView] = field(default_factory=list)
+    task_center_summary: dict[str, int] = field(default_factory=dict)
     task_assignments: list[BoardTaskAssignmentView] = field(default_factory=list)
     execution_runtime: BoardExecutionRuntimeView = field(default_factory=BoardExecutionRuntimeView)
     design_collaboration: BoardDesignCollaborationView = field(default_factory=BoardDesignCollaborationView)

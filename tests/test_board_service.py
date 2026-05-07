@@ -57,6 +57,8 @@ def test_board_service_builds_snapshot_from_state() -> None:
     assert snapshot.execution_runtime.output_summary
     assert snapshot.execution_runtime.working_directory
     assert snapshot.task_assignments
+    assert snapshot.task_center_summary["total"] == len(state.task_assignments)
+    assert "claimable" in snapshot.task_center_summary
     assert snapshot.task_assignments[0].claimable in {True, False}
     assert isinstance(snapshot.task_assignments[0].unmet_dependency_ids, list)
 
@@ -165,5 +167,8 @@ def test_board_service_exposes_task_center_readiness() -> None:
 
     snapshot = BoardService().build_snapshot(state)
 
+    assert snapshot.task_center_summary["total"] == 1
+    assert snapshot.task_center_summary["claimable"] == 0
+    assert snapshot.task_center_summary["blocked_by_dependencies"] == 1
     assert snapshot.task_assignments[0].claimable is False
     assert snapshot.task_assignments[0].unmet_dependency_ids == ["workitem-dependency"]

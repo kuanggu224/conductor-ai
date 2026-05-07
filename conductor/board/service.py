@@ -230,6 +230,7 @@ class BoardService:
             ],
             project_agents=self._build_project_agents(state),
             activation_nodes=self._build_activation_nodes(state),
+            task_center_summary=task_center.summary(state),
             task_assignments=[
                 BoardTaskAssignmentView(
                     id=assignment.id,
