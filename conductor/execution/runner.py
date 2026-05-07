@@ -243,7 +243,7 @@ class Runner:
             prompt = (
                 self._build_code_execution_prompt(project_id, workitem, agent, cli_name=cli_name)
                 if is_code_edit
-                else self._build_agent_cli_document_prompt(workitem, agent, cli_name)
+                else self._build_agent_cli_document_prompt(workitem, agent, cli_name, project_id=project_id)
             )
             self.state_store.add_event(project_id, f"WorkItem {workitem.id} 使用 Agent CLI 执行，role={agent.role}, cli={cli_name}")
             try:
@@ -945,6 +945,7 @@ class Runner:
         """Build a controlled artifact prompt for direct API models."""
         state = self.state_store.get_state(project_id)
         criteria = "\n".join(f"- {item}" for item in workitem.acceptance_criteria) or "- No explicit acceptance criteria"
+        frozen_context = self._frozen_requirement_context(project_id)
         if workitem.kind == "requirement_spec":
             required_sections = [
                 "## 目标",
@@ -985,6 +986,7 @@ class Runner:
             f"WorkItem 类型: {workitem.kind}\n"
             f"任务描述: {workitem.description}\n\n"
             f"验收标准:\n{criteria}\n\n"
+            f"{frozen_context}\n"
             "必须包含这些二级标题:\n"
             + "\n".join(required_sections)
             + "\n"
@@ -995,6 +997,7 @@ class Runner:
         context_pack = self._build_context_pack(project_id, workitem)
         state = self.state_store.get_state(project_id)
         criteria = "\n".join(f"- {item}" for item in workitem.acceptance_criteria) or "- No explicit acceptance criteria"
+        frozen_context = self._frozen_requirement_context(project_id)
         artifact_context = "\n\n".join(
             f"### Upstream Artifact\n{artifact[:900]}"
             for artifact in context_pack.artifacts[-3:]
@@ -1032,6 +1035,7 @@ class Runner:
             f"WorkItem kind: {workitem.kind}\n"
             f"Task:\n{workitem.description}\n\n"
             f"Acceptance criteria:\n{criteria}\n\n"
+            f"{frozen_context}\n"
             f"File guidance:\n{file_hint}\n\n"
             f"Upstream context:\n{artifact_context or '(none)'}\n"
         )
@@ -1377,15 +1381,31 @@ class Runner:
             "请使用中文输出结构化 Markdown 文档。需求规格类任务至少包含：目标、需求理解、范围边界、非目标、验收标准、边界/异常场景、风险与假设、待确认问题、下游交付约束。"
         )
 
-    def _build_agent_cli_document_prompt(self, workitem: WorkItem, agent: Agent, cli_name: str) -> str:
+    def _build_agent_cli_document_prompt(
+        self,
+        workitem: WorkItem,
+        agent: Agent,
+        cli_name: str,
+        project_id: str | None = None,
+    ) -> str:
         """Build CLI-specific document prompts when a provider has special constraints."""
+        frozen_context = self._frozen_requirement_context(project_id) if project_id else ""
         if cli_name == "claude":
-            return self._build_compact_claude_document_prompt(workitem, agent)
+            return self._append_frozen_requirement_context(
+                self._build_compact_claude_document_prompt(workitem, agent),
+                frozen_context,
+            )
         if cli_name == "codex":
-            return self._build_compact_codex_document_prompt(workitem, agent)
+            return self._append_frozen_requirement_context(
+                self._build_compact_codex_document_prompt(workitem, agent),
+                frozen_context,
+            )
         if cli_name == "opencode":
-            return self._build_compact_opencode_document_prompt(workitem, agent)
-        return self._build_document_prompt(workitem, agent)
+            return self._append_frozen_requirement_context(
+                self._build_compact_opencode_document_prompt(workitem, agent),
+                frozen_context,
+            )
+        return self._append_frozen_requirement_context(self._build_document_prompt(workitem, agent), frozen_context)
 
     def _build_compact_codex_document_prompt(self, workitem: WorkItem, agent: Agent) -> str:
         """Build a strict non-interactive document prompt for Codex CLI."""
@@ -1461,6 +1481,18 @@ class Runner:
             "Do not ask questions. After the file is written, reply exactly: DONE\n"
         )
 
+    def _append_frozen_requirement_context(self, prompt: str, frozen_context: str) -> str:
+        """Append frozen requirement instructions when a project baseline exists."""
+        if not frozen_context:
+            return prompt
+        return (
+            prompt.rstrip()
+            + "\n\n"
+            + frozen_context
+            + "\nUse this frozen baseline as the controlling contract. Do not expand non-goals, "
+            "and make acceptance criteria directly traceable.\n"
+        )
+
     def _read_agent_cli_document_file(self, project_root: str, workitem: WorkItem, cli_name: str) -> str:
         """Read file-based document output from CLI agents that may not exit cleanly."""
         if cli_name != "opencode":
@@ -1481,8 +1513,9 @@ class Runner:
         context_pack = self._build_context_pack(project_id, workitem)
         state = self.state_store.get_state(project_id)
         project_goal = state.project.goal
+        frozen_context = self._frozen_requirement_context(project_id)
         if cli_name == "opencode":
-            return self._build_compact_opencode_code_prompt(workitem, agent, project_goal)
+            return self._build_compact_opencode_code_prompt(workitem, agent, project_goal, frozen_context=frozen_context)
         criteria = "; ".join(workitem.acceptance_criteria) or "no explicit acceptance criteria"
         artifact_context = "\n\n".join(
             f"### Upstream Artifact\n{artifact[:1600]}"
@@ -1517,6 +1550,7 @@ class Runner:
             f"Task: {workitem.description}\n"
             f"WorkItem kind: {workitem.kind}\n"
             f"Acceptance criteria: {criteria}\n"
+            f"{frozen_context}\n"
             "If the task text mentions a file name, start from that file.\n"
         )
         if artifact_context:
@@ -1524,7 +1558,13 @@ class Runner:
         prompt += "\nAfter the code and tests are done, output exactly: done"
         return prompt
 
-    def _build_compact_opencode_code_prompt(self, workitem: WorkItem, agent: Agent, project_goal: str) -> str:
+    def _build_compact_opencode_code_prompt(
+        self,
+        workitem: WorkItem,
+        agent: Agent,
+        project_goal: str,
+        frozen_context: str = "",
+    ) -> str:
         """Build a short code-edit prompt for OpenCode to avoid slow artifact exploration."""
         criteria = "; ".join(workitem.acceptance_criteria) or "no explicit acceptance criteria"
         if agent.role == "frontend_engineer" and workitem.kind == "ui_implementation":
@@ -1532,6 +1572,7 @@ class Runner:
                 "You are the frontend_engineer. Work only in the current directory.\n"
                 "Do not inspect or edit .conductor/, .pytest_cache/, __pycache__, node_modules/, or generated logs.\n"
                 f"Full project requirement: {project_goal}\n"
+                f"{frozen_context}\n"
                 "Task: create a minimal frontend UI for the actual business domain described above.\n"
                 "Required files: create or update index.html, static/app.js, and static/style.css, unless an equivalent frontend structure already exists.\n"
                 "UI requirements: cover the entities, fields, actions, and filters in the requirement. Use the matching backend API paths when possible.\n"
@@ -1543,6 +1584,7 @@ class Runner:
             f"You are the {agent.role}. Work only in the current directory.\n"
             "Do not inspect or edit .conductor/, .pytest_cache/, __pycache__, node_modules/, or generated logs.\n"
             f"Full project requirement: {project_goal}\n"
+            f"{frozen_context}\n"
             f"Task: {workitem.description}\n"
             f"WorkItem kind: {workitem.kind}\n"
             f"Acceptance criteria: {criteria}\n"
@@ -1554,22 +1596,40 @@ class Runner:
         state = self.state_store.get_state(project_id)
         return self.context_builder.build(state=state, workitem=workitem)
 
-    def _evaluate_scope_contract(self, project_id: str, candidate_content: str):
-        """Validate candidate content against the latest frozen requirement."""
+    def _latest_frozen_requirement(self, project_id: str | None) -> Artifact | None:
+        """Return the latest frozen requirement artifact for a project."""
+        if not project_id:
+            return None
         state = self.state_store.get_state(project_id)
-        frozen_requirement = next(
+        return next(
             (artifact for artifact in reversed(state.artifacts) if artifact.kind == "frozen_requirement_spec"),
             None,
         )
+
+    def _frozen_requirement_context(self, project_id: str | None, *, max_chars: int = 4000) -> str:
+        """Build a prompt-ready frozen requirement baseline section."""
+        frozen_requirement = self._latest_frozen_requirement(project_id)
+        if frozen_requirement is None:
+            return ""
+        content = self.artifact_store.read_content(frozen_requirement).strip()
+        if len(content) > max_chars:
+            content = content[:max_chars].rstrip() + "\n[truncated]"
+        return (
+            "Frozen Requirement Baseline:\n"
+            "This baseline is the controlling contract for design, implementation, and testing.\n"
+            "You must preserve its scope, non-goals, acceptance criteria, edge cases, risks, and downstream constraints.\n"
+            "Do not introduce features that the baseline excludes or does not require.\n\n"
+            f"{content}\n"
+        )
+
+    def _evaluate_scope_contract(self, project_id: str, candidate_content: str):
+        """Validate candidate content against the latest frozen requirement."""
+        frozen_requirement = self._latest_frozen_requirement(project_id)
         return evaluate_scope_contract(frozen_requirement, candidate_content)
 
     def _evaluate_requirement_coverage(self, project_id: str, result: HarnessResult) -> CoverageResult:
         """Validate harness evidence against the latest frozen requirement."""
-        state = self.state_store.get_state(project_id)
-        frozen_requirement = next(
-            (artifact for artifact in reversed(state.artifacts) if artifact.kind == "frozen_requirement_spec"),
-            None,
-        )
+        frozen_requirement = self._latest_frozen_requirement(project_id)
         output = f"{result.stdout or ''}\n{result.stderr or ''}"
         return evaluate_requirement_coverage(frozen_requirement, output)
 

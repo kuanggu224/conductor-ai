@@ -687,6 +687,17 @@ def test_runner_code_prompt_includes_full_requirement_and_avoids_generic_task_bo
         kind="ui_implementation",
     )
     state.workitems = [*state.workitems, workitem]
+    state.artifacts = [
+        Artifact(
+            id="artifact-frozen",
+            project_id=state.project.id,
+            workitem_id="workitem-req",
+            agent_id="agent-requirement",
+            kind="frozen_requirement_spec",
+            title="Frozen Requirement",
+            content="Scope: bug triage only. Non-goal: no account system. Acceptance: create bug, change status, filter severity.",
+        )
+    ]
     state_store.save_state(state)
     agent = Agent(
         id="agent-frontend",
@@ -699,6 +710,8 @@ def test_runner_code_prompt_includes_full_requirement_and_avoids_generic_task_bo
     prompt = runner._build_code_execution_prompt(state.project.id, workitem, agent, cli_name="opencode")
 
     assert "Bug triage" in prompt
+    assert "Frozen Requirement Baseline" in prompt
+    assert "Non-goal: no account system" in prompt
     assert "actual business domain" in prompt
     assert "task board" not in prompt.lower()
 

@@ -3,7 +3,7 @@
 from conductor.agents.agent import Agent
 from conductor.agents.profile import build_default_agent_profiles
 from conductor.config.cli import CLISelectionConfig
-from conductor.domain.models import Capability, ExecutionStatus, Project, ProjectStatus, SharedProjectState, WorkItem, WorkItemStatus
+from conductor.domain.models import Artifact, Capability, ExecutionStatus, Project, ProjectStatus, SharedProjectState, WorkItem, WorkItemStatus
 from conductor.harness.base import BaseHarness
 from conductor.harness.models import HarnessRequest, HarnessResult
 from conductor.execution.runner import Runner
@@ -278,6 +278,44 @@ def test_opencode_document_prompt_uses_file_output(tmp_path) -> None:
 
     assert "CONDUCTOR_OUTPUT_workitem-001.md" in prompt
     assert runner._read_agent_cli_document_file(str(tmp_path), workitem, "opencode") == "# 目标\n真实产出"
+
+
+def test_agent_cli_document_prompt_includes_frozen_requirement_baseline() -> None:
+    state_store = InMemoryStateStore()
+    state_store.save_state(
+        SharedProjectState(
+            project=Project(id="project-frozen-doc", goal="Build a local reading list", current_stage="design"),
+            project_status=ProjectStatus.IN_PROGRESS,
+            current_stage="design",
+            artifacts=[
+                Artifact(
+                    id="artifact-frozen",
+                    project_id="project-frozen-doc",
+                    workitem_id="workitem-req",
+                    agent_id="agent-requirement",
+                    kind="frozen_requirement_spec",
+                    title="Frozen Requirement",
+                    content="Scope: local reading list only. Non-goal: no user accounts. Acceptance: add book and export CSV.",
+                )
+            ],
+        )
+    )
+    runner = Runner(state_store=state_store)
+    profile = next(profile for profile in build_default_agent_profiles() if profile.role_name == "designer")
+    agent = Agent(
+        id="agent-designer",
+        role="designer",
+        profile=profile,
+        capabilities=[Capability.PLANNING],
+        execution_backend="cli",
+    )
+    workitem = WorkItem(id="workitem-design", description="Create design", stage="design", kind="design_overview")
+
+    prompt = runner._build_agent_cli_document_prompt(workitem, agent, "codex", project_id="project-frozen-doc")
+
+    assert "Frozen Requirement Baseline" in prompt
+    assert "Non-goal: no user accounts" in prompt
+    assert "controlling contract" in prompt
 
 
 def test_requirement_document_prompts_include_quality_gate_sections() -> None:
