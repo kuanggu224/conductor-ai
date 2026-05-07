@@ -6,10 +6,11 @@ from app.diagnostics import build_parser, main
 
 
 def test_diagnostics_parser_accepts_project_root_and_probe() -> None:
-    args = build_parser().parse_args(["--project-root", "demo", "--probe-llm"])
+    args = build_parser().parse_args(["--project-root", "demo", "--probe-llm", "--preflight-llm"])
 
     assert args.project_root == "demo"
     assert args.probe_llm is True
+    assert args.preflight_llm is True
 
 
 def test_diagnostics_cli_prints_platform_snapshot(monkeypatch, tmp_path, capsys) -> None:
