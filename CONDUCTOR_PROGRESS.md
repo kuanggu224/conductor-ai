@@ -1,6 +1,6 @@
 # Conductor 平台进度总结
 
-更新时间：2026-05-07
+更新时间：2026-05-08
 
 本文档用于把当前 Codex 桌面端对话中的关键上下文沉淀到仓库，方便后续通过 Codex CLI、其他 Agent CLI 或人工继续开发。
 
@@ -60,11 +60,14 @@ templates/board.html       当前 Board 页面
 - 运行项目时可以指定项目根目录。
 - 测试项目统一约定放在 `C:\99_self\conductor_test\<case_name>`。
 
-### 3.2 Task Center 雏形
+### 3.2 Task Center 轻量协议
 
 - WorkItem 可以被 Agent 领取、完成、失败或阻塞。
 - 状态里已有 `TaskAssignment`。
-- 目前还是轻量任务中心，不是完整分布式队列。
+- 支持 CLI 和 Board API 的 `claim`、`claim-next`、`complete`、`fail`、`release`、`release-stale`。
+- 支持领取时生成 JSON/Markdown 上下文，包含项目目标、WorkItem、验收标准、输入 artifact 内容和归还协议。
+- 支持 `prompt_file` 归档，方便外部 CLI Agent 领取任务后保留可审计 prompt。
+- 目前仍是轻量任务中心，不是完整分布式队列。
 
 ### 3.3 多 Agent 按需激活
 
@@ -231,6 +234,7 @@ Static Web Harness 能检查：
 - WorkItem retry count
 - blocked reason
 
+已补充失败恢复建议，Manifest、报告和 Board Snapshot 可以暴露失败类型、是否可重试、修复建议和 stale claimed task。
 仍不是生产级任务调度系统，但已经能避免一些无意义重复执行。
 
 ### 3.9 Manifest
@@ -249,10 +253,12 @@ Static Web Harness 能检查：
 - workitems
 - artifacts
 - artifact files
+- task prompt files
+- task assignments
 - log path
 - report path
 
-当前 schema：`1.1`
+当前 schema：`1.18`
 
 Manifest 现在能正确显示：
 
@@ -261,6 +267,11 @@ Manifest 现在能正确显示：
 - review count / revision count。
 - LLM review/revision 的输出文件。
 - collaboration phase 与决策统计。
+- task assignment claimability、stale 状态、prompt 文件。
+- artifact lineage：parent、derived_from、review_of、version、collaboration_session_id。
+- execution command、exit code、duration，Agent CLI prompt 会脱敏。
+- runtime environment 和 platform diagnostics。
+- summary 聚合：状态计数、失败 WorkItem、可重试/不可重试失败数、CLI/LLM/collaboration 运行数、变更文件数、artifact 文件数、验证失败数。
 
 示例真实项目：
 
@@ -295,7 +306,7 @@ python -m pytest -q
 最近一次验证结果：
 
 ```text
-182 passed
+308 passed
 ```
 
 ### 4.2 运行 Board
@@ -454,31 +465,29 @@ AspireCode 内置 agent prompt 很长，本地模型 4096 context 会失败。�
 
 ### 6.4 Manifest 仍可继续加强
 
-Manifest 已能记录主要运行事实，但后续可以继续补：
+Manifest 已能记录主要运行事实和审计摘要，但后续可以继续补：
 
 - token usage
 - cost
 - prompt hash
-- exact command
-- environment snapshot
 - model context length
-- LM Studio server status
+- per-step retry history
+- replay/resume cursor
 
 ### 6.5 任务中心仍是轻量实现
 
-目前已有 TaskAssignment，但还不是独立队列或可并发多 worker 领取任务的系统。
+目前已有 TaskAssignment、上下文渲染、prompt 归档和 stale release，但还不是独立队列或可并发多 worker 长期抢占式领取任务的系统。
 
 ## 7. 建议下一步
 
 优先级建议：
 
-1. 强化任务中心：定义 WorkItem claim/return 协议，支持 Agent 从任务中心领取任务并归还结构化结果。
-2. 校准需求评分器：改进中文关键词抽取和领域实体覆盖，减少“章节完整但 keyword coverage 偏低”的误报。
-3. 做 Agent CLI 执行健康检查：每个 CLI 支持 probe，记录可用模型、连通性、context 风险。
-4. 完善 AspireCode 绑定：支持不同 Conductor role 绑定 AspireCode 内部 agent，例如 `需求分析Agent`、`编码Agentic`、`测试Agent`。
-5. 做一个小型真实项目闭环：静态 Web 项目优先，从需求设计、代码生成、静态验证到 manifest 归档。
-6. 强化 ContextBuilder：按 artifact lineage 选择上下文，减少无效长 prompt。
-7. 继续改进失败恢复：失败后自动建议“换模型 / 增加 context / 降低 prompt / 切换 CLI”。
+1. 校准需求评分器：改进中文关键词抽取和领域实体覆盖，减少“章节完整但 keyword coverage 偏低”的误报。
+2. 跑动态评审真实 benchmark，对比 direct plain、static review、dynamic review 的质量和成本。
+3. 强化 frozen requirement 到 design/development/testing 的上下文传递，保证后续阶段以冻结需求为基线。
+4. 做一个小型真实项目闭环：静态 Web 项目优先，从需求冻结、设计、代码生成、StaticWebHarness 验证到 manifest/report 归档。
+5. 继续产品化 Task Center：增加 replay/resume 边界、worker 心跳、长期 claimed task 管理和并发安全策略。
+6. 开始把开发/测试阶段也做成类似需求阶段的产品级闭环。
 
 ## 8. 当前关键命令备忘
 
