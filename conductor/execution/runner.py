@@ -14,6 +14,7 @@ from conductor.agents.agent import Agent
 from conductor.agents.cli_executor import AgentCLIExecution, AgentCLIExecutor
 from conductor.agents.llm import LLMHTTPConfig
 from conductor.artifacts.store import ArtifactStore
+from conductor.artifacts.scope_contract import evaluate_scope_contract
 from conductor.config.cli import CLISelectionConfig
 from conductor.config.llm import LLMUsagePolicy
 from conductor.context.builder import ContextBuilder
@@ -585,6 +586,16 @@ class Runner:
                 succeeded=False,
                 failure=configuration_required(reason),
             )
+        scope_result = self._evaluate_scope_contract(project_id, result.content)
+        if not scope_result.passed:
+            return WorkItemRunResult(
+                content=result.content,
+                source_backend=f"llm_harness/{self.llm_harness_config.model_name}",
+                succeeded=False,
+                failure=FailureDecision(FailureType.VALIDATION_FAILED, True, scope_result.summary()),
+                model=self.llm_harness_config.model_name,
+                working_directory=project_root,
+            )
         return WorkItemRunResult(
             content=result.content,
             source_backend=f"llm_harness/{self.llm_harness_config.model_name}",
@@ -653,6 +664,31 @@ class Runner:
             )
         try:
             generated_files = self._extract_generated_files(result.content)
+            scope_result = self._evaluate_scope_contract(
+                project_id,
+                "\n\n".join(f"### {item['path']}\n{item['content']}" for item in generated_files),
+            )
+            if not scope_result.passed:
+                return WorkItemRunResult(
+                    content=self._build_llm_code_report(
+                        workitem=workitem,
+                        agent=agent,
+                        model=self.llm_harness_config.model_name,
+                        changed_files=[],
+                        raw_output=result.content,
+                        validation_result=None,
+                        validation_command=None,
+                        success=False,
+                        error=scope_result.summary(),
+                    ),
+                    source_backend=f"llm_harness_code/{self.llm_harness_config.model_name}",
+                    succeeded=False,
+                    failure=FailureDecision(FailureType.VALIDATION_FAILED, True, scope_result.summary()),
+                    model=self.llm_harness_config.model_name,
+                    working_directory=project_root,
+                    changed_files=[],
+                    cli_stdout_tail=self._tail(result.content),
+                )
             changed_files = self._write_llm_generated_files(project_root, generated_files)
         except Exception as error:
             return WorkItemRunResult(
@@ -803,6 +839,13 @@ class Runner:
             return None
         try:
             repair_files = self._extract_generated_files(result.content)
+            scope_result = self._evaluate_scope_contract(
+                project_id,
+                "\n\n".join(f"### {item['path']}\n{item['content']}" for item in repair_files),
+            )
+            if not scope_result.passed:
+                self.state_store.add_event(project_id, f"WorkItem {workitem.id} LLMHarness 修复违反冻结需求范围: {scope_result.summary()}")
+                return None
             repair_changed_files = self._write_llm_generated_files(project_root, repair_files)
         except Exception as error:
             self.state_store.add_event(project_id, f"WorkItem {workitem.id} LLMHarness 修复产物解析失败: {error}")
@@ -1491,6 +1534,15 @@ class Runner:
         """Build a lightweight context pack for the current workitem."""
         state = self.state_store.get_state(project_id)
         return self.context_builder.build(state=state, workitem=workitem)
+
+    def _evaluate_scope_contract(self, project_id: str, candidate_content: str):
+        """Validate candidate content against the latest frozen requirement."""
+        state = self.state_store.get_state(project_id)
+        frozen_requirement = next(
+            (artifact for artifact in reversed(state.artifacts) if artifact.kind == "frozen_requirement_spec"),
+            None,
+        )
+        return evaluate_scope_contract(frozen_requirement, candidate_content)
 
     def _build_harness_request(self, workitem: WorkItem, working_directory: str, stream_callback=None) -> HarnessRequest:
         """Build tester harness request."""

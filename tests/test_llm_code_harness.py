@@ -409,6 +409,123 @@ def test_llm_code_harness_rejects_mojibake_file_content(tmp_path) -> None:
     assert not (tmp_path / "index.html").exists()
 
 
+def test_llm_code_harness_rejects_frozen_scope_expansion(tmp_path) -> None:
+    state_store = InMemoryStateStore()
+    project_id = "project-code-scope"
+    workitem = WorkItem(
+        id="workitem-001",
+        description="Implement UI",
+        stage="development",
+        kind="ui_implementation",
+    )
+    frozen_requirement = Artifact(
+        id="artifact-frozen",
+        project_id=project_id,
+        workitem_id="workitem-000",
+        agent_id="agent-requirement",
+        kind="frozen_requirement_spec",
+        title="Frozen requirement",
+        content="范围边界：仅实现前端静态页面，不接后端，不接数据库。非目标：不做登录。",
+        source_backend="llm_harness/qwen2.5-coder-14b-instruct",
+    )
+    state_store.save_state(
+        SharedProjectState(
+            project=Project(id=project_id, goal="Build static UI", current_stage="development", project_root=str(tmp_path)),
+            project_status=ProjectStatus.IN_PROGRESS,
+            current_stage="development",
+            workitems=[workitem],
+            artifacts=[frozen_requirement],
+        )
+    )
+    harness = FakeCodeLLMHarness(
+        "<<FILE:app.py>>\nfrom fastapi import FastAPI\napp = FastAPI()\n@app.post('/login')\ndef login(): return {'token': 'x'}\n<<END_FILE>>"
+    )
+    runner = Runner(
+        state_store=state_store,
+        require_real_code_outputs=True,
+        llm_harness=harness,
+        llm_harness_config=LLMHTTPConfig(
+            base_url="http://127.0.0.1:1234/v1",
+            model_name="qwen2.5-coder-14b-instruct",
+            enabled=True,
+        ),
+    )
+    profile = next(profile for profile in build_default_agent_profiles() if profile.role_name == "frontend_engineer")
+    agent = Agent(
+        id="agent-frontend",
+        role="frontend_engineer",
+        profile=profile,
+        capabilities=[Capability.CODING],
+        execution_backend="cli",
+    )
+
+    execution = runner.run(project_id, workitem, agent)
+
+    assert execution.status.value == "failed"
+    assert execution.failure_type == "validation_failed"
+    assert "Scope contract violation" in execution.failure_summary
+    assert not (tmp_path / "app.py").exists()
+
+
+def test_llm_document_harness_rejects_frozen_scope_expansion(tmp_path) -> None:
+    state_store = InMemoryStateStore()
+    project_id = "project-design-scope"
+    workitem = WorkItem(
+        id="workitem-001",
+        description="Produce design",
+        stage="design",
+        kind="design_overview",
+    )
+    frozen_requirement = Artifact(
+        id="artifact-frozen",
+        project_id=project_id,
+        workitem_id="workitem-000",
+        agent_id="agent-requirement",
+        kind="frozen_requirement_spec",
+        title="Frozen requirement",
+        content="范围边界：只做前端静态页面，不接后端，不接数据库。非目标：不做登录。",
+        source_backend="llm_harness/qwen2.5-coder-14b-instruct",
+    )
+    state_store.save_state(
+        SharedProjectState(
+            project=Project(id=project_id, goal="Build static UI", current_stage="design", project_root=str(tmp_path)),
+            project_status=ProjectStatus.IN_PROGRESS,
+            current_stage="design",
+            workitems=[workitem],
+            artifacts=[frozen_requirement],
+        )
+    )
+    harness = FakeCodeLLMHarness(
+        "## 目标\n实现读书清单。\n## 需求理解\n需要静态页面。\n## 范围边界\n新增 FastAPI endpoint 和 login token。\n"
+        "## 核心流程\n用户登录后调用 API。\n## 方案\n使用数据库保存账号。\n## 接口与数据关注点\n提供 /login API。\n"
+        "## 验收标准\n接口可用。\n## 风险\n范围扩大。"
+    )
+    runner = Runner(
+        state_store=state_store,
+        require_real_design_outputs=True,
+        llm_harness=harness,
+        llm_harness_config=LLMHTTPConfig(
+            base_url="http://127.0.0.1:1234/v1",
+            model_name="qwen2.5-coder-14b-instruct",
+            enabled=True,
+        ),
+    )
+    profile = next(profile for profile in build_default_agent_profiles() if profile.role_name == "designer")
+    agent = Agent(
+        id="agent-designer",
+        role="designer",
+        profile=profile,
+        capabilities=[Capability.PLANNING],
+        execution_backend="llm",
+    )
+
+    execution = runner.run(project_id, workitem, agent)
+
+    assert execution.status.value == "failed"
+    assert execution.failure_type == "validation_failed"
+    assert "Scope contract violation" in execution.failure_summary
+
+
 def test_runner_prefers_static_web_validation_for_static_project(tmp_path) -> None:
     (tmp_path / "static").mkdir()
     (tmp_path / "index.html").write_text("<html><body><script src='static/app.js'></script></body></html>", encoding="utf-8")
