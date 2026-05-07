@@ -11,6 +11,7 @@ from conductor.config.cli import CLISelectionConfig
 from conductor.config.execution import RunProfile
 from conductor.domain.models import SharedProjectState
 from conductor.requirement_benchmark import build_requirement_case_from_text, evaluate_requirement_document
+from conductor.testing.coverage import evaluate_requirement_coverage
 
 
 @dataclass(slots=True)
@@ -37,6 +38,7 @@ class RunManifest:
     llm_runs: list[dict[str, object]]
     collaboration_runs: list[dict[str, object]]
     requirement_evaluations: list[dict[str, object]]
+    requirement_coverage_results: list[dict[str, object]]
     workitems: list[dict[str, object]]
     artifacts: list[dict[str, object]]
     artifact_files: list[str]
@@ -62,8 +64,9 @@ class RunManifestWriter:
         report_path_text = str(Path(report_path))
         executions = [self._execution_record(state, execution, cli_config) for execution in state.executions]
         requirement_evaluations = self._requirement_evaluations(state)
+        requirement_coverage_results = self._requirement_coverage_results(state)
         manifest = RunManifest(
-            schema_version="1.2",
+            schema_version="1.3",
             run_id=f"{state.project.id}:{generated_at}",
             project_id=state.project.id,
             generated_at=generated_at,
@@ -87,6 +90,7 @@ class RunManifestWriter:
                     [int(item["score"]) for item in requirement_evaluations],
                     default=0,
                 ),
+                "requirement_coverage_status": self._requirement_coverage_status(requirement_coverage_results),
             },
             agents=[self._agent_record(state, activation, cli_config) for activation in state.agent_activations],
             executions=executions,
@@ -98,6 +102,7 @@ class RunManifestWriter:
             llm_runs=self._llm_runs(state, executions),
             collaboration_runs=self._collaboration_runs(state),
             requirement_evaluations=requirement_evaluations,
+            requirement_coverage_results=requirement_coverage_results,
             workitems=[
                 {
                     "id": item.id,
@@ -156,6 +161,57 @@ class RunManifestWriter:
                 }
             )
         return evaluations
+
+    def _requirement_coverage_results(self, state: SharedProjectState) -> list[dict[str, object]]:
+        """Evaluate validation executions against the frozen requirement."""
+        frozen_requirement = next(
+            (artifact for artifact in reversed(state.artifacts) if artifact.kind == "frozen_requirement_spec"),
+            None,
+        )
+        if frozen_requirement is None:
+            return []
+
+        validation_workitem_ids = {
+            item.id
+            for item in state.workitems
+            if item.kind in {"acceptance_check", "automated_test", "api_validation", "ui_validation"}
+        }
+        results: list[dict[str, object]] = []
+        for execution in state.executions:
+            if execution.workitem_id not in validation_workitem_ids and not execution.validation_command:
+                continue
+            output = "\n".join(
+                [
+                    execution.result or "",
+                    execution.cli_stdout_tail or "",
+                    execution.cli_stderr_tail or "",
+                ]
+            )
+            coverage = evaluate_requirement_coverage(frozen_requirement, output)
+            results.append(
+                {
+                    "workitem_id": execution.workitem_id,
+                    "agent_id": execution.agent_id,
+                    "status": "pass" if coverage.passed else "missing_coverage",
+                    "passed": coverage.passed,
+                    "required_rules": [rule.rule_id for rule in coverage.required_rules],
+                    "covered_rules": list(coverage.covered_rule_ids),
+                    "missing_rules": [rule.rule_id for rule in coverage.missing_rules],
+                    "missing_labels": [rule.label for rule in coverage.missing_rules],
+                    "summary": coverage.summary(),
+                }
+            )
+        return results
+
+    def _requirement_coverage_status(self, results: list[dict[str, object]]) -> str:
+        """Return a compact manifest summary status for requirement validation coverage."""
+        if not results:
+            return "not_evaluated"
+        if any(not result.get("passed") for result in results):
+            return "missing_coverage"
+        if any(result.get("required_rules") for result in results):
+            return "pass"
+        return "no_rules"
 
     def _manifest_path(self, project_id: str, project_root: str | Path | None) -> Path:
         root = (Path(project_root) / ".conductor" / "manifests") if project_root else Path(".conductor") / "manifests"

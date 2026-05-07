@@ -21,7 +21,7 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     manifest_path = engine.write_run_manifest(state.project.id, report_path)
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-    assert payload["schema_version"] == "1.2"
+    assert payload["schema_version"] == "1.3"
     assert payload["run_id"].startswith(state.project.id)
     assert payload["project_id"] == state.project.id
     assert payload["run_profile"] == "mock"
@@ -36,6 +36,7 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     assert "collaboration_runs" in payload
     assert "team_plan" in payload["collaboration_runs"][0]
     assert "requirement_evaluations" in payload
+    assert "requirement_coverage_results" in payload
     assert payload["requirement_evaluations"]
     assert payload["requirement_evaluations"][0]["kind"] == "requirement_spec"
     assert "score" in payload["requirement_evaluations"][0]
@@ -51,7 +52,81 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     assert payload["files"]["report"] == str(report_path)
     assert payload["summary"]["execution_count"] == len(state.executions)
     assert "requirement_quality_score" in payload["summary"]
+    assert "requirement_coverage_status" in payload["summary"]
     assert payload["log_path"].endswith(f"{state.project.id}.jsonl")
+
+
+def test_manifest_records_requirement_coverage_results(tmp_path) -> None:
+    from dataclasses import replace
+
+    from conductor.domain.models import Artifact, Execution, ExecutionStatus, WorkItem
+
+    engine = ConductorEngine(
+        log_dir=tmp_path / "logs",
+        artifact_dir=tmp_path / "artifacts",
+        cli_selection_config=CLISelectionConfig(),
+        run_profile=RunProfile.MOCK,
+    )
+    state = engine.create_project(
+        "\u7528\u6237\u53ef\u4ee5\u6dfb\u52a0\u4e66\u7c4d\uff0c"
+        "\u5237\u65b0\u540e\u4fdd\u7559\u6570\u636e\uff0c"
+        "\u5e76\u5bfc\u51fa CSV\u3002"
+    )
+    validation_item = WorkItem(
+        id="workitem-validation",
+        description="\u9a8c\u6536\u9700\u6c42\u8986\u76d6",
+        stage="testing",
+        kind="acceptance_check",
+    )
+    state = replace(
+        state,
+        workitems=[validation_item],
+        executions=[
+            Execution(
+                workitem_id=validation_item.id,
+                agent_id="agent-tester",
+                result="\n".join(
+                    [
+                        "Browser form interaction updated visible state: sample",
+                        "Browser export/download action triggered",
+                    ]
+                ),
+                status=ExecutionStatus.FAILED,
+                source_backend="cli/static_web",
+            )
+        ],
+        artifacts=[
+            Artifact(
+                id="artifact-frozen",
+                project_id=state.project.id,
+                workitem_id="workitem-requirement",
+                agent_id="agent-requirement-designer",
+                kind="frozen_requirement_spec",
+                title="Frozen Requirement",
+                content=state.project.goal,
+            )
+        ],
+    )
+    engine.state_store.save_state(state)
+    report_path = engine.write_project_report(state.project.id)
+
+    manifest_path = engine.write_run_manifest(state.project.id, report_path)
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert payload["summary"]["requirement_coverage_status"] == "missing_coverage"
+    assert payload["requirement_coverage_results"] == [
+        {
+            "workitem_id": "workitem-validation",
+            "agent_id": "agent-tester",
+            "status": "missing_coverage",
+            "passed": False,
+            "required_rules": ["add_item", "persistence", "export_csv"],
+            "covered_rules": ["add_item", "export_csv"],
+            "missing_rules": ["persistence"],
+            "missing_labels": ["refresh persistence"],
+            "summary": "Requirement coverage missing: refresh persistence",
+        }
+    ]
 
 
 def test_manifest_records_codex_model_for_bound_agent(tmp_path) -> None:
