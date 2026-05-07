@@ -547,6 +547,31 @@ def test_project_task_claim_next_can_write_prompt_file(tmp_path) -> None:
     assert tasks.json()["tasks"][0]["prompt_file"] == str(prompt_file.resolve())
 
 
+def test_project_task_claim_next_rejects_prompt_file_outside_project_root(tmp_path) -> None:
+    client = TestClient(board.app)
+    project_root = tmp_path / "project"
+    state = board.engine.create_project(
+        requirement="Build a local reading list",
+        project_root=str(project_root),
+    )
+
+    response = client.post(
+        f"/api/projects/{state.project.id}/tasks/claim-next",
+        json={
+            "agent_id": "agent-api-worker",
+            "prompt_file": "../escaped-task.md",
+        },
+    )
+
+    assert response.status_code == 422
+    assert "Prompt file must be inside project root" in response.json()["detail"]
+    assert not (tmp_path / "escaped-task.md").exists()
+
+    reloaded = board.engine.get_project(state.project.id)
+    assert reloaded.task_assignments[0].status == state.task_assignments[0].status
+    assert reloaded.task_assignments[0].prompt_file == ""
+
+
 def test_project_task_claim_next_returns_404_when_no_role_task() -> None:
     client = TestClient(board.app)
     state = board.engine.create_project(requirement="Build a local reading list", project_root="")

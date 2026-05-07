@@ -173,6 +173,8 @@ When API claim operations set `context_format=markdown`, the response includes
 When API claim operations set `prompt_file`, the platform writes the rendered
 Markdown prompt under `project_root` for relative paths, returns `prompt_file`,
 and records the path on the `TaskAssignment`.
+Prompt files must resolve inside `project_root`; paths that escape the project
+root are rejected before claim state is mutated.
 For CLI claim operations, `--context-format markdown` prints the rendered
 Markdown prompt instead of the JSON mutation payload.
 

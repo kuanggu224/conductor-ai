@@ -13,6 +13,7 @@ from conductor.domain.models import SharedProjectState, TaskAssignment, TaskAssi
 from conductor.io.encoding import configure_utf8_stdio
 from conductor.task_center.artifacts import create_task_return_artifact
 from conductor.task_center.context import TaskContextBuilder
+from conductor.task_center.prompts import resolve_task_prompt_path, write_task_prompt_file
 from conductor.state.file_store import FileStateStore
 from conductor.state.store import InMemoryStateStore
 from conductor.task_center.service import TaskCenterError, TaskCenterService
@@ -89,6 +90,7 @@ def main(argv: list[str] | None = None) -> int:
     service = TaskCenterService(store, event_prefix="TaskCenterCLI")
 
     try:
+        _validate_prompt_file_before_mutation(args, state)
         if args.command == "list":
             payload = _list_payload(
                 state,
@@ -111,7 +113,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.prompt_file or args.format == "markdown":
                 prompt_markdown = context_builder.render_markdown(payload)
             if args.prompt_file:
-                prompt_file = _write_prompt_file(args.prompt_file, state.project.project_root, prompt_markdown)
+                prompt_file = write_task_prompt_file(args.prompt_file, state.project.project_root, prompt_markdown)
                 _record_assignment_prompt_file(store, state, args.assignment_id, prompt_file)
                 payload["prompt_file"] = str(prompt_file)
                 payload["assignment"]["prompt_file"] = str(prompt_file)
@@ -190,6 +192,13 @@ def _resolve_state(store: FileStateStore, project_id: str | None) -> SharedProje
     return states[0]
 
 
+def _validate_prompt_file_before_mutation(args, state: SharedProjectState) -> None:
+    prompt_file = getattr(args, "prompt_file", "")
+    if not prompt_file or args.command not in {"claim", "claim-next"}:
+        return
+    resolve_task_prompt_path(prompt_file, state.project.project_root)
+
+
 def _list_payload(
     state: SharedProjectState,
     assignments: list[TaskAssignment],
@@ -260,7 +269,7 @@ def _attach_context_if_requested(
     if prompt_file_arg or getattr(args, "context_format", "json") == "markdown":
         prompt_markdown = context_builder.render_markdown(context)
     if prompt_file_arg:
-        prompt_file = _write_prompt_file(prompt_file_arg, state.project.project_root, prompt_markdown)
+        prompt_file = write_task_prompt_file(prompt_file_arg, state.project.project_root, prompt_markdown)
         _record_assignment_prompt_file(service.state_store, state, assignment.id, prompt_file)
         payload["prompt_file"] = str(prompt_file)
         if isinstance(payload.get("task"), dict):
@@ -270,15 +279,6 @@ def _attach_context_if_requested(
     if getattr(args, "with_context", False):
         payload["context"] = context
     return payload
-
-
-def _write_prompt_file(prompt_file: str, project_root: str, content: str) -> Path:
-    path = Path(prompt_file).expanduser()
-    if not path.is_absolute():
-        path = Path(project_root).expanduser().resolve() / path
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
-    return path.resolve()
 
 
 def _record_assignment_prompt_file(

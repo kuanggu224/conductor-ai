@@ -49,6 +49,7 @@ from conductor.io.encoding import configure_utf8_stdio
 from conductor.io.requirements import RequirementInputError, load_requirement_text
 from conductor.task_center.artifacts import create_task_return_artifact
 from conductor.task_center.context import TaskContextBuilder
+from conductor.task_center.prompts import resolve_task_prompt_path, write_task_prompt_file
 from conductor.task_center.service import TaskCenterError, TaskCenterService
 from conductor.todo.service import (
     TODO_SESSION_COOKIE,
@@ -524,6 +525,7 @@ def project_tasks_summary_api(project_id: str) -> JSONResponse:
 @app.post("/api/projects/{project_id}/tasks/claim-next")
 async def claim_next_project_task_api(project_id: str, payload: TaskClaimNextRequest) -> JSONResponse:
     """Claim the next queued task-center assignment, optionally filtered by role."""
+    _validate_task_prompt_file_request(project_id, payload.prompt_file)
     transition = _run_task_center_transition(
         _task_center_service().claim_next,
         project_id,
@@ -544,6 +546,7 @@ async def claim_next_project_task_api(project_id: str, payload: TaskClaimNextReq
 @app.post("/api/projects/{project_id}/tasks/{assignment_id}/claim")
 async def claim_project_task_api(project_id: str, assignment_id: str, payload: TaskClaimRequest) -> JSONResponse:
     """Claim one queued task-center assignment."""
+    _validate_task_prompt_file_request(project_id, payload.prompt_file)
     transition = _run_task_center_transition(
         _task_center_service().claim,
         project_id,
@@ -682,7 +685,7 @@ def _task_claim_response_payload(
         if payload.prompt_file or payload.context_format == "markdown":
             markdown = context_builder.render_markdown(context)
         if payload.prompt_file:
-            prompt_file = _write_task_prompt_file(payload.prompt_file, state.project.project_root, markdown)
+            prompt_file = write_task_prompt_file(payload.prompt_file, state.project.project_root, markdown)
             _record_task_prompt_file(state, assignment.id, prompt_file)
             response["prompt_file"] = str(prompt_file)
             response["task"]["prompt_file"] = str(prompt_file)
@@ -778,20 +781,21 @@ def _task_assignment_payload(
     }
 
 
-def _write_task_prompt_file(prompt_file: str, project_root: str, content: str) -> Path:
-    path = Path(prompt_file).expanduser()
-    if not path.is_absolute():
-        path = Path(project_root).expanduser().resolve() / path
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
-    return path.resolve()
-
-
 def _record_task_prompt_file(state: SharedProjectState, assignment_id: str, prompt_file: Path) -> None:
     assignment = next((item for item in state.task_assignments if item.id == assignment_id), None)
     if assignment is None:
         raise HTTPException(status_code=404, detail=f"Task assignment not found: {assignment_id}")
     engine.state_store.upsert_task_assignment(state.project.id, replace(assignment, prompt_file=str(prompt_file)))
+
+
+def _validate_task_prompt_file_request(project_id: str, prompt_file: str) -> None:
+    if not prompt_file:
+        return
+    state = _require_project_state(project_id)
+    try:
+        resolve_task_prompt_path(prompt_file, state.project.project_root)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
 
 
 def _task_center_service() -> TaskCenterService:

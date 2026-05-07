@@ -340,6 +340,38 @@ def test_task_center_cli_claim_next_can_write_prompt_file(tmp_path, capsys) -> N
     assert reloaded.task_assignments[0].prompt_file == str(prompt_file.resolve())
 
 
+def test_task_center_cli_rejects_prompt_file_outside_project_root(tmp_path, capsys) -> None:
+    project_root = tmp_path / "project"
+    state_store = FileStateStore(project_root / ".conductor" / "state")
+    engine = ConductorEngine(
+        log_dir=project_root / ".conductor" / "logs",
+        artifact_dir=project_root / ".conductor" / "artifacts",
+        state_store=state_store,
+    )
+    state = engine.create_project(requirement="Build a local reading list", project_root=str(project_root))
+
+    code = main(
+        [
+            "claim-next",
+            "--project-root",
+            str(project_root),
+            "--agent-id",
+            "agent-file-worker",
+            "--prompt-file",
+            "..\\escaped-task.md",
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert code == 2
+    assert "Prompt file must be inside project root" in captured.err
+    assert not (tmp_path / "escaped-task.md").exists()
+
+    reloaded = FileStateStore(project_root / ".conductor" / "state").get_state(state.project.id)
+    assert reloaded.task_assignments[0].status == TaskAssignmentStatus.QUEUED
+    assert reloaded.task_assignments[0].prompt_file == ""
+
+
 def test_task_center_cli_rejects_return_before_claim(tmp_path, capsys) -> None:
     project_root = tmp_path / "project"
     state_store = FileStateStore(project_root / ".conductor" / "state")
