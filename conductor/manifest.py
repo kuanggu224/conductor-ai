@@ -87,7 +87,7 @@ class RunManifestWriter:
             probe_llm=False,
         ).to_dict()
         manifest = RunManifest(
-            schema_version="1.15",
+            schema_version="1.16",
             run_id=f"{state.project.id}:{generated_at}",
             project_id=state.project.id,
             generated_at=generated_at,
@@ -174,11 +174,18 @@ class RunManifestWriter:
             artifacts=[
                 {
                     "id": artifact.id,
+                    "project_id": artifact.project_id,
+                    "workitem_id": artifact.workitem_id,
+                    "title": artifact.title,
                     "kind": artifact.kind,
                     "agent_id": artifact.agent_id,
                     "source_backend": artifact.source_backend,
                     "path": artifact.path or "",
                     "version": artifact.version,
+                    "parent_artifact_id": artifact.parent_artifact_id or "",
+                    "derived_from": list(artifact.derived_from),
+                    "review_of": artifact.review_of or "",
+                    "collaboration_session_id": artifact.collaboration_session_id or "",
                 }
                 for artifact in state.artifacts
             ],

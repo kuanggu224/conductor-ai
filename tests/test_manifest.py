@@ -24,7 +24,7 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     manifest_path = engine.write_run_manifest(state.project.id, report_path)
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-    assert payload["schema_version"] == "1.15"
+    assert payload["schema_version"] == "1.16"
     assert payload["run_id"].startswith(state.project.id)
     assert payload["project_id"] == state.project.id
     assert payload["run_profile"] == "mock"
@@ -68,6 +68,13 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     assert "unmet_dependency_ids" in payload["task_assignments"][0]
     assert isinstance(payload["task_assignments"][0]["unmet_dependency_ids"], list)
     assert payload["artifact_files"]
+    assert payload["artifacts"]
+    assert "workitem_id" in payload["artifacts"][0]
+    assert "title" in payload["artifacts"][0]
+    assert "parent_artifact_id" in payload["artifacts"][0]
+    assert "derived_from" in payload["artifacts"][0]
+    assert "review_of" in payload["artifacts"][0]
+    assert "collaboration_session_id" in payload["artifacts"][0]
     assert "task_prompt_files" in payload
     assert isinstance(payload["task_prompt_files"], list)
     assert payload["files"]["log"].endswith(f"{state.project.id}.jsonl")
@@ -135,6 +142,59 @@ def test_manifest_records_stale_claimed_task_assignments(tmp_path) -> None:
     assert payload["summary"]["task_center_summary"]["stale_claimed"] == 1
     assert payload["task_assignments"][0]["claimed_age_seconds"] >= 7200
     assert payload["task_assignments"][0]["stale_claimed"] is True
+
+
+def test_manifest_records_artifact_lineage_metadata(tmp_path) -> None:
+    from dataclasses import replace
+    from conductor.domain.models import Artifact
+
+    engine = ConductorEngine(
+        log_dir=tmp_path / "logs",
+        artifact_dir=tmp_path / "artifacts",
+        cli_selection_config=CLISelectionConfig(),
+        run_profile=RunProfile.MOCK,
+    )
+    state = engine.create_project("Build a local reading list", project_root=str(tmp_path / "project"))
+    state = replace(
+        state,
+        artifacts=[
+            Artifact(
+                id="artifact-parent",
+                project_id=state.project.id,
+                workitem_id="workitem-design",
+                agent_id="agent-designer",
+                kind="design_overview",
+                title="Parent design",
+                content="parent",
+            ),
+            Artifact(
+                id="artifact-review",
+                project_id=state.project.id,
+                workitem_id="workitem-review",
+                agent_id="agent-reviewer",
+                kind="collaboration_review",
+                title="Review",
+                content="review",
+                parent_artifact_id="artifact-parent",
+                derived_from=["artifact-parent"],
+                review_of="artifact-parent",
+                collaboration_session_id="collaboration-1",
+            ),
+        ],
+    )
+    engine.state_store.save_state(state)
+    report_path = engine.write_project_report(state.project.id)
+
+    manifest_path = engine.write_run_manifest(state.project.id, report_path)
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    review = next(artifact for artifact in payload["artifacts"] if artifact["id"] == "artifact-review")
+
+    assert review["workitem_id"] == "workitem-review"
+    assert review["title"] == "Review"
+    assert review["parent_artifact_id"] == "artifact-parent"
+    assert review["derived_from"] == ["artifact-parent"]
+    assert review["review_of"] == "artifact-parent"
+    assert review["collaboration_session_id"] == "collaboration-1"
 
 
 def test_manifest_records_requirement_coverage_results(tmp_path) -> None:
