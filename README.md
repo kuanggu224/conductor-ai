@@ -79,6 +79,7 @@ Use diagnostics before real CLI or LLM-backed runs to verify local bindings and
 runtime configuration:
 
 ```bash
+python -m app.diagnostics
 python -m app.run_project --diagnose
 python -m app.run_project --diagnose --diagnose-llm
 ```
