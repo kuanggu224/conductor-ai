@@ -87,7 +87,8 @@ Endpoints:
   "include_context": true,
   "include_context_content": true,
   "max_context_content_chars": 12000,
-  "context_format": "json"
+  "context_format": "json",
+  "prompt_file": ".conductor/task_center/prompts/next-task.md"
 }
 ```
 
@@ -169,6 +170,9 @@ context endpoint.
 When API claim operations set `context_format=markdown`, the response includes
 `context_markdown` instead of `context`, while still returning `summary` and
 `task`.
+When API claim operations set `prompt_file`, the platform writes the rendered
+Markdown prompt under `project_root` for relative paths, returns `prompt_file`,
+and records the path on the `TaskAssignment`.
 For CLI claim operations, `--context-format markdown` prints the rendered
 Markdown prompt instead of the JSON mutation payload.
 

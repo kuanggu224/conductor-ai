@@ -494,6 +494,59 @@ def test_project_task_claim_next_can_include_context_markdown() -> None:
     assert f'python -m app.task_center complete "{assignment.id}"' in payload["context_markdown"]
 
 
+def test_project_task_claim_next_can_write_prompt_file(tmp_path) -> None:
+    client = TestClient(board.app)
+    project_root = tmp_path / "project"
+    state = board.engine.create_project(
+        requirement="Build a local reading list with CSV export",
+        project_root=str(project_root),
+    )
+    artifact = board.engine.artifact_store.save_markdown(
+        Artifact(
+            id="artifact-claim-next-prompt-file",
+            project_id=state.project.id,
+            workitem_id="workitem-upstream",
+            agent_id="agent-designer",
+            kind="frozen_requirement_spec",
+            title="Frozen Requirement",
+            content="Acceptance: add book, persist refresh, export CSV.",
+        ),
+        project_root=state.project.project_root,
+    )
+    state = board.engine.state_store.add_artifact(state.project.id, artifact)
+    assignment = replace(state.task_assignments[0], input_artifact_ids=[artifact.id])
+    board.engine.state_store.upsert_task_assignment(state.project.id, assignment)
+
+    response = client.post(
+        f"/api/projects/{state.project.id}/tasks/claim-next",
+        json={
+            "agent_id": "agent-api-worker",
+            "prompt_file": ".conductor/task_center/prompts/next-task.md",
+        },
+    )
+
+    prompt_file = project_root / ".conductor" / "task_center" / "prompts" / "next-task.md"
+    prompt_content = prompt_file.read_text(encoding="utf-8")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["task"]["status"] == "claimed"
+    assert payload["prompt_file"] == str(prompt_file.resolve())
+    assert payload["task"]["prompt_file"] == str(prompt_file.resolve())
+    assert "context" not in payload
+    assert "context_markdown" not in payload
+    assert "# Task Assignment Context" in prompt_content
+    assert "artifact-claim-next-prompt-file" in prompt_content
+    assert f'python -m app.task_center complete "{assignment.id}"' in prompt_content
+
+    reloaded = board.engine.get_project(state.project.id)
+    assert reloaded.task_assignments[0].prompt_file == str(prompt_file.resolve())
+
+    tasks = client.get(f"/api/projects/{state.project.id}/tasks")
+    assert tasks.status_code == 200
+    assert tasks.json()["tasks"][0]["prompt_file"] == str(prompt_file.resolve())
+
+
 def test_project_task_claim_next_returns_404_when_no_role_task() -> None:
     client = TestClient(board.app)
     state = board.engine.create_project(requirement="Build a local reading list", project_root="")

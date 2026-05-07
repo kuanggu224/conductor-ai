@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from contextlib import asynccontextmanager
 from pathlib import Path
 from threading import Lock, Thread
@@ -126,6 +126,7 @@ class TaskClaimRequest(BaseModel):
     include_context_content: StrictBool = True
     max_context_content_chars: int = 12000
     context_format: str = "json"
+    prompt_file: str = ""
 
 
 class TaskClaimNextRequest(TaskClaimRequest):
@@ -666,7 +667,7 @@ def _task_claim_response_payload(
         "summary": _task_center_service().summary(state),
         "task": _task_assignment_payload(assignment, state),
     }
-    if payload.include_context:
+    if payload.include_context or payload.prompt_file:
         if payload.context_format not in {"json", "markdown"}:
             raise HTTPException(status_code=422, detail="context_format must be 'json' or 'markdown'")
         context_builder = TaskContextBuilder(engine.artifact_store)
@@ -677,9 +678,17 @@ def _task_claim_response_payload(
             include_content=payload.include_context_content,
             max_content_chars=payload.max_context_content_chars,
         )
-        if payload.context_format == "markdown":
-            response["context_markdown"] = context_builder.render_markdown(context)
-        else:
+        markdown = ""
+        if payload.prompt_file or payload.context_format == "markdown":
+            markdown = context_builder.render_markdown(context)
+        if payload.prompt_file:
+            prompt_file = _write_task_prompt_file(payload.prompt_file, state.project.project_root, markdown)
+            _record_task_prompt_file(state, assignment.id, prompt_file)
+            response["prompt_file"] = str(prompt_file)
+            response["task"]["prompt_file"] = str(prompt_file)
+        if payload.include_context and payload.context_format == "markdown":
+            response["context_markdown"] = markdown
+        elif payload.include_context:
             response["context"] = context
     return response
 
@@ -763,9 +772,26 @@ def _task_assignment_payload(
         "blocked_reason": assignment.blocked_reason or "",
         "claimed_at": assignment.claimed_at,
         "returned_at": assignment.returned_at,
+        "prompt_file": assignment.prompt_file,
         "workitem": _task_workitem_payload(workitem),
         "artifacts": artifacts,
     }
+
+
+def _write_task_prompt_file(prompt_file: str, project_root: str, content: str) -> Path:
+    path = Path(prompt_file).expanduser()
+    if not path.is_absolute():
+        path = Path(project_root).expanduser().resolve() / path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    return path.resolve()
+
+
+def _record_task_prompt_file(state: SharedProjectState, assignment_id: str, prompt_file: Path) -> None:
+    assignment = next((item for item in state.task_assignments if item.id == assignment_id), None)
+    if assignment is None:
+        raise HTTPException(status_code=404, detail=f"Task assignment not found: {assignment_id}")
+    engine.state_store.upsert_task_assignment(state.project.id, replace(assignment, prompt_file=str(prompt_file)))
 
 
 def _task_center_service() -> TaskCenterService:
