@@ -248,6 +248,7 @@ class BoardService:
                     output_artifact_ids=assignment.output_artifact_ids,
                     claim_reason=assignment.claim_reason,
                     blocked_reason=assignment.blocked_reason or "",
+                    prompt_file=assignment.prompt_file,
                 )
                 for assignment in state.task_assignments
             ],

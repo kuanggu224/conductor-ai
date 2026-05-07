@@ -82,6 +82,7 @@ class TaskContextBuilder:
             f"- Claimable: {assignment.get('claimable', '')}",
             f"- Dependencies: {_join_or_none(_list_payload(assignment.get('dependencies')))}",
             f"- Unmet Dependencies: {_join_or_none(_list_payload(assignment.get('unmet_dependency_ids')))}",
+            f"- Prompt File: {assignment.get('prompt_file', '') or 'not recorded'}",
             "",
             "## WorkItem",
             f"- WorkItem ID: {workitem.get('id', '')}",

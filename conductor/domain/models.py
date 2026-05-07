@@ -117,6 +117,7 @@ class TaskAssignment:
     blocked_reason: str | None = None
     claimed_at: str = ""
     returned_at: str = ""
+    prompt_file: str = ""
 
 
 @dataclass(slots=True)

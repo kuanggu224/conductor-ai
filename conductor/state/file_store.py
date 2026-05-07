@@ -134,6 +134,7 @@ class FileStateStore(InMemoryStateStore):
             blocked_reason=data.get("blocked_reason"),
             claimed_at=data.get("claimed_at", ""),
             returned_at=data.get("returned_at", ""),
+            prompt_file=data.get("prompt_file", ""),
         )
 
     def _execution(self, data: dict[str, Any]) -> Execution:

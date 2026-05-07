@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 
 from conductor.artifacts.store import ArtifactStore
@@ -14,6 +14,7 @@ from conductor.io.encoding import configure_utf8_stdio
 from conductor.task_center.artifacts import create_task_return_artifact
 from conductor.task_center.context import TaskContextBuilder
 from conductor.state.file_store import FileStateStore
+from conductor.state.store import InMemoryStateStore
 from conductor.task_center.service import TaskCenterError, TaskCenterService
 
 configure_utf8_stdio()
@@ -111,7 +112,9 @@ def main(argv: list[str] | None = None) -> int:
                 prompt_markdown = context_builder.render_markdown(payload)
             if args.prompt_file:
                 prompt_file = _write_prompt_file(args.prompt_file, state.project.project_root, prompt_markdown)
+                _record_assignment_prompt_file(store, state, args.assignment_id, prompt_file)
                 payload["prompt_file"] = str(prompt_file)
+                payload["assignment"]["prompt_file"] = str(prompt_file)
             if args.format == "markdown":
                 payload = prompt_markdown
         elif args.command == "claim":
@@ -258,7 +261,10 @@ def _attach_context_if_requested(
         prompt_markdown = context_builder.render_markdown(context)
     if prompt_file_arg:
         prompt_file = _write_prompt_file(prompt_file_arg, state.project.project_root, prompt_markdown)
+        _record_assignment_prompt_file(service.state_store, state, assignment.id, prompt_file)
         payload["prompt_file"] = str(prompt_file)
+        if isinstance(payload.get("task"), dict):
+            payload["task"]["prompt_file"] = str(prompt_file)
     if getattr(args, "context_format", "json") == "markdown":
         return prompt_markdown
     if getattr(args, "with_context", False):
@@ -273,6 +279,18 @@ def _write_prompt_file(prompt_file: str, project_root: str, content: str) -> Pat
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
     return path.resolve()
+
+
+def _record_assignment_prompt_file(
+    store: InMemoryStateStore,
+    state: SharedProjectState,
+    assignment_id: str,
+    prompt_file: Path,
+) -> None:
+    assignment = next((item for item in state.task_assignments if item.id == assignment_id), None)
+    if assignment is None:
+        raise TaskCenterError(f"Task assignment not found: {assignment_id}", status_code=404)
+    store.upsert_task_assignment(state.project.id, replace(assignment, prompt_file=str(prompt_file)))
 
 
 def _assignment_payload(

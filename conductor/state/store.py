@@ -146,6 +146,7 @@ class InMemoryStateStore:
         output_artifact_ids: list[str] | None = None,
         result_summary: str | None = None,
         blocked_reason: str | None = None,
+        prompt_file: str | None = None,
     ) -> SharedProjectState:
         """Update the assignment linked to one WorkItem."""
         state = self.get_state(project_id)
@@ -161,6 +162,7 @@ class InMemoryStateStore:
                         output_artifact_ids=output_artifact_ids if output_artifact_ids is not None else assignment.output_artifact_ids,
                         result_summary=result_summary if result_summary is not None else assignment.result_summary,
                         blocked_reason=blocked_reason if blocked_reason is not None else assignment.blocked_reason,
+                        prompt_file=prompt_file if prompt_file is not None else assignment.prompt_file,
                     )
                 )
                 found = True

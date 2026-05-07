@@ -79,7 +79,7 @@ class RunManifestWriter:
             probe_llm=False,
         ).to_dict()
         manifest = RunManifest(
-            schema_version="1.10",
+            schema_version="1.11",
             run_id=f"{state.project.id}:{generated_at}",
             project_id=state.project.id,
             generated_at=generated_at,
@@ -149,6 +149,7 @@ class RunManifestWriter:
                     "blocked_reason": assignment.blocked_reason or "",
                     "claimed_at": assignment.claimed_at,
                     "returned_at": assignment.returned_at,
+                    "prompt_file": assignment.prompt_file,
                 }
                 for assignment in state.task_assignments
             ],

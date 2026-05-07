@@ -331,6 +331,7 @@ def test_task_center_cli_claim_next_can_write_prompt_file(tmp_path, capsys) -> N
     reloaded = FileStateStore(project_root / ".conductor" / "state").get_state(state.project.id)
     assert reloaded.task_assignments[0].status == TaskAssignmentStatus.CLAIMED
     assert reloaded.task_assignments[0].assigned_agent_id == "agent-file-worker"
+    assert reloaded.task_assignments[0].prompt_file == str(prompt_file.resolve())
 
 
 def test_task_center_cli_rejects_return_before_claim(tmp_path, capsys) -> None:

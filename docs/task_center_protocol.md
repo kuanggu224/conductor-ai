@@ -183,6 +183,7 @@ Task payloads include:
 - `blocked_reason`
 - `claimed_at`
 - `returned_at`
+- `prompt_file`
 
 `input_artifact_ids` is not limited to direct WorkItem dependencies. For
 controller-created assignments it also includes the ContextBuilder-selected
@@ -204,12 +205,13 @@ Summary payloads include:
 
 ## Audit Outputs
 
-Run Manifest schema `1.10` records:
+Run Manifest schema `1.11` records:
 
 - `task_assignments[].claimable`
 - `task_assignments[].unmet_dependency_ids`
 - `task_assignments[].claimed_at`
 - `task_assignments[].returned_at`
+- `task_assignments[].prompt_file`
 - `summary.task_center_summary`
 - `platform_diagnostics`
 - `executions[].input_artifact_ids`
@@ -217,5 +219,6 @@ Run Manifest schema `1.10` records:
 Project reports include a `## Task Center` section with summary counts and one
 line per assignment.
 
-Board snapshots expose readiness through `BoardTaskAssignmentView.claimable`
-and `BoardTaskAssignmentView.unmet_dependency_ids`.
+Board snapshots expose readiness through `BoardTaskAssignmentView.claimable`,
+`BoardTaskAssignmentView.unmet_dependency_ids`, and
+`BoardTaskAssignmentView.prompt_file`.

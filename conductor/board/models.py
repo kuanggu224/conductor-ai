@@ -123,6 +123,7 @@ class BoardTaskAssignmentView:
     output_artifact_ids: list[str] = field(default_factory=list)
     claim_reason: str = ""
     blocked_reason: str = ""
+    prompt_file: str = ""
 
 
 @dataclass(slots=True)

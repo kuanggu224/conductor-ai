@@ -161,6 +161,7 @@ def test_board_service_exposes_task_center_readiness() -> None:
                 workitem_id="workitem-blocked",
                 role="backend_engineer",
                 dependencies=["workitem-dependency"],
+                prompt_file="C:/demo/.conductor/task_center/prompts/assignment-blocked.md",
             )
         ],
     )
@@ -172,3 +173,4 @@ def test_board_service_exposes_task_center_readiness() -> None:
     assert snapshot.task_center_summary["blocked_by_dependencies"] == 1
     assert snapshot.task_assignments[0].claimable is False
     assert snapshot.task_assignments[0].unmet_dependency_ids == ["workitem-dependency"]
+    assert snapshot.task_assignments[0].prompt_file == "C:/demo/.conductor/task_center/prompts/assignment-blocked.md"
