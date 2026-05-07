@@ -2,10 +2,12 @@
 
 import json
 from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 
 from conductor.config.cli import CLISelectionConfig
 from conductor.config.execution import RunProfile
 from conductor.controller.engine import ConductorEngine
+from conductor.domain.models import TaskAssignmentStatus
 
 
 def test_engine_writes_run_manifest(tmp_path) -> None:
@@ -22,7 +24,7 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     manifest_path = engine.write_run_manifest(state.project.id, report_path)
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-    assert payload["schema_version"] == "1.12"
+    assert payload["schema_version"] == "1.13"
     assert payload["run_id"].startswith(state.project.id)
     assert payload["project_id"] == state.project.id
     assert payload["run_profile"] == "mock"
@@ -56,6 +58,8 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     assert payload["task_assignments"][0]["workitem_id"] == payload["workitems"][0]["id"]
     assert "assigned_agent_id" in payload["task_assignments"][0]
     assert "claimed_at" in payload["task_assignments"][0]
+    assert "claimed_age_seconds" in payload["task_assignments"][0]
+    assert "stale_claimed" in payload["task_assignments"][0]
     assert "returned_at" in payload["task_assignments"][0]
     assert "prompt_file" in payload["task_assignments"][0]
     assert "claimable" in payload["task_assignments"][0]
@@ -98,6 +102,32 @@ def test_manifest_indexes_task_prompt_files(tmp_path) -> None:
     assert payload["task_assignments"][0]["prompt_file"] == prompt_file
     assert payload["task_prompt_files"] == [prompt_file]
     assert payload["files"]["task_prompts"] == [prompt_file]
+
+
+def test_manifest_records_stale_claimed_task_assignments(tmp_path) -> None:
+    engine = ConductorEngine(
+        log_dir=tmp_path / "logs",
+        artifact_dir=tmp_path / "artifacts",
+        cli_selection_config=CLISelectionConfig(),
+        run_profile=RunProfile.MOCK,
+    )
+    state = engine.create_project("Build a local reading list", project_root=str(tmp_path / "project"))
+    claimed_at = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+    assignment = replace(
+        state.task_assignments[0],
+        status=TaskAssignmentStatus.CLAIMED,
+        assigned_agent_id="agent-designer",
+        claimed_at=claimed_at,
+    )
+    state = engine.state_store.upsert_task_assignment(state.project.id, assignment)
+    report_path = engine.write_project_report(state.project.id)
+
+    manifest_path = engine.write_run_manifest(state.project.id, report_path)
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert payload["summary"]["task_center_summary"]["stale_claimed"] == 1
+    assert payload["task_assignments"][0]["claimed_age_seconds"] >= 7200
+    assert payload["task_assignments"][0]["stale_claimed"] is True
 
 
 def test_manifest_records_requirement_coverage_results(tmp_path) -> None:

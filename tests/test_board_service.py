@@ -1,11 +1,21 @@
 """BoardSnapshot 组装测试。"""
 
+from datetime import datetime, timedelta, timezone
+
 from conductor.board.service import BoardService
 from conductor.collaboration.models import Collaboration, CollaborationStatus
 from conductor.config.cli import CLISelectionConfig
 from conductor.config.llm import LLMHTTPConfig, LLMRuntimeConfig, LLMUsagePolicy
 from conductor.controller.lead_controller import LeadController
-from conductor.domain.models import Artifact, Project, ProjectStatus, SharedProjectState, TaskAssignment, WorkItem
+from conductor.domain.models import (
+    Artifact,
+    Project,
+    ProjectStatus,
+    SharedProjectState,
+    TaskAssignment,
+    TaskAssignmentStatus,
+    WorkItem,
+)
 from conductor.execution.runner import Runner
 from conductor.state.store import InMemoryStateStore
 from conductor.workflow.template import WorkflowTemplate
@@ -61,6 +71,10 @@ def test_board_service_builds_snapshot_from_state() -> None:
     assert "claimable" in snapshot.task_center_summary
     assert snapshot.task_assignments[0].claimable in {True, False}
     assert isinstance(snapshot.task_assignments[0].unmet_dependency_ids, list)
+    assert snapshot.task_assignments[0].claimed_age_seconds is None or isinstance(
+        snapshot.task_assignments[0].claimed_age_seconds, int
+    )
+    assert snapshot.task_assignments[0].stale_claimed in {True, False}
 
 
 def test_board_service_extracts_code_execution_reports() -> None:
@@ -174,3 +188,31 @@ def test_board_service_exposes_task_center_readiness() -> None:
     assert snapshot.task_assignments[0].claimable is False
     assert snapshot.task_assignments[0].unmet_dependency_ids == ["workitem-dependency"]
     assert snapshot.task_assignments[0].prompt_file == "C:/demo/.conductor/task_center/prompts/assignment-blocked.md"
+
+
+def test_board_service_exposes_stale_task_assignment_state() -> None:
+    state = SharedProjectState(
+        project=Project(id="project-stale-task", goal="stale task center readiness", current_stage="development"),
+        project_status=ProjectStatus.IN_PROGRESS,
+        current_stage="development",
+        workitems=[
+            WorkItem(id="workitem-stale", description="Stale claimed task", stage="development"),
+        ],
+        task_assignments=[
+            TaskAssignment(
+                id="assignment-stale",
+                workitem_id="workitem-stale",
+                role="backend_engineer",
+                status=TaskAssignmentStatus.CLAIMED,
+                assigned_agent_id="agent-backend",
+                claimed_at=(datetime.now(timezone.utc) - timedelta(hours=2)).isoformat(),
+            )
+        ],
+    )
+
+    snapshot = BoardService().build_snapshot(state)
+
+    assert snapshot.task_center_summary["stale_claimed"] == 1
+    assert snapshot.task_assignments[0].claimed_age_seconds is not None
+    assert snapshot.task_assignments[0].claimed_age_seconds >= 7200
+    assert snapshot.task_assignments[0].stale_claimed is True

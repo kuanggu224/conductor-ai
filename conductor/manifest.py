@@ -82,7 +82,7 @@ class RunManifestWriter:
             probe_llm=False,
         ).to_dict()
         manifest = RunManifest(
-            schema_version="1.12",
+            schema_version="1.13",
             run_id=f"{state.project.id}:{generated_at}",
             project_id=state.project.id,
             generated_at=generated_at,
@@ -151,6 +151,8 @@ class RunManifestWriter:
                     "result_summary": assignment.result_summary,
                     "blocked_reason": assignment.blocked_reason or "",
                     "claimed_at": assignment.claimed_at,
+                    "claimed_age_seconds": task_center.claimed_age_seconds(assignment),
+                    "stale_claimed": task_center.stale_claimed(assignment),
                     "returned_at": assignment.returned_at,
                     "prompt_file": assignment.prompt_file,
                 }

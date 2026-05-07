@@ -206,6 +206,8 @@ class ProjectLogStore:
         for assignment in state.task_assignments:
             unmet = task_center.unmet_dependency_ids(state, assignment)
             unmet_text = ", ".join(unmet) if unmet else "-"
+            claimed_age_seconds = task_center.claimed_age_seconds(assignment)
+            claimed_age_text = str(claimed_age_seconds) if claimed_age_seconds is not None else "-"
             lines.append(
                 f"- {assignment.id} | workitem={assignment.workitem_id} | role={assignment.role} | "
                 f"status={assignment.status.value} | agent={assignment.assigned_agent_id or '-'} | "
@@ -213,6 +215,8 @@ class ProjectLogStore:
                 f"input_artifacts={self._join_or_dash(assignment.input_artifact_ids)} | "
                 f"output_artifacts={self._join_or_dash(assignment.output_artifact_ids)} | "
                 f"claimed_at={assignment.claimed_at or '-'} | returned_at={assignment.returned_at or '-'} | "
+                f"claimed_age_seconds={claimed_age_text} | "
+                f"stale_claimed={str(task_center.stale_claimed(assignment)).lower()} | "
                 f"prompt_file={assignment.prompt_file or '-'}"
             )
         return lines

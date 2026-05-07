@@ -51,6 +51,8 @@ def test_project_log_store_writes_structured_state_events_and_report(tmp_path) -
     assert "output_artifacts=" in report
     assert "claimed_at=" in report
     assert "returned_at=" in report
+    assert "claimed_age_seconds=" in report
+    assert "stale_claimed=" in report
     assert "prompt_file=" in report
     assert "## Executions" in report
     assert "changed_files=" in report

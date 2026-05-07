@@ -255,11 +255,13 @@ Summary payloads include:
 
 ## Audit Outputs
 
-Run Manifest schema `1.12` records:
+Run Manifest schema `1.13` records:
 
 - `task_assignments[].claimable`
 - `task_assignments[].unmet_dependency_ids`
 - `task_assignments[].claimed_at`
+- `task_assignments[].claimed_age_seconds`
+- `task_assignments[].stale_claimed`
 - `task_assignments[].returned_at`
 - `task_assignments[].prompt_file`
 - `task_prompt_files`
@@ -272,5 +274,7 @@ Project reports include a `## Task Center` section with summary counts and one
 line per assignment.
 
 Board snapshots expose readiness through `BoardTaskAssignmentView.claimable`,
-`BoardTaskAssignmentView.unmet_dependency_ids`, and
+`BoardTaskAssignmentView.unmet_dependency_ids`,
+`BoardTaskAssignmentView.claimed_age_seconds`,
+`BoardTaskAssignmentView.stale_claimed`, and
 `BoardTaskAssignmentView.prompt_file`.
