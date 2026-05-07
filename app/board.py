@@ -153,6 +153,12 @@ class TaskReleaseRequest(BaseModel):
     release_reason: TodoContent = ""
 
 
+class TaskReleaseStaleRequest(TaskReleaseRequest):
+    """Payload for releasing stale claimed task-center assignments."""
+
+    stale_after_seconds: int = DEFAULT_STALE_CLAIMED_AFTER_SECONDS
+
+
 @dataclass(slots=True)
 class ProjectTaskStatus:
     """Board 后台任务状态。"""
@@ -669,6 +675,36 @@ async def release_project_task_api(project_id: str, assignment_id: str, payload:
             "project_id": project_id,
             "summary": _task_center_service().summary(transition.state),
             "task": _task_assignment_payload(transition.assignment, transition.state),
+        }
+    )
+
+
+@app.post("/api/projects/{project_id}/tasks/release-stale")
+async def release_stale_project_tasks_api(project_id: str, payload: TaskReleaseStaleRequest) -> JSONResponse:
+    """Release stale claimed task-center assignments back to queued."""
+    transition = _run_task_center_transition(
+        _task_center_service().release_stale,
+        project_id,
+        stale_after_seconds=payload.stale_after_seconds,
+        release_reason=payload.release_reason or "stale claimed assignment",
+    )
+    return JSONResponse(
+        {
+            "project_id": project_id,
+            "released_count": len(transition.assignments),
+            "stale_after_seconds": payload.stale_after_seconds,
+            "summary": _task_center_service().summary(
+                transition.state,
+                stale_after_seconds=payload.stale_after_seconds,
+            ),
+            "tasks": [
+                _task_assignment_payload(
+                    assignment,
+                    transition.state,
+                    stale_after_seconds=payload.stale_after_seconds,
+                )
+                for assignment in transition.assignments
+            ],
         }
     )
 

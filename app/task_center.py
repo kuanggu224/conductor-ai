@@ -86,6 +86,10 @@ def build_parser() -> argparse.ArgumentParser:
     release_parser = subparsers.add_parser("release", parents=[common], help="Release a claimed/failed assignment back to queued.")
     release_parser.add_argument("assignment_id")
     release_parser.add_argument("--release-reason", default="")
+
+    release_stale_parser = subparsers.add_parser("release-stale", parents=[common], help="Release stale claimed assignments back to queued.")
+    release_stale_parser.add_argument("--stale-after-seconds", type=int, default=DEFAULT_STALE_CLAIMED_AFTER_SECONDS)
+    release_stale_parser.add_argument("--release-reason", default="stale claimed assignment")
     return parser
 
 
@@ -172,6 +176,13 @@ def main(argv: list[str] | None = None) -> int:
                 release_reason=args.release_reason,
             )
             payload = _assignment_payload(result.state, result.assignment, service)
+        elif args.command == "release-stale":
+            result = service.release_stale(
+                state.project.id,
+                stale_after_seconds=args.stale_after_seconds,
+                release_reason=args.release_reason,
+            )
+            payload = _bulk_release_payload(result.state, result.assignments, service, args.stale_after_seconds)
         else:
             raise AssertionError(f"Unsupported command: {args.command}")
     except TaskCenterError as error:
@@ -254,6 +265,25 @@ def _summary_payload(
         "project_id": state.project.id,
         "stale_after_seconds": stale_after_seconds,
         "summary": service.summary(state, stale_after_seconds=stale_after_seconds),
+    }
+
+
+def _bulk_release_payload(
+    state: SharedProjectState,
+    assignments: list[TaskAssignment],
+    service: TaskCenterService,
+    stale_after_seconds: int,
+) -> dict[str, object]:
+    return {
+        "ok": True,
+        "project_id": state.project.id,
+        "released_count": len(assignments),
+        "stale_after_seconds": stale_after_seconds,
+        "summary": service.summary(state, stale_after_seconds=stale_after_seconds),
+        "tasks": [
+            _assignment_payload(state, assignment, service, stale_after_seconds=stale_after_seconds)["task"]
+            for assignment in assignments
+        ],
     }
 
 

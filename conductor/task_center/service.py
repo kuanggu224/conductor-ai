@@ -27,6 +27,14 @@ class TaskCenterTransition:
     assignment: TaskAssignment
 
 
+@dataclass(frozen=True, slots=True)
+class TaskCenterBulkTransition:
+    """Result of a bulk Task Center transition."""
+
+    state: SharedProjectState
+    assignments: list[TaskAssignment]
+
+
 class TaskCenterService:
     """Coordinate TaskAssignment transitions with WorkItem lifecycle updates."""
 
@@ -157,6 +165,27 @@ class TaskCenterService:
         self.state_store.upsert_task_assignment(project_id, updated)
         self.state_store.add_event(project_id, f"{self.event_prefix}: {assignment.workitem_id} released")
         return TaskCenterTransition(state=self._state(project_id), assignment=updated)
+
+    def release_stale(
+        self,
+        project_id: str,
+        *,
+        stale_after_seconds: int = DEFAULT_STALE_CLAIMED_AFTER_SECONDS,
+        release_reason: str = "stale claimed assignment",
+        now: datetime | None = None,
+    ) -> TaskCenterBulkTransition:
+        """Release all stale claimed assignments back to queued."""
+        state = self._state(project_id)
+        stale_assignments = [
+            assignment
+            for assignment in state.task_assignments
+            if self.stale_claimed(assignment, stale_after_seconds=stale_after_seconds, now=now)
+        ]
+        released: list[TaskAssignment] = []
+        for assignment in stale_assignments:
+            transition = self.release(project_id, assignment.id, release_reason=release_reason)
+            released.append(transition.assignment)
+        return TaskCenterBulkTransition(state=self._state(project_id), assignments=released)
 
     def require_assignment(self, state: SharedProjectState, assignment_id: str) -> TaskAssignment:
         """Return an assignment or raise a Task Center not-found error."""
@@ -348,6 +377,7 @@ class TaskCenterService:
 
 __all__ = [
     "DEFAULT_STALE_CLAIMED_AFTER_SECONDS",
+    "TaskCenterBulkTransition",
     "TaskCenterError",
     "TaskCenterService",
     "TaskCenterTransition",

@@ -47,6 +47,7 @@ python -m app.task_center complete <assignment-id> --project-root <project-root>
 python -m app.task_center complete <assignment-id> --project-root <project-root> --output-file result.md
 python -m app.task_center fail <assignment-id> --project-root <project-root> --blocked-reason "reason"
 python -m app.task_center release <assignment-id> --project-root <project-root> --release-reason "worker interrupted"
+python -m app.task_center release-stale --project-root <project-root> --stale-after-seconds 3600 --release-reason "stale cleanup"
 ```
 
 Use `--state-dir` when the state directory is not under
@@ -81,6 +82,7 @@ Endpoints:
 - `POST /api/projects/{project_id}/tasks/{assignment_id}/complete`
 - `POST /api/projects/{project_id}/tasks/{assignment_id}/fail`
 - `POST /api/projects/{project_id}/tasks/{assignment_id}/release`
+- `POST /api/projects/{project_id}/tasks/release-stale`
 
 `claim-next` request body:
 
@@ -130,6 +132,19 @@ Endpoints:
 `release` returns a claimed or failed assignment to `queued`, clears the current
 agent, clears return timestamps and stale prompt metadata, and synchronizes the
 WorkItem back to `pending`. Completed assignments cannot be released.
+
+`release-stale` request body:
+
+```json
+{
+  "stale_after_seconds": 3600,
+  "release_reason": "stale cleanup"
+}
+```
+
+`release-stale` bulk releases claimed assignments whose `claimed_at` age is
+greater than or equal to the threshold, and returns `released_count`, `summary`,
+and the released task payloads.
 
 When `output_artifact_content` is present, the platform creates and persists a
 new artifact with source backend `task_center/external`, appends its id to

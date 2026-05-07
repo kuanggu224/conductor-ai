@@ -66,6 +66,7 @@ python -m app.task_center complete <assignment-id> --project-root <project-root>
 python -m app.task_center complete <assignment-id> --project-root <project-root> --output-file result.md
 python -m app.task_center fail <assignment-id> --project-root <project-root> --blocked-reason "reason"
 python -m app.task_center release <assignment-id> --project-root <project-root> --release-reason "worker interrupted"
+python -m app.task_center release-stale --project-root <project-root> --stale-after-seconds 3600 --release-reason "stale cleanup"
 ```
 
 Board API endpoints:
@@ -79,6 +80,7 @@ Board API endpoints:
 - `POST /api/projects/{project_id}/tasks/{assignment_id}/complete`
 - `POST /api/projects/{project_id}/tasks/{assignment_id}/fail`
 - `POST /api/projects/{project_id}/tasks/{assignment_id}/release`
+- `POST /api/projects/{project_id}/tasks/release-stale`
 
 Task payloads expose `claimable` and `unmet_dependency_ids`. Summaries expose
 `total`, `queued`, `claimed`, `completed`, `failed`, `blocked`, `claimable`,

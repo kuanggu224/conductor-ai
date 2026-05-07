@@ -334,6 +334,41 @@ def test_project_tasks_api_can_filter_stale_claimed_assignments() -> None:
     assert payload["tasks"][0]["claimed_age_seconds"] is not None
 
 
+def test_project_tasks_api_can_release_stale_claimed_assignments() -> None:
+    client = TestClient(board.app)
+    state = board.engine.create_project(requirement="Build a local reading list", project_root="")
+    claim = client.post(
+        f"/api/projects/{state.project.id}/tasks/claim-next",
+        json={"agent_id": "agent-api-worker"},
+    )
+    assert claim.status_code == 200
+    claimed_state = board.engine.get_project(state.project.id)
+    claimed_at = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+    assignment = replace(claimed_state.task_assignments[0], claimed_at=claimed_at)
+    board.engine.state_store.upsert_task_assignment(state.project.id, assignment)
+
+    response = client.post(
+        f"/api/projects/{state.project.id}/tasks/release-stale",
+        json={
+            "stale_after_seconds": 1,
+            "release_reason": "stale cleanup",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["released_count"] == 1
+    assert payload["summary"]["queued"] == 1
+    assert payload["summary"]["claimable"] == 1
+    assert payload["summary"]["stale_claimed"] == 0
+    assert payload["tasks"][0]["status"] == "queued"
+    assert payload["tasks"][0]["claim_reason"] == "stale cleanup"
+
+    reloaded = board.engine.get_project(state.project.id)
+    assert reloaded.task_assignments[0].status.value == "queued"
+    assert reloaded.workitems[0].status.value == "pending"
+
+
 def test_project_task_context_api_returns_input_artifact_content() -> None:
     client = TestClient(board.app)
     state = board.engine.create_project(

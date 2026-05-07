@@ -223,6 +223,69 @@ def test_task_center_service_counts_stale_claimed_assignments() -> None:
     assert service.summary(state, stale_after_seconds=3600, now=now)["stale_claimed"] == 1
 
 
+def test_task_center_service_release_stale_requeues_only_stale_claimed() -> None:
+    store = InMemoryStateStore()
+    state = SharedProjectState(
+        project=Project(id="project-service", goal="Build a local tool"),
+        project_status=ProjectStatus.INITIALIZED,
+        current_stage="development",
+        workitems=[
+            WorkItem(
+                id="workitem-stale",
+                description="Stale task",
+                stage="development",
+                status=WorkItemStatus.RUNNING,
+                owner_agent="agent-old",
+            ),
+            WorkItem(
+                id="workitem-fresh",
+                description="Fresh task",
+                stage="development",
+                status=WorkItemStatus.RUNNING,
+                owner_agent="agent-new",
+            ),
+        ],
+        task_assignments=[
+            TaskAssignment(
+                id="assignment-stale",
+                workitem_id="workitem-stale",
+                role="backend_engineer",
+                status=TaskAssignmentStatus.CLAIMED,
+                assigned_agent_id="agent-old",
+                claimed_at="2026-05-08T00:00:00+00:00",
+            ),
+            TaskAssignment(
+                id="assignment-fresh",
+                workitem_id="workitem-fresh",
+                role="backend_engineer",
+                status=TaskAssignmentStatus.CLAIMED,
+                assigned_agent_id="agent-new",
+                claimed_at="2026-05-08T01:59:59+00:00",
+            ),
+        ],
+    )
+    store.save_state(state)
+    service = TaskCenterService(store)
+    now = datetime(2026, 5, 8, 2, 0, tzinfo=timezone.utc)
+
+    transition = service.release_stale(
+        "project-service",
+        stale_after_seconds=3600,
+        release_reason="stale cleanup",
+        now=now,
+    )
+
+    assert [item.id for item in transition.assignments] == ["assignment-stale"]
+    assignments = {item.id: item for item in transition.state.task_assignments}
+    workitems = {item.id: item for item in transition.state.workitems}
+    assert assignments["assignment-stale"].status == TaskAssignmentStatus.QUEUED
+    assert assignments["assignment-stale"].assigned_agent_id is None
+    assert assignments["assignment-stale"].claim_reason == "stale cleanup"
+    assert workitems["workitem-stale"].status == WorkItemStatus.PENDING
+    assert assignments["assignment-fresh"].status == TaskAssignmentStatus.CLAIMED
+    assert workitems["workitem-fresh"].status == WorkItemStatus.RUNNING
+
+
 def test_task_center_service_rejects_release_after_completion() -> None:
     store = InMemoryStateStore()
     state = SharedProjectState(
