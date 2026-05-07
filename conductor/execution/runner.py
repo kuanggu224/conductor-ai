@@ -1485,6 +1485,17 @@ class Runner:
         """Append frozen requirement instructions when a project baseline exists."""
         if not frozen_context:
             return prompt
+        opencode_done_instruction = "Do not ask questions. After the file is written, reply exactly: DONE"
+        if opencode_done_instruction in prompt:
+            return prompt.replace(
+                opencode_done_instruction,
+                (
+                    frozen_context
+                    + "\nUse this frozen baseline as the controlling contract. Do not expand non-goals, "
+                    "and make acceptance criteria directly traceable.\n"
+                    + opencode_done_instruction
+                ),
+            )
         return (
             prompt.rstrip()
             + "\n\n"

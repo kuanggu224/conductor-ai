@@ -318,6 +318,48 @@ def test_agent_cli_document_prompt_includes_frozen_requirement_baseline() -> Non
     assert "controlling contract" in prompt
 
 
+def test_opencode_document_prompt_keeps_done_instruction_last_with_frozen_baseline() -> None:
+    state_store = InMemoryStateStore()
+    state_store.save_state(
+        SharedProjectState(
+            project=Project(id="project-opencode-frozen-doc", goal="Build a local reading list", current_stage="design"),
+            project_status=ProjectStatus.IN_PROGRESS,
+            current_stage="design",
+            artifacts=[
+                Artifact(
+                    id="artifact-frozen",
+                    project_id="project-opencode-frozen-doc",
+                    workitem_id="workitem-req",
+                    agent_id="agent-requirement",
+                    kind="frozen_requirement_spec",
+                    title="Frozen Requirement",
+                    content="Non-goal: no user accounts.",
+                )
+            ],
+        )
+    )
+    runner = Runner(state_store=state_store)
+    profile = next(profile for profile in build_default_agent_profiles() if profile.role_name == "designer")
+    agent = Agent(
+        id="agent-designer",
+        role="designer",
+        profile=profile,
+        capabilities=[Capability.PLANNING],
+        execution_backend="cli",
+    )
+    workitem = WorkItem(id="workitem-design", description="Create design", stage="design", kind="design_overview")
+
+    prompt = runner._build_agent_cli_document_prompt(
+        workitem,
+        agent,
+        "opencode",
+        project_id="project-opencode-frozen-doc",
+    )
+
+    assert "Frozen Requirement Baseline" in prompt
+    assert prompt.rstrip().endswith("Do not ask questions. After the file is written, reply exactly: DONE")
+
+
 def test_requirement_document_prompts_include_quality_gate_sections() -> None:
     state_store = InMemoryStateStore()
     state_store.save_state(
