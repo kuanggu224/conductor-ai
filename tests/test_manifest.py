@@ -21,7 +21,7 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     manifest_path = engine.write_run_manifest(state.project.id, report_path)
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-    assert payload["schema_version"] == "1.6"
+    assert payload["schema_version"] == "1.7"
     assert payload["run_id"].startswith(state.project.id)
     assert payload["project_id"] == state.project.id
     assert payload["run_profile"] == "mock"
@@ -52,6 +52,9 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     assert payload["task_assignments"]
     assert payload["task_assignments"][0]["workitem_id"] == payload["workitems"][0]["id"]
     assert "assigned_agent_id" in payload["task_assignments"][0]
+    assert "claimable" in payload["task_assignments"][0]
+    assert "unmet_dependency_ids" in payload["task_assignments"][0]
+    assert isinstance(payload["task_assignments"][0]["unmet_dependency_ids"], list)
     assert payload["artifact_files"]
     assert payload["files"]["log"].endswith(f"{state.project.id}.jsonl")
     assert payload["files"]["report"] == str(report_path)

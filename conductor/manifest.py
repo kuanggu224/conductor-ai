@@ -11,6 +11,7 @@ from conductor.config.cli import CLISelectionConfig
 from conductor.config.execution import RunProfile
 from conductor.domain.models import SharedProjectState
 from conductor.requirement_benchmark import build_requirement_case_from_text, evaluate_requirement_document
+from conductor.task_center.service import TaskCenterService
 from conductor.testing.coverage import evaluate_requirement_coverage
 
 
@@ -66,8 +67,9 @@ class RunManifestWriter:
         executions = [self._execution_record(state, execution, cli_config) for execution in state.executions]
         requirement_evaluations = self._requirement_evaluations(state)
         requirement_coverage_results = self._requirement_coverage_results(state)
+        task_center = TaskCenterService(_ManifestStateStore(state))
         manifest = RunManifest(
-            schema_version="1.6",
+            schema_version="1.7",
             run_id=f"{state.project.id}:{generated_at}",
             project_id=state.project.id,
             generated_at=generated_at,
@@ -126,6 +128,8 @@ class RunManifestWriter:
                     "status": assignment.status.value,
                     "assigned_agent_id": assignment.assigned_agent_id or "",
                     "claim_reason": assignment.claim_reason,
+                    "claimable": task_center.claimable(state, assignment),
+                    "unmet_dependency_ids": task_center.unmet_dependency_ids(state, assignment),
                     "dependencies": list(assignment.dependencies),
                     "input_artifact_ids": list(assignment.input_artifact_ids),
                     "output_artifact_ids": list(assignment.output_artifact_ids),
@@ -577,6 +581,18 @@ class RunManifestWriter:
         if source_backend.startswith("cli/"):
             return source_backend.split("/", 1)[1]
         return ""
+
+
+class _ManifestStateStore:
+    """Read-only state adapter for manifest-time Task Center calculations."""
+
+    def __init__(self, state: SharedProjectState) -> None:
+        self.state = state
+
+    def get_state(self, project_id: str) -> SharedProjectState:
+        if self.state.project.id != project_id:
+            raise KeyError(project_id)
+        return self.state
 
 
 __all__ = ["RunManifest", "RunManifestWriter"]
