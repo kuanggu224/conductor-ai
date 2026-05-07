@@ -32,6 +32,7 @@ class ContextBuilder:
                 decision_memory=state.gate_history[-self.max_events :],
                 artifact_memory=[self._format_artifact_summary(artifact) for artifact in artifacts],
             ),
+            artifact_ids=[artifact.id for artifact in artifacts],
             artifacts=[self._format_artifact(artifact) for artifact in artifacts],
             acceptance_criteria=workitem.acceptance_criteria,
         )

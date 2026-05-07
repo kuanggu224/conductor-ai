@@ -144,6 +144,7 @@ class FileStateStore(InMemoryStateStore):
             cli_name=data.get("cli_name", ""),
             model=data.get("model", ""),
             working_directory=data.get("working_directory", ""),
+            input_artifact_ids=list(data.get("input_artifact_ids", [])),
             changed_files=list(data.get("changed_files", [])),
             validation_command=list(data.get("validation_command", [])),
             validation_exit_code=data.get("validation_exit_code"),

@@ -41,6 +41,7 @@ def test_context_builder_includes_previous_artifacts() -> None:
     context = ContextBuilder().build(state=state, workitem=backend_workitem)
 
     assert context.current_workitem is backend_workitem
+    assert context.artifact_ids == ["artifact-design"]
     assert context.acceptance_criteria == ["必须参考设计方案"]
     assert "任务管理设计内容" in context.artifacts[0]
     assert "产品/设计文档" in context.relevant_memory.artifact_memory[0]
@@ -233,5 +234,6 @@ def test_context_builder_always_carries_frozen_requirement_into_later_stages() -
     context = ContextBuilder(max_artifacts=3).build(state, testing)
     rendered = "\n".join(context.artifacts)
 
+    assert "artifact-frozen" in context.artifact_ids
     assert "需求基线" in rendered
     assert "静态 Web 应用" in rendered

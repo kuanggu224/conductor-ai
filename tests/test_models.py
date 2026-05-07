@@ -25,6 +25,7 @@ def test_core_models_can_be_created() -> None:
         agent_id="agent-1",
         result="ok",
         status=ExecutionStatus.SUCCESS,
+        input_artifact_ids=["artifact-0"],
     )
     route = RouteDecision(workitem_id=workitem.id, selected_agent="agent-1")
     artifact = Artifact(
@@ -56,6 +57,7 @@ def test_core_models_can_be_created() -> None:
     assert Capability.CODING.value == "coding"
     assert project.current_stage == "design"
     assert execution.status == ExecutionStatus.SUCCESS
+    assert execution.input_artifact_ids == ["artifact-0"]
     assert route.selected_agent == "agent-1"
     assert state.artifacts[0].title == "设计文档"
     assert state.artifacts[0].version == 1

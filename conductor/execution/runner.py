@@ -109,6 +109,7 @@ class Runner:
             owner_agent=agent.id,
         )
         self.state_store.add_event(project_id, f"WorkItem {workitem.id} 开始执行，Agent={agent.id}")
+        input_artifact_ids = self._context_artifact_ids(project_id, workitem)
 
         if self._should_fail_once(workitem):
             result = f"模拟失败: {workitem.description}"
@@ -119,6 +120,7 @@ class Runner:
                 agent_id=agent.id,
                 result=result,
                 status=ExecutionStatus.FAILED,
+                input_artifact_ids=input_artifact_ids,
             )
             self.state_store.update_workitem(
                 project_id=project_id,
@@ -147,6 +149,7 @@ class Runner:
             cli_name=run_result.cli_name,
             model=run_result.model,
             working_directory=run_result.working_directory or self._project_root(project_id),
+            input_artifact_ids=input_artifact_ids,
             changed_files=[*(run_result.changed_files or [])],
             validation_command=[*(run_result.validation_command or [])],
             validation_exit_code=run_result.validation_exit_code,
@@ -1606,6 +1609,10 @@ class Runner:
         """Build a lightweight context pack for the current workitem."""
         state = self.state_store.get_state(project_id)
         return self.context_builder.build(state=state, workitem=workitem)
+
+    def _context_artifact_ids(self, project_id: str, workitem: WorkItem) -> list[str]:
+        """Return the artifact ids injected into the workitem context."""
+        return self._build_context_pack(project_id, workitem).artifact_ids
 
     def _latest_frozen_requirement(self, project_id: str | None) -> Artifact | None:
         """Return the latest frozen requirement artifact for a project."""

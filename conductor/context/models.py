@@ -15,5 +15,6 @@ class ContextPack:
     current_workitem: WorkItem | None
     relevant_state: SharedProjectState | None
     relevant_memory: GlobalMemory | None
+    artifact_ids: list[str] = field(default_factory=list)
     artifacts: list[str] = field(default_factory=list)
     acceptance_criteria: list[str] = field(default_factory=list)

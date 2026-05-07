@@ -716,6 +716,46 @@ def test_runner_code_prompt_includes_full_requirement_and_avoids_generic_task_bo
     assert "task board" not in prompt.lower()
 
 
+def test_runner_records_context_input_artifact_ids() -> None:
+    state_store = InMemoryStateStore()
+    runner = Runner(state_store)
+    controller = LeadController(
+        workflow_template=WorkflowTemplate(),
+        state_store=state_store,
+        runner=runner,
+    )
+    state = controller.initialize_project("Build a reading list with CSV export")
+    workitem = WorkItem(
+        id="workitem-backend",
+        description="Implement backend behavior",
+        stage="development",
+        kind="api_implementation",
+    )
+    state.workitems = [*state.workitems, workitem]
+    state.artifacts = [
+        Artifact(
+            id="artifact-frozen",
+            project_id=state.project.id,
+            workitem_id="workitem-req",
+            agent_id="agent-requirement",
+            kind="frozen_requirement_spec",
+            title="Frozen Requirement",
+            content="Acceptance: add book, persist refresh, export CSV.",
+        )
+    ]
+    state_store.save_state(state)
+    agent = Agent(
+        id="agent-backend",
+        role="backend_engineer",
+        capabilities=[Capability.CODING],
+        backend="mock",
+    )
+
+    execution = runner.run(state.project.id, workitem, agent)
+
+    assert execution.input_artifact_ids == ["artifact-frozen"]
+
+
 def test_runner_blocks_code_mock_when_real_code_required() -> None:
     state_store = InMemoryStateStore()
     runner = Runner(state_store, require_real_code_outputs=True)

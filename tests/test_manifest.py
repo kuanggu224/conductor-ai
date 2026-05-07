@@ -21,7 +21,7 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     manifest_path = engine.write_run_manifest(state.project.id, report_path)
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-    assert payload["schema_version"] == "1.9"
+    assert payload["schema_version"] == "1.10"
     assert payload["run_id"].startswith(state.project.id)
     assert payload["project_id"] == state.project.id
     assert payload["run_profile"] == "mock"
@@ -42,6 +42,8 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     assert "score" in payload["requirement_evaluations"][0]
     assert "artifact_ids" in payload["executions"][0]
     assert isinstance(payload["executions"][0]["artifact_ids"], list)
+    assert "input_artifact_ids" in payload["executions"][0]
+    assert isinstance(payload["executions"][0]["input_artifact_ids"], list)
     assert "changed_files" in payload["executions"][0]
     assert "validation_command" in payload["executions"][0]
     assert "failure_summary" in payload["executions"][0]
@@ -225,6 +227,7 @@ def test_manifest_extracts_cli_runs_from_agent_cli_artifacts(tmp_path) -> None:
                 validation_exit_code=0,
                 validation_success=True,
                 cli_stdout_tail="done",
+                input_artifact_ids=["artifact-design"],
             )
         ],
         artifacts=[
@@ -262,6 +265,7 @@ def test_manifest_extracts_cli_runs_from_agent_cli_artifacts(tmp_path) -> None:
     assert payload["cli_runs"][0]["cli_name"] == "codex"
     assert payload["cli_runs"][0]["model"] == "gpt-5.4-mini/medium"
     assert payload["executions"][0]["source_backend"] == "agent_cli/codex"
+    assert payload["executions"][0]["input_artifact_ids"] == ["artifact-design"]
     assert payload["executions"][0]["changed_files"] == ["app.py"]
     assert payload["executions"][0]["validation_success"] is True
     assert payload["executions"][0]["cli_stdout_tail"] == "done"

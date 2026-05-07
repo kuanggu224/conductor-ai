@@ -79,7 +79,7 @@ class RunManifestWriter:
             probe_llm=False,
         ).to_dict()
         manifest = RunManifest(
-            schema_version="1.9",
+            schema_version="1.10",
             run_id=f"{state.project.id}:{generated_at}",
             project_id=state.project.id,
             generated_at=generated_at,
@@ -282,6 +282,7 @@ class RunManifestWriter:
             "cli_name": cli_name,
             "model": execution.model or self._model_for_cli(cli_name, cli_config),
             "working_directory": execution.working_directory or state.project.project_root,
+            "input_artifact_ids": list(execution.input_artifact_ids),
             "changed_files": list(execution.changed_files),
             "validation_command": list(execution.validation_command),
             "validation_exit_code": execution.validation_exit_code,

@@ -142,6 +142,7 @@ class Execution:
     cli_name: str = ""
     model: str = ""
     working_directory: str = ""
+    input_artifact_ids: list[str] = field(default_factory=list)
     changed_files: list[str] = field(default_factory=list)
     validation_command: list[str] = field(default_factory=list)
     validation_exit_code: int | None = None
