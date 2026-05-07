@@ -47,6 +47,9 @@ class ContextBuilder:
         dependency_artifacts = [
             artifact for artifact in previous_artifacts if artifact.workitem_id in dependency_ids
         ]
+        frozen_requirement_artifacts = [
+            artifact for artifact in previous_artifacts if artifact.kind == "frozen_requirement_spec"
+        ]
         design_artifacts = [
             artifact for artifact in previous_artifacts if self._infer_artifact_stage(artifact.kind) == "design"
         ]
@@ -57,7 +60,7 @@ class ContextBuilder:
             for artifact in previous_artifacts
             if stage_rank.get(self._infer_artifact_stage(artifact.kind), 99) <= current_rank
         ]
-        priority = [*dependency_artifacts, *design_artifacts]
+        priority = [*frozen_requirement_artifacts, *dependency_artifacts, *design_artifacts]
         recents = relevant[-self.max_artifacts :]
         ordered = [*priority, *recents]
         deduped: list[Artifact] = []

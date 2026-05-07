@@ -11,6 +11,7 @@ from pathlib import Path
 from conductor.config.cli import CLISelectionConfig
 from conductor.config.execution import RunProfile, resolve_run_profile
 from conductor.config.llm import load_llm_runtime_config
+from conductor.config.system import SystemConfig
 from conductor.controller.engine import ConductorEngine
 from conductor.diagnostics import build_platform_diagnostics
 from conductor.io.encoding import configure_utf8_stdio
@@ -60,6 +61,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override OpenAI-compatible reasoning effort. For Qwen thinking models, use none for fast local runs.",
     )
     parser.add_argument("--diagnose", action="store_true", help="Print platform diagnostics and exit.")
+    parser.add_argument(
+        "--diagnose-llm",
+        action="store_true",
+        help="When used with --diagnose, also probe enabled OpenAI-compatible LLM servers.",
+    )
+    parser.add_argument(
+        "--collaboration-max-rounds",
+        type=int,
+        help="Override requirement/design collaboration max rounds for this run.",
+    )
+    parser.add_argument(
+        "--static-requirement-review",
+        action="store_true",
+        help="Disable dynamic requirement review seats for faster controlled smoke runs.",
+    )
     return parser
 
 
@@ -70,7 +86,18 @@ def main(argv: list[str] | None = None) -> int:
     agent_cli = _resolve_agent_cli(args.codex, args.agent_cli)
     if args.diagnose:
         cli_config = _build_cli_config(agent_cli, run_profile, aspirecode_model=args.aspirecode_model)
-        diagnostics = build_platform_diagnostics(cli_config=cli_config, project_root=project_root)
+        llm_runtime_config = _build_llm_runtime_config(args)
+        diagnostics = build_platform_diagnostics(
+            cli_config=cli_config,
+            project_root=project_root,
+            llm_runtime_config=llm_runtime_config,
+            probe_llm=args.diagnose_llm,
+            preflight_probe=(
+                _build_diagnostic_preflight_probe(llm_runtime_config, project_root)
+                if args.diagnose_llm
+                else None
+            ),
+        )
         print(json.dumps(diagnostics.to_dict(), ensure_ascii=False, indent=2))
         return 0 if diagnostics.ok else 2
 
@@ -86,6 +113,7 @@ def main(argv: list[str] | None = None) -> int:
         log_dir=project_root / ".conductor" / "logs",
         artifact_dir=project_root / ".conductor" / "artifacts",
         llm_runtime_config=llm_runtime_config,
+        system_config=_build_system_config(args),
         state_store=FileStateStore(project_root / ".conductor" / "state"),
         cli_selection_config=cli_config,
         run_profile=run_profile.profile,
@@ -175,6 +203,31 @@ def _build_llm_runtime_config(args):
     if args.llm_reasoning_effort is not None:
         selected.reasoning_effort = args.llm_reasoning_effort
     return runtime_config
+
+
+def _build_system_config(args) -> SystemConfig:
+    config = SystemConfig.load()
+    if args.collaboration_max_rounds is not None:
+        config.collaboration.max_rounds = args.collaboration_max_rounds
+    if args.static_requirement_review:
+        config.collaboration.dynamic_requirement_review_enabled = False
+    return config
+
+
+def _build_diagnostic_preflight_probe(runtime_config, project_root: Path):
+    """Build a lightweight chat-completion probe for enabled LLM diagnostics."""
+    from conductor.requirement_benchmark import run_requirement_llm_preflight
+
+    def probe(backend: str) -> tuple[bool, str]:
+        config = runtime_config.local if backend == "local" else runtime_config.cloud
+        result = run_requirement_llm_preflight(
+            backend=backend,
+            config=config,
+            output_dir=project_root / ".conductor" / "diagnostics",
+        )
+        return result.success, result.error
+
+    return probe
 
 
 if __name__ == "__main__":

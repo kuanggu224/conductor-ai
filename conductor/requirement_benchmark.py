@@ -133,6 +133,21 @@ ASPECT_TERMS: dict[str, tuple[str, ...]] = {
 }
 
 
+KEYWORD_ALIASES: dict[str, tuple[str, ...]] = {
+    "expense": ("expense", "reimbursement", "报销", "费用", "支出"),
+    "submit": ("submit", "submission", "apply", "request", "提交", "发起", "申请", "录入"),
+    "approve": ("approve", "approval", "accepted", "批准", "审批", "通过", "同意"),
+    "reject": ("reject", "rejection", "decline", "拒绝", "驳回", "退回", "不同意"),
+    "status": ("status", "state", "progress", "状态", "进度", "流转状态", "审批状态"),
+    "error": ("error", "invalid", "validation", "错误", "异常", "校验", "无效", "提示"),
+    "csv": ("csv", "逗号分隔", "表格文件"),
+    "trim": ("trim", "trimmed", "whitespace", "空白", "去空格", "去除空格", "修剪", "首尾空格"),
+    "duplicate": ("duplicate", "deduplicate", "重复", "去重", "重复行"),
+    "invalid": ("invalid", "malformed", "无效", "非法", "异常", "错误", "坏行"),
+    "export": ("export", "download", "导出", "下载", "输出"),
+}
+
+
 def default_requirement_benchmark_cases() -> list[RequirementBenchmarkCase]:
     """Return fixed cases for requirement-stage regression."""
     return [
@@ -455,8 +470,15 @@ def _coverage(expected: list[str], text: str) -> int:
     """Return percentage of expected terms found in text."""
     if not expected:
         return 100
-    matched = sum(1 for term in expected if term.lower() in text)
+    matched = sum(1 for term in expected if _keyword_present(term, text))
     return int((matched / len(expected)) * 100)
+
+
+def _keyword_present(term: str, text: str) -> bool:
+    """Return whether a domain term or one of its semantic aliases appears."""
+    normalized = term.lower()
+    aliases = KEYWORD_ALIASES.get(normalized, (normalized,))
+    return any(alias.lower() in text for alias in aliases)
 
 
 def _aspect_coverage(expected_aspects: list[str], text: str) -> int:

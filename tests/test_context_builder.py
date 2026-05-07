@@ -178,3 +178,60 @@ def test_context_builder_keeps_dependency_and_design_artifacts_when_many_recents
     context = ContextBuilder(max_artifacts=4).build(state, backend)
 
     assert "业务领域设计不能丢" in "\n".join(context.artifacts)
+
+
+def test_context_builder_always_carries_frozen_requirement_into_later_stages() -> None:
+    requirement = WorkItem(id="workitem-req", description="requirement", stage="requirement", kind="requirement_spec")
+    design = WorkItem(id="workitem-design", description="design", stage="design", kind="design_overview")
+    testing = WorkItem(
+        id="workitem-test",
+        description="test",
+        stage="testing",
+        kind="acceptance_check",
+        dependencies=["workitem-design"],
+    )
+    artifacts = [
+        Artifact(
+            id="artifact-frozen",
+            project_id="project-1",
+            workitem_id="workitem-req",
+            agent_id="agent-requirement",
+            kind="frozen_requirement_spec",
+            title="Frozen Requirement",
+            content="需求基线：测试必须覆盖导出、异常和持久化。",
+        ),
+        Artifact(
+            id="artifact-design",
+            project_id="project-1",
+            workitem_id="workitem-design",
+            agent_id="agent-designer",
+            kind="design_overview",
+            title="Design",
+            content="设计方案：静态 Web 应用。",
+        ),
+        *[
+            Artifact(
+                id=f"artifact-recent-{index}",
+                project_id="project-1",
+                workitem_id=f"workitem-recent-{index}",
+                agent_id="agent",
+                kind="api_implementation",
+                title=f"Recent {index}",
+                content=f"recent {index}",
+            )
+            for index in range(8)
+        ],
+    ]
+    state = SharedProjectState(
+        project=Project(id="project-1", goal="实现静态 Web 应用", current_stage="testing"),
+        project_status=ProjectStatus.IN_PROGRESS,
+        current_stage="testing",
+        workitems=[requirement, design, testing],
+        artifacts=artifacts,
+    )
+
+    context = ContextBuilder(max_artifacts=3).build(state, testing)
+    rendered = "\n".join(context.artifacts)
+
+    assert "需求基线" in rendered
+    assert "静态 Web 应用" in rendered

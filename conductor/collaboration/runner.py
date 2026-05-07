@@ -250,7 +250,19 @@ class CollaborationRunner:
                 else:
                     status = CollaborationStatus.MAX_ROUNDS_REACHED
             else:
-                status = CollaborationStatus.MAX_ROUNDS_REACHED
+                feedback_coverage = self._review_feedback_resolution_coverage(draft, contributions)
+                design_quality_passed = self._draft_has_minimum_sections(draft, workitem)
+                self.state_store.add_event(
+                    project_id,
+                    (
+                        "Design final arbitration: "
+                        f"passed={design_quality_passed}, feedback_coverage={feedback_coverage}"
+                    ),
+                )
+                if design_quality_passed and feedback_coverage >= 60 and len(draft_versions) > 1:
+                    status = CollaborationStatus.ACCEPTED
+                else:
+                    status = CollaborationStatus.MAX_ROUNDS_REACHED
         if status == CollaborationStatus.ACCEPTED and workitem.kind == "requirement_spec":
             quality = requirement_quality or self._evaluate_requirement_quality(project_id, draft)
             self.state_store.add_event(
@@ -305,6 +317,14 @@ class CollaborationRunner:
         state = self.state_store.get_state(project_id)
         case = build_requirement_case_from_text(project_id, state.project.goal, name="project_requirement")
         return evaluate_requirement_document(draft, case)
+
+    def _draft_has_minimum_sections(self, draft: str, workitem: WorkItem) -> bool:
+        """Return whether a revised non-requirement draft is complete enough to accept."""
+        if workitem.kind == "design_overview":
+            required = ("目标", "需求理解", "范围边界", "方案", "验收", "风险")
+        else:
+            required = ("目标", "方案", "验收")
+        return all(section in draft for section in required)
 
     def _review_feedback_resolution_coverage(self, draft: str, contributions: list[ReviewContribution]) -> int:
         """Return whether requested-review topics appear in the final requirement draft."""

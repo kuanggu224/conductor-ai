@@ -129,6 +129,39 @@ def test_requirement_evaluator_maps_aspect_labels_to_chinese_terms() -> None:
     assert evaluation.checks["aspect_coverage"] is True
 
 
+def test_requirement_evaluator_counts_translated_domain_keyword_aliases() -> None:
+    expense_case = default_requirement_benchmark_cases()[1]
+    expense_document = """
+    目标：员工发起报销申请，经理完成审批。
+    范围边界：支持费用提交、审批通过、驳回、审批状态跟踪和无效输入校验；非目标是不接入真实财务系统。
+    接口与数据：记录员工、金额、事由、票据说明、当前状态和错误提示。
+    验收标准：提交后进入待审批；经理可以批准或拒绝；非法金额返回清晰错误。
+    风险与假设：角色权限先用本地模拟。待确认问题：是否需要多级审批。
+    边界/异常场景：空金额、负数金额、重复提交、已审批记录再次提交。
+    测试验证：覆盖提交、批准、拒绝、状态展示和错误提示。
+    下游交付约束：后续设计、开发、测试必须保持审批状态机一致。
+    """
+    csv_case = default_requirement_benchmark_cases()[2]
+    csv_document = """
+    目标：本地 CSV 清洗工具。
+    范围边界：读取表格文件，去除首尾空格，删除重复行，标记无效行，并导出清洗后的文件；非目标是不做云端存储。
+    数据与交互：展示原始行数、重复行数量、异常行列表和导出入口。
+    验收标准：空白被修剪；重复数据被去重；非法行有错误提示；用户可以下载输出文件。
+    风险与假设：默认 UTF-8。待确认问题：大文件上限。
+    边界/异常场景：空文件、缺失表头、坏行、全部重复。
+    测试验证：覆盖读取、去空格、去重、错误报告和导出。
+    下游交付约束：实现不能依赖外部服务。
+    """
+
+    expense = evaluate_requirement_document(expense_document, expense_case)
+    csv = evaluate_requirement_document(csv_document, csv_case)
+
+    assert expense.metrics["keyword_coverage"] == 100
+    assert expense.checks["keyword_coverage"] is True
+    assert csv.metrics["keyword_coverage"] == 100
+    assert csv.checks["keyword_coverage"] is True
+
+
 def test_requirement_comparison_requires_platform_delta() -> None:
     case = default_requirement_benchmark_cases()[0]
     platform_doc = """

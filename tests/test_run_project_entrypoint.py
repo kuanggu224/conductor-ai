@@ -78,3 +78,20 @@ def test_run_project_parser_accepts_llm_harness() -> None:
     assert args.llm_base_url == "http://127.0.0.1:1234/v1"
     assert args.llm_model == "qwen3.6-35b-a3b"
     assert args.llm_reasoning_effort == "none"
+
+
+def test_run_project_parser_accepts_collaboration_overrides() -> None:
+    args = build_parser().parse_args(
+        [
+            "--requirement",
+            "demo",
+            "--collaboration-max-rounds",
+            "1",
+            "--static-requirement-review",
+            "--diagnose-llm",
+        ]
+    )
+
+    assert args.collaboration_max_rounds == 1
+    assert args.static_requirement_review is True
+    assert args.diagnose_llm is True

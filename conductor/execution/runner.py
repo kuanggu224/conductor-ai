@@ -924,7 +924,7 @@ class Runner:
         elif workitem.kind == "design_overview":
             required = ["目标", "需求理解", "范围边界", "核心流程", "方案", "接口与数据关注点", "验收标准", "风险"]
         elif workitem.kind == "api_design":
-            required = ["目标", "接口", "输入", "输出", "验收"]
+            required = ["目标", "接口", "数据", "验收"]
         else:
             required = ["目标", "方案", "验收", "风险"]
         return [section for section in required if section not in content]
