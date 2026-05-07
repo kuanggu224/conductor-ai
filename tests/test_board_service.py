@@ -9,12 +9,15 @@ from conductor.config.llm import LLMHTTPConfig, LLMRuntimeConfig, LLMUsagePolicy
 from conductor.controller.lead_controller import LeadController
 from conductor.domain.models import (
     Artifact,
+    Execution,
+    ExecutionStatus,
     Project,
     ProjectStatus,
     SharedProjectState,
     TaskAssignment,
     TaskAssignmentStatus,
     WorkItem,
+    WorkItemStatus,
 )
 from conductor.execution.runner import Runner
 from conductor.state.store import InMemoryStateStore
@@ -75,6 +78,8 @@ def test_board_service_builds_snapshot_from_state() -> None:
         snapshot.task_assignments[0].claimed_age_seconds, int
     )
     assert snapshot.task_assignments[0].stale_claimed in {True, False}
+    assert isinstance(snapshot.workitems[0].remediation_suggestions, list)
+    assert isinstance(snapshot.executions[0].remediation_suggestions, list)
 
 
 def test_board_service_extracts_code_execution_reports() -> None:
@@ -216,3 +221,40 @@ def test_board_service_exposes_stale_task_assignment_state() -> None:
     assert snapshot.task_assignments[0].claimed_age_seconds is not None
     assert snapshot.task_assignments[0].claimed_age_seconds >= 7200
     assert snapshot.task_assignments[0].stale_claimed is True
+
+
+def test_board_service_exposes_failure_remediation_suggestions() -> None:
+    state = SharedProjectState(
+        project=Project(id="project-failure-board", goal="recover failed task", current_stage="testing"),
+        project_status=ProjectStatus.IN_PROGRESS,
+        current_stage="testing",
+        workitems=[
+            WorkItem(
+                id="workitem-timeout",
+                description="Slow CLI task",
+                stage="testing",
+                kind="automated_test",
+                status=WorkItemStatus.FAILED,
+                failure_type="timeout",
+                retryable=True,
+                failure_summary="Agent CLI timed out",
+            )
+        ],
+        executions=[
+            Execution(
+                workitem_id="workitem-timeout",
+                agent_id="agent-tester",
+                result="timeout",
+                status=ExecutionStatus.FAILED,
+                failure_type="timeout",
+                failure_summary="Agent CLI timed out",
+            )
+        ],
+    )
+
+    snapshot = BoardService().build_snapshot(state)
+
+    assert snapshot.workitems[0].failure_type == "timeout"
+    assert "Increase the CLI or LLM timeout" in snapshot.workitems[0].remediation_suggestions[0]
+    assert snapshot.executions[0].failure_type == "timeout"
+    assert snapshot.executions[0].remediation_suggestions

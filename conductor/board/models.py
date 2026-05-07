@@ -20,6 +20,9 @@ class BoardWorkItemView:
     kind_label: str = ""
     status_label: str = ""
     owner_agent_label: str = ""
+    failure_type: str = ""
+    failure_summary: str = ""
+    remediation_suggestions: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -32,6 +35,9 @@ class BoardExecutionView:
     result: str
     agent_label: str = ""
     status_label: str = ""
+    failure_type: str = ""
+    failure_summary: str = ""
+    remediation_suggestions: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)

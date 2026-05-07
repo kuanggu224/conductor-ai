@@ -19,6 +19,7 @@ from conductor.board.models import (
 from conductor.domain.models import SharedProjectState
 from conductor.config.cli import CLISelectionConfig
 from conductor.config.llm import LLMRuntimeConfig
+from conductor.execution.failure_policy import remediation_suggestions
 from conductor.task_center.service import TaskCenterService
 
 STAGE_LABELS = {
@@ -208,6 +209,15 @@ class BoardService:
                     owner_agent_label=AGENT_LABELS.get(workitem.owner_agent or "-", workitem.owner_agent or "-"),
                     description=workitem.description,
                     retry_text=f"{workitem.retry_count}/{workitem.max_retries}",
+                    failure_type=workitem.failure_type,
+                    failure_summary=workitem.failure_summary,
+                    remediation_suggestions=remediation_suggestions(
+                        workitem.failure_type,
+                        retryable=workitem.retryable,
+                        summary=workitem.failure_summary or workitem.blocked_reason or "",
+                    )
+                    if workitem.failure_type or workitem.blocked_reason
+                    else [],
                 )
                 for workitem in state.workitems
             ],
@@ -219,6 +229,15 @@ class BoardService:
                     status=execution.status.value,
                     status_label=EXECUTION_STATUS_LABELS.get(execution.status.value, execution.status.value),
                     result=execution.result,
+                    failure_type=execution.failure_type,
+                    failure_summary=execution.failure_summary,
+                    remediation_suggestions=remediation_suggestions(
+                        execution.failure_type,
+                        retryable=True,
+                        summary=execution.failure_summary or execution.cli_stderr_tail or execution.cli_stdout_tail,
+                    )
+                    if execution.failure_type or execution.failure_summary
+                    else [],
                 )
                 for execution in state.executions
             ],
