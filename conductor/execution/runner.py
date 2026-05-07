@@ -51,6 +51,9 @@ class WorkItemRunResult:
     cli_name: str = ""
     model: str = ""
     working_directory: str = ""
+    execution_command: list[str] | None = None
+    execution_exit_code: int | None = None
+    execution_duration_ms: int | None = None
     changed_files: list[str] | None = None
     validation_command: list[str] | None = None
     validation_exit_code: int | None = None
@@ -149,6 +152,9 @@ class Runner:
             cli_name=run_result.cli_name,
             model=run_result.model,
             working_directory=run_result.working_directory or self._project_root(project_id),
+            execution_command=[*(run_result.execution_command or [])],
+            execution_exit_code=run_result.execution_exit_code,
+            execution_duration_ms=run_result.execution_duration_ms,
             input_artifact_ids=input_artifact_ids,
             changed_files=[*(run_result.changed_files or [])],
             validation_command=[*(run_result.validation_command or [])],
@@ -232,6 +238,10 @@ class Runner:
                             else classify_harness_failure(harness_result)
                         )
                     ),
+                    working_directory=request.working_directory,
+                    execution_command=list(request.command),
+                    execution_exit_code=harness_result.exit_code,
+                    execution_duration_ms=harness_result.duration_ms,
                 )
             except Exception as error:
                 self.state_store.add_event(project_id, f"WorkItem {workitem.id} Harness 执行失败，使用 mock fallback: {error}")
@@ -273,6 +283,12 @@ class Runner:
                     return WorkItemRunResult(
                         content=file_output,
                         source_backend=f"agent_cli/{cli_execution.cli_name}",
+                        cli_name=cli_execution.cli_name,
+                        model=self._model_for_agent_cli(cli_execution.cli_name),
+                        working_directory=cli_execution.request.working_directory,
+                        execution_command=list(cli_execution.redacted_command),
+                        execution_exit_code=cli_execution.result.exit_code,
+                        execution_duration_ms=cli_execution.result.duration_ms,
                     )
                 if cli_execution.cli_name == "opencode":
                     self.state_store.add_event(
@@ -288,12 +304,24 @@ class Runner:
                         source_backend=f"agent_cli/{cli_execution.cli_name}",
                         succeeded=False,
                         failure=configuration_required("OpenCode did not create the required document output file."),
+                        cli_name=cli_execution.cli_name,
+                        model=self._model_for_agent_cli(cli_execution.cli_name),
+                        working_directory=cli_execution.request.working_directory,
+                        execution_command=list(cli_execution.redacted_command),
+                        execution_exit_code=cli_execution.result.exit_code,
+                        execution_duration_ms=cli_execution.result.duration_ms,
                     )
                 cli_stdout = (cli_execution.result.stdout or "").strip()
                 if cli_execution.result.success and cli_stdout:
                     return WorkItemRunResult(
                         content=cli_stdout,
                         source_backend=f"agent_cli/{cli_execution.cli_name}",
+                        cli_name=cli_execution.cli_name,
+                        model=self._model_for_agent_cli(cli_execution.cli_name),
+                        working_directory=cli_execution.request.working_directory,
+                        execution_command=list(cli_execution.redacted_command),
+                        execution_exit_code=cli_execution.result.exit_code,
+                        execution_duration_ms=cli_execution.result.duration_ms,
                     )
                 if "Unsupported reasoning_effort type" in cli_stdout:
                     self.state_store.add_event(
@@ -348,6 +376,10 @@ class Runner:
                             else classify_harness_failure(harness_result)
                         )
                     ),
+                    working_directory=request.working_directory,
+                    execution_command=list(request.command),
+                    execution_exit_code=harness_result.exit_code,
+                    execution_duration_ms=harness_result.duration_ms,
                 )
             except Exception as error:
                 self.state_store.add_event(project_id, f"WorkItem {workitem.id} Harness 执行失败，使用 mock fallback: {error}")
@@ -441,7 +473,10 @@ class Runner:
                 ),
                 cli_name=cli_execution.cli_name,
                 model=self._model_for_agent_cli(cli_execution.cli_name),
-                working_directory=self._project_root(project_id),
+                working_directory=cli_execution.request.working_directory,
+                execution_command=list(cli_execution.redacted_command),
+                execution_exit_code=cli_result.exit_code,
+                execution_duration_ms=cli_result.duration_ms,
                 changed_files=changed_files,
                 cli_stdout_tail=self._tail(cli_stdout),
                 cli_stderr_tail=self._tail(cli_stderr),
@@ -466,7 +501,10 @@ class Runner:
                 failure=no_code_changes(),
                 cli_name=cli_execution.cli_name,
                 model=self._model_for_agent_cli(cli_execution.cli_name),
-                working_directory=self._project_root(project_id),
+                working_directory=cli_execution.request.working_directory,
+                execution_command=list(cli_execution.redacted_command),
+                execution_exit_code=cli_result.exit_code,
+                execution_duration_ms=cli_result.duration_ms,
                 changed_files=[],
                 cli_stdout_tail=self._tail(cli_stdout),
                 cli_stderr_tail=self._tail(cli_stderr),
@@ -498,7 +536,10 @@ class Runner:
             failure=None if validation_passed else validation_failed(validation_result),
             cli_name=cli_execution.cli_name,
             model=self._model_for_agent_cli(cli_execution.cli_name),
-            working_directory=project_root,
+            working_directory=cli_execution.request.working_directory,
+            execution_command=list(cli_execution.redacted_command),
+            execution_exit_code=cli_result.exit_code,
+            execution_duration_ms=cli_result.duration_ms,
             changed_files=changed_files,
             validation_command=validation_command,
             validation_exit_code=validation_result.exit_code,

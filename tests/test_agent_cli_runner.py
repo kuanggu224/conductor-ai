@@ -88,6 +88,10 @@ def test_runner_uses_bound_agent_cli_for_designer_workitem(monkeypatch) -> None:
     latest = state_store.get_state(project_id)
 
     assert execution.status == ExecutionStatus.SUCCESS
+    assert execution.execution_command
+    assert "<prompt-redacted>" in execution.execution_command
+    assert execution.execution_exit_code == 0
+    assert execution.execution_duration_ms == 25
     assert latest.workitems[0].status == WorkItemStatus.DONE
     assert latest.artifacts[0].source_backend == "agent_cli/claude"
     assert harness.last_request is not None
@@ -217,6 +221,8 @@ def test_opencode_command_passes_prompt_as_argument(monkeypatch) -> None:
     assert request.command[:3] == ["C:/bin/opencode.cmd", "run", "--dir"]
     assert "C:/repo" in request.command
     assert request.command[-1] == "Write DESIGN.md"
+    assert execution.redacted_command[-1] == "<prompt-redacted>"
+    assert "Write DESIGN.md" not in execution.redacted_command
     assert request.stdin_text is None
 
 
@@ -257,6 +263,8 @@ def test_aspirecode_command_uses_opencode_protocol_with_model(monkeypatch) -> No
     assert "lmstudio-local/qwen3.6-35b-a3b" in request.command
     assert "--dangerously-skip-permissions" not in request.command
     assert request.command[-1] == "Write DESIGN.md"
+    assert execution.redacted_command[-1] == "<prompt-redacted>"
+    assert "Write DESIGN.md" not in execution.redacted_command
     assert request.stdin_text is None
 
 

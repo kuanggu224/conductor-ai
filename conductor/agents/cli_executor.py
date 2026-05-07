@@ -20,6 +20,8 @@ class AgentCLIExecution:
 
     cli_name: str
     executable_path: str
+    request: HarnessRequest
+    redacted_command: list[str]
     result: HarnessResult
 
 
@@ -86,6 +88,8 @@ class AgentCLIExecutor:
         execution = AgentCLIExecution(
             cli_name=cli_name,
             executable_path=executable_path,
+            request=request,
+            redacted_command=self._redact_prompt_from_command(cli_name, request.command),
             result=self.shell_harness.run(request),
         )
         if self._is_provider_compatibility_failure(execution.result):
@@ -167,6 +171,24 @@ class AgentCLIExecutor:
             command.append(prompt)
             return command
         raise RuntimeError(f"当前未支持 Agent CLI: {cli_name}")
+
+    def _redact_prompt_from_command(self, cli_name: str, command: list[str]) -> list[str]:
+        """Return a manifest-safe command without embedded prompt text."""
+        redacted = list(command)
+        if cli_name == "claude":
+            if "-Command" in redacted:
+                command_index = redacted.index("-Command")
+                if command_index + 1 < len(redacted):
+                    redacted[command_index + 1] = "<powershell-script-redacted>"
+                return redacted
+            for index, value in enumerate(redacted[:-1]):
+                if value == "-p":
+                    redacted[index + 1] = "<prompt-redacted>"
+        elif cli_name == "qwen" and len(redacted) >= 2:
+            redacted[1] = "<prompt-redacted>"
+        elif cli_name in {"opencode", "aspirecode"} and redacted:
+            redacted[-1] = "<prompt-redacted>"
+        return redacted
 
     def _build_windows_claude_code_edit_command(self, executable_path: str, prompt: str, working_directory: str) -> list[str]:
         """Run Claude code-edit mode through PowerShell on Windows for stable file edits."""
