@@ -42,6 +42,37 @@ The repository is configured for local, deterministic execution.
 python -m pytest -q
 ```
 
+## Task Center
+
+The Task Center is the lightweight coordination boundary for external agents.
+It is not a distributed queue yet, but it provides a stable claim/return
+protocol over persisted `.conductor/state` files and the Board API.
+
+CLI entrypoint:
+
+```bash
+python -m app.task_center list --project-root <project-root>
+python -m app.task_center summary --project-root <project-root>
+python -m app.task_center claim-next --project-root <project-root> --agent-id <agent-id> [--role <role>]
+python -m app.task_center claim <assignment-id> --project-root <project-root> --agent-id <agent-id>
+python -m app.task_center complete <assignment-id> --project-root <project-root> --result-summary "done"
+python -m app.task_center fail <assignment-id> --project-root <project-root> --blocked-reason "reason"
+```
+
+Board API endpoints:
+
+- `GET /api/projects/{project_id}/tasks`
+- `GET /api/projects/{project_id}/tasks/summary`
+- `POST /api/projects/{project_id}/tasks/claim-next`
+- `POST /api/projects/{project_id}/tasks/{assignment_id}/claim`
+- `POST /api/projects/{project_id}/tasks/{assignment_id}/complete`
+- `POST /api/projects/{project_id}/tasks/{assignment_id}/fail`
+
+Task payloads expose `claimable` and `unmet_dependency_ids`. Summaries expose
+`total`, `queued`, `claimed`, `completed`, `failed`, `blocked`, `claimable`,
+and `blocked_by_dependencies`. Run manifests and project reports also include
+Task Center readiness for audit and replay.
+
 ### Windows PowerShell UTF-8
 
 If Chinese text appears as mojibake when reading logs or reports in PowerShell,
@@ -77,7 +108,7 @@ The default flow is:
 6. Update shared state
 7. Let `LeadController` decide the next action
 
-Current test status in this workspace: `80 passed` with `python -m pytest -q`.
+Current test status in this workspace: `264 passed` with `python -m pytest -q`.
 
 ## Project Layout
 
