@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from conductor.domain.models import SharedProjectState
+from conductor.execution.failure_policy import remediation_suggestions
 from conductor.task_center.service import TaskCenterService
 from conductor.testing.coverage import evaluate_requirement_coverage
 
@@ -149,6 +150,13 @@ class ProjectLogStore:
                 f"- {item.id} | stage={item.stage} | kind={item.kind} | "
                 f"status={item.status.value} | owner={item.owner_agent or '-'}"
             )
+            if item.failure_type or item.blocked_reason:
+                suggestions = remediation_suggestions(
+                    item.failure_type,
+                    retryable=item.retryable,
+                    summary=item.failure_summary or item.blocked_reason or "",
+                )
+                lines.append(f"  - remediation: {'; '.join(suggestions)}")
             for criterion in item.acceptance_criteria:
                 lines.append(f"  - acceptance: {criterion}")
 
@@ -236,6 +244,13 @@ class ProjectLogStore:
                 f"changed_files={self._join_or_dash(execution.changed_files)} | "
                 f"validation={execution.validation_success if execution.validation_success is not None else '-'}"
             )
+            if execution.failure_type or execution.failure_summary:
+                suggestions = remediation_suggestions(
+                    execution.failure_type,
+                    retryable=True,
+                    summary=execution.failure_summary or execution.cli_stderr_tail or execution.cli_stdout_tail,
+                )
+                lines.append(f"  - remediation: {'; '.join(suggestions)}")
         return lines
 
     def _join_or_dash(self, values: list[str]) -> str:

@@ -2,7 +2,7 @@
 
 from conductor.config.cli import CLISelectionConfig
 from conductor.controller.engine import ConductorEngine
-from conductor.domain.models import Artifact, Execution, ExecutionStatus, Project, ProjectStatus, SharedProjectState, WorkItem
+from conductor.domain.models import Artifact, Execution, ExecutionStatus, Project, ProjectStatus, SharedProjectState, WorkItem, WorkItemStatus
 from conductor.logging.store import ProjectLogStore
 
 
@@ -112,3 +112,39 @@ def test_project_report_includes_requirement_coverage_traceability(tmp_path) -> 
     assert "add item interaction: `covered`" in report
     assert "refresh persistence: `missing`" in report
     assert "CSV export/download: `covered`" in report
+
+
+def test_project_report_includes_failure_remediation_suggestions(tmp_path) -> None:
+    store = ProjectLogStore(tmp_path)
+    state = SharedProjectState(
+        project=Project(id="project-remediation", goal="recover failed task", current_stage="testing"),
+        project_status=ProjectStatus.IN_PROGRESS,
+        current_stage="testing",
+        workitems=[
+            WorkItem(
+                id="workitem-timeout",
+                description="Slow CLI task",
+                stage="testing",
+                kind="automated_test",
+                status=WorkItemStatus.FAILED,
+                failure_type="timeout",
+                retryable=True,
+                failure_summary="Agent CLI timed out",
+            )
+        ],
+        executions=[
+            Execution(
+                workitem_id="workitem-timeout",
+                agent_id="agent-tester",
+                result="timeout",
+                status=ExecutionStatus.FAILED,
+                failure_type="timeout",
+                failure_summary="Agent CLI timed out",
+            )
+        ],
+    )
+
+    report = store.render_project_report(state, [])
+
+    assert "remediation:" in report
+    assert "Increase the CLI or LLM timeout" in report

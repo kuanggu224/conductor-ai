@@ -24,7 +24,7 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     manifest_path = engine.write_run_manifest(state.project.id, report_path)
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-    assert payload["schema_version"] == "1.14"
+    assert payload["schema_version"] == "1.15"
     assert payload["run_id"].startswith(state.project.id)
     assert payload["project_id"] == state.project.id
     assert payload["run_profile"] == "mock"
@@ -50,8 +50,10 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     assert "changed_files" in payload["executions"][0]
     assert "validation_command" in payload["executions"][0]
     assert "failure_summary" in payload["executions"][0]
+    assert "remediation_suggestions" in payload["executions"][0]
     assert payload["workitems"]
     assert "failure_type" in payload["workitems"][0]
+    assert "remediation_suggestions" in payload["workitems"][0]
     assert "acceptance_criteria" in payload["workitems"][0]
     assert isinstance(payload["workitems"][0]["acceptance_criteria"], list)
     assert payload["task_assignments"]
@@ -227,6 +229,51 @@ def test_manifest_records_requirement_coverage_results(tmp_path) -> None:
             "summary": "Requirement coverage missing: refresh persistence",
         }
     ]
+
+
+def test_manifest_records_failure_remediation_suggestions(tmp_path) -> None:
+    from conductor.domain.models import Execution, ExecutionStatus, WorkItem, WorkItemStatus
+
+    engine = ConductorEngine(
+        log_dir=tmp_path / "logs",
+        artifact_dir=tmp_path / "artifacts",
+        cli_selection_config=CLISelectionConfig(),
+        run_profile=RunProfile.MOCK,
+    )
+    state = engine.create_project("Build a local reading list", project_root=str(tmp_path / "project"))
+    failed_workitem = WorkItem(
+        id="workitem-timeout",
+        description="Run slow validation",
+        stage="testing",
+        kind="automated_test",
+        status=WorkItemStatus.FAILED,
+        failure_type="timeout",
+        retryable=True,
+        failure_summary="Agent CLI timed out",
+    )
+    state = replace(
+        state,
+        current_stage="testing",
+        workitems=[failed_workitem],
+        executions=[
+            Execution(
+                workitem_id=failed_workitem.id,
+                agent_id="agent-tester",
+                result="timeout",
+                status=ExecutionStatus.FAILED,
+                failure_type="timeout",
+                failure_summary="Agent CLI timed out",
+            )
+        ],
+    )
+    engine.state_store.save_state(state)
+    report_path = engine.write_project_report(state.project.id)
+
+    manifest_path = engine.write_run_manifest(state.project.id, report_path)
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert "Increase the CLI or LLM timeout" in payload["workitems"][0]["remediation_suggestions"][0]
+    assert payload["executions"][0]["remediation_suggestions"]
 
 
 def test_manifest_records_codex_model_for_bound_agent(tmp_path) -> None:

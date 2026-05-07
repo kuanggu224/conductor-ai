@@ -15,6 +15,7 @@ from conductor.config.execution import RunProfile
 from conductor.config.llm import LLMRuntimeConfig
 from conductor.diagnostics import build_platform_diagnostics
 from conductor.domain.models import SharedProjectState
+from conductor.execution.failure_policy import remediation_suggestions
 from conductor.requirement_benchmark import build_requirement_case_from_text, evaluate_requirement_document
 from conductor.task_center.service import TaskCenterService
 from conductor.testing.coverage import evaluate_requirement_coverage
@@ -86,7 +87,7 @@ class RunManifestWriter:
             probe_llm=False,
         ).to_dict()
         manifest = RunManifest(
-            schema_version="1.14",
+            schema_version="1.15",
             run_id=f"{state.project.id}:{generated_at}",
             project_id=state.project.id,
             generated_at=generated_at,
@@ -136,6 +137,13 @@ class RunManifestWriter:
                     "failure_type": item.failure_type,
                     "retryable": item.retryable,
                     "failure_summary": item.failure_summary,
+                    "remediation_suggestions": remediation_suggestions(
+                        item.failure_type,
+                        retryable=item.retryable,
+                        summary=item.failure_summary or item.blocked_reason or "",
+                    )
+                    if item.failure_type or item.blocked_reason
+                    else [],
                     "acceptance_criteria": list(item.acceptance_criteria),
                 }
                 for item in state.workitems
@@ -332,6 +340,13 @@ class RunManifestWriter:
             "validation_success": execution.validation_success,
             "failure_type": execution.failure_type,
             "failure_summary": execution.failure_summary,
+            "remediation_suggestions": remediation_suggestions(
+                execution.failure_type,
+                retryable=True,
+                summary=execution.failure_summary or execution.cli_stderr_tail or execution.cli_stdout_tail,
+            )
+            if execution.failure_type or execution.failure_summary
+            else [],
             "cli_stdout_tail": execution.cli_stdout_tail,
             "cli_stderr_tail": execution.cli_stderr_tail,
             "artifact_ids": [artifact.id for artifact in artifacts],
