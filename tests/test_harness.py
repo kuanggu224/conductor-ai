@@ -4,6 +4,7 @@ import sys
 
 from conductor.harness.models import HarnessRequest
 from conductor.harness.shell import ShellHarness
+from conductor.harness.static_web import StaticWebHarness
 
 
 def test_shell_harness_runs_python_command(tmp_path) -> None:
@@ -56,3 +57,103 @@ def test_shell_harness_streams_output_lines(tmp_path) -> None:
 
     assert result.success is True
     assert streamed == [("stdout", "line-1"), ("stdout", "line-2")]
+
+
+def test_shell_harness_marks_timeout(tmp_path) -> None:
+    harness = ShellHarness()
+    request = HarnessRequest(
+        command=[sys.executable, "-c", "import time; time.sleep(2)"],
+        working_directory=str(tmp_path),
+        timeout_seconds=0.1,
+        description="timeout-smoke",
+    )
+
+    result = harness.run(request)
+
+    assert result.success is False
+    assert result.timed_out is True
+    assert result.failure_reason == "timeout"
+
+
+def test_static_web_harness_validates_basic_static_app(tmp_path) -> None:
+    (tmp_path / "static").mkdir()
+    (tmp_path / "index.html").write_text(
+        """<!doctype html>
+<html>
+  <head>
+    <title>Expense Tracker</title>
+    <link rel="stylesheet" href="static/style.css">
+  </head>
+  <body>
+    <form><input type="number" required><button type="submit">Add</button></form>
+    <script src="static/app.js"></script>
+  </body>
+</html>
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "static" / "style.css").write_text("body { color: #111; }\n", encoding="utf-8")
+    (tmp_path / "static" / "app.js").write_text(
+        """
+document.querySelector('form').addEventListener('submit', event => {
+  event.preventDefault();
+  const output = document.createElement('p');
+  output.textContent = 'Added 12';
+  document.body.appendChild(output);
+});
+""",
+        encoding="utf-8",
+    )
+
+    result = StaticWebHarness().run(HarnessRequest(command=[], working_directory=str(tmp_path)))
+
+    assert result.success is True
+    assert result.exit_code == 0
+    assert "Static Web Validation: PASS" in result.stdout
+    assert "HTTP serving works" in result.stdout
+    assert "JavaScript syntax valid: static/app.js" in result.stdout
+    assert "Browser form interaction updated visible state" in result.stdout
+
+
+def test_static_web_harness_fails_missing_local_asset(tmp_path) -> None:
+    (tmp_path / "index.html").write_text(
+        """<!doctype html>
+<html>
+  <head><title>Broken</title></head>
+  <body><script src="static/missing.js"></script></body>
+</html>
+""",
+        encoding="utf-8",
+    )
+
+    result = StaticWebHarness().run(HarnessRequest(command=[], working_directory=str(tmp_path)))
+
+    assert result.success is False
+    assert result.exit_code == 1
+    assert result.failure_reason == "static_web_validation_failed"
+    assert "Missing script asset: static/missing.js" in result.stdout
+
+
+def test_static_web_harness_fails_when_form_submit_does_not_change_visible_state(tmp_path) -> None:
+    (tmp_path / "static").mkdir()
+    (tmp_path / "index.html").write_text(
+        """<!doctype html>
+<html>
+  <head><title>Noop</title></head>
+  <body>
+    <form><input id="amount" type="number" required><button type="submit">Add</button></form>
+    <script src="static/app.js"></script>
+  </body>
+</html>
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "static" / "app.js").write_text(
+        "document.querySelector('form').addEventListener('submit', event => event.preventDefault());\n",
+        encoding="utf-8",
+    )
+
+    result = StaticWebHarness().run(HarnessRequest(command=[], working_directory=str(tmp_path)))
+
+    assert result.success is False
+    assert "Browser form submit did not change visible page state" in result.stdout

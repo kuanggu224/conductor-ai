@@ -6,6 +6,7 @@ import re
 from dataclasses import replace
 from pathlib import Path
 
+from conductor.artifacts.contracts import build_contract_markdown
 from conductor.domain.models import Artifact
 
 
@@ -47,6 +48,7 @@ class ArtifactStore:
             f"- Version: `{artifact.version}`\n"
             f"- Collaboration Session ID: `{artifact.collaboration_session_id or '-'}`\n"
             f"- Derived From: `{', '.join(artifact.derived_from) if artifact.derived_from else '-'}`\n\n"
+            f"{build_contract_markdown(artifact)}"
             f"{artifact.content}\n"
         )
 

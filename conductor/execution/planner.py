@@ -1,7 +1,4 @@
-"""规则版 Planner，实现 requirement 到 WorkItem 的最小拆解。
-
-支持从配置系统读取关键词和工作项类型配置。
-"""
+"""Rule-based planner that minimally decomposes requirements into WorkItems."""
 
 from __future__ import annotations
 
@@ -15,7 +12,7 @@ from conductor.domain.models import Stage, WorkItem
 
 @dataclass(slots=True)
 class WorkItemDraft:
-    """WorkItem 草稿，用于先描述意图再生成实体。"""
+    """Intermediate WorkItem description used before entity creation."""
 
     kind: str
     description: str
@@ -23,7 +20,7 @@ class WorkItemDraft:
 
 
 class Planner:
-    """基于关键词规则拆解各阶段 WorkItem。"""
+    """Split a requirement into stage-specific WorkItems with keyword rules."""
 
     UI_KEYWORDS = ("界面", "页面", "ui", "前端", "web", "页面设计", "交互")
     API_KEYWORDS = ("接口", "api", "后端", "服务", "restful", "http")
@@ -39,10 +36,9 @@ class Planner:
         self._workitem_counter = count(start_index)
         self.scope_config = scope_config or ExecutionScopeConfig()
         self.config = config or SystemConfig.load()
-        self.config = config or SystemConfig.load()
 
     def plan_stage_workitems(self, stage: Stage, requirement: str) -> list[WorkItem]:
-        """为指定阶段生成最小 WorkItem 集合。"""
+        """Generate the smallest useful set of WorkItems for a stage."""
         normalized_requirement = requirement.lower()
         drafts = self._build_drafts(stage.name, normalized_requirement, requirement)
         drafts = [draft for draft in drafts if self.scope_config.is_workitem_kind_enabled(draft.kind)]
@@ -187,5 +183,5 @@ class Planner:
         )
 
     def _contains_any(self, text: str, keywords: tuple[str, ...]) -> bool:
-        """判断文本中是否包含任一关键词。"""
+        """Return True when the text contains any keyword."""
         return any(keyword in text for keyword in keywords)

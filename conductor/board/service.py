@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from conductor.board.models import (
+    BoardActivationNodeView,
     BoardArtifactView,
     BoardDesignCollaborationView,
     BoardExecutionView,
@@ -12,6 +13,7 @@ from conductor.board.models import (
     BoardProjectSummary,
     BoardReviewView,
     BoardSnapshot,
+    BoardTaskAssignmentView,
     BoardWorkItemView,
 )
 from conductor.domain.models import SharedProjectState
@@ -58,6 +60,20 @@ AGENT_LABELS = {
     "agent-tester": "测试 Agent",
 }
 
+ROLE_SHORT_LABELS = {
+    "designer": "UX",
+    "backend_engineer": "BE",
+    "frontend_engineer": "FE",
+    "tester": "QA",
+}
+
+ROLE_POSITION_CLASSES = {
+    "designer": "node-top-left",
+    "backend_engineer": "node-top-right",
+    "frontend_engineer": "node-bottom-right",
+    "tester": "node-bottom-left",
+}
+
 WORKITEM_KIND_LABELS = {
     "design_overview": "总体设计",
     "ui_design": "界面设计",
@@ -88,6 +104,7 @@ SOURCE_BACKEND_LABELS = {
     "agent_cli/qwen": "Qwen CLI",
     "agent_cli/opencode": "OpenCode CLI",
     "collaboration": "多 Agent 协作",
+    "real_backend_required": "等待真实 Agent 后端",
     "unknown": "未知来源",
 }
 
@@ -101,6 +118,14 @@ COLLABORATION_STATUS_LABELS = {
 REVIEW_DECISION_LABELS = {
     "approve": "通过",
     "request_changes": "请求修改",
+}
+
+TASK_ASSIGNMENT_STATUS_LABELS = {
+    "queued": "待领取",
+    "claimed": "已领取",
+    "completed": "已归还",
+    "failed": "执行失败",
+    "blocked": "依赖阻断",
 }
 
 
@@ -181,6 +206,25 @@ class BoardService:
                 for decision in state.route_decisions
             ],
             project_agents=self._build_project_agents(state),
+            activation_nodes=self._build_activation_nodes(state),
+            task_assignments=[
+                BoardTaskAssignmentView(
+                    id=assignment.id,
+                    workitem_id=assignment.workitem_id,
+                    role=assignment.role,
+                    role_label=label_role(assignment.role),
+                    status=assignment.status.value,
+                    status_label=TASK_ASSIGNMENT_STATUS_LABELS.get(assignment.status.value, assignment.status.value),
+                    assigned_agent_id=assignment.assigned_agent_id or "-",
+                    assigned_agent_label=AGENT_LABELS.get(assignment.assigned_agent_id or "-", assignment.assigned_agent_id or "-"),
+                    dependencies=assignment.dependencies,
+                    input_artifact_ids=assignment.input_artifact_ids,
+                    output_artifact_ids=assignment.output_artifact_ids,
+                    claim_reason=assignment.claim_reason,
+                    blocked_reason=assignment.blocked_reason or "",
+                )
+                for assignment in state.task_assignments
+            ],
             execution_runtime=self._build_execution_runtime_view(state, cli_config, llm_runtime_config),
             design_collaboration=self._build_design_collaboration_view(state, artifacts),
         )
@@ -456,6 +500,24 @@ class BoardService:
 
     def _build_project_agents(self, state: SharedProjectState) -> list[BoardProjectAgentView]:
         """构建当前项目已激活 Agent 列表及原因。"""
+        if state.agent_activations:
+            return [
+                BoardProjectAgentView(
+                    role=activation.role,
+                    role_label=label_role(activation.role),
+                    agent_id=activation.agent_id,
+                    mission=self._mission_for_role(activation.role),
+                    reason=(
+                        f"阶段 {label_stage(activation.stage)} 创建：{activation.reason}；"
+                        f"执行后端 {activation.execution_backend}"
+                    ),
+                    related_kinds=[
+                        WORKITEM_KIND_LABELS.get(kind, kind)
+                        for kind in activation.related_workitem_kinds
+                    ],
+                )
+                for activation in state.agent_activations
+            ]
         agent_views: list[BoardProjectAgentView] = []
         for role in state.planned_roles:
             related_kinds = []
@@ -484,6 +546,28 @@ class BoardService:
                 )
             )
         return agent_views
+
+    def _build_activation_nodes(self, state: SharedProjectState) -> list[BoardActivationNodeView]:
+        """构建按需激活 Agent 的环形节点视图。"""
+        active_by_role = {agent.role: agent for agent in self._build_project_agents(state)}
+        ordered_roles = ["designer", "backend_engineer", "frontend_engineer", "tester"]
+        nodes: list[BoardActivationNodeView] = []
+        for role in ordered_roles:
+            active_agent = active_by_role.get(role)
+            nodes.append(
+                BoardActivationNodeView(
+                    role=role,
+                    role_label=label_role(role),
+                    short_label=ROLE_SHORT_LABELS.get(role, role[:2].upper()),
+                    position_class=ROLE_POSITION_CLASSES.get(role, "node-top-left"),
+                    active=active_agent is not None,
+                    status_label="已激活" if active_agent is not None else "待命",
+                    reason=active_agent.reason if active_agent is not None else "当前需求未触发该角色。",
+                    mission=active_agent.mission if active_agent is not None else self._mission_for_role(role),
+                    related_kinds=active_agent.related_kinds if active_agent is not None else [],
+                )
+            )
+        return nodes
 
     def _mission_for_role(self, role: str) -> str:
         """返回角色使命摘要。"""

@@ -119,6 +119,7 @@ def load_llm_runtime_config(path: str | Path | None = None) -> LLMRuntimeConfig:
             model_name=_resolve_value(local_section, "CONDUCTOR_LOCAL_LLM_MODEL", "local-demo-model"),
             api_key=_resolve_value(local_section, "CONDUCTOR_LOCAL_LLM_API_KEY", None),
             timeout_seconds=_resolve_float(local_section, "CONDUCTOR_LOCAL_LLM_TIMEOUT", 30.0),
+            reasoning_effort=_resolve_value(local_section, "CONDUCTOR_LOCAL_LLM_REASONING_EFFORT", None),
             enabled=_resolve_flag(local_section, "CONDUCTOR_LOCAL_LLM_ENABLED", False),
         ),
         cloud=LLMHTTPConfig(
@@ -126,6 +127,7 @@ def load_llm_runtime_config(path: str | Path | None = None) -> LLMRuntimeConfig:
             model_name=_resolve_value(cloud_section, "CONDUCTOR_CLOUD_LLM_MODEL", "gpt-demo-model"),
             api_key=_resolve_value(cloud_section, "CONDUCTOR_CLOUD_LLM_API_KEY", None),
             timeout_seconds=_resolve_float(cloud_section, "CONDUCTOR_CLOUD_LLM_TIMEOUT", 30.0),
+            reasoning_effort=_resolve_value(cloud_section, "CONDUCTOR_CLOUD_LLM_REASONING_EFFORT", None),
             enabled=_resolve_flag(cloud_section, "CONDUCTOR_CLOUD_LLM_ENABLED", False),
         ),
         usage=LLMUsagePolicy(
@@ -156,6 +158,7 @@ def save_llm_runtime_config(config: LLMRuntimeConfig, path: str | Path | None = 
             "local_llm_model": config.local.model_name,
             "local_llm_api_key": config.local.api_key,
             "local_llm_timeout": config.local.timeout_seconds,
+            "local_llm_reasoning_effort": config.local.reasoning_effort,
             "local_llm_enabled": config.local.enabled,
         },
         "cloud": {
@@ -163,6 +166,7 @@ def save_llm_runtime_config(config: LLMRuntimeConfig, path: str | Path | None = 
             "cloud_llm_model": config.cloud.model_name,
             "cloud_llm_api_key": config.cloud.api_key,
             "cloud_llm_timeout": config.cloud.timeout_seconds,
+            "cloud_llm_reasoning_effort": config.cloud.reasoning_effort,
             "cloud_llm_enabled": config.cloud.enabled,
         },
         "usage": {

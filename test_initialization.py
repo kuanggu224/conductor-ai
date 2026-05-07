@@ -4,7 +4,7 @@
 from conductor.controller.engine import ConductorEngine
 
 
-def test_initialization():
+def run_initialization_smoke() -> bool:
     """Smoke test for project initialization."""
     print("=== Project initialization smoke test ===")
     try:
@@ -34,5 +34,9 @@ def test_initialization():
         return False
 
 
+def test_initialization() -> None:
+    assert run_initialization_smoke()
+
+
 if __name__ == "__main__":
-    test_initialization()
+    run_initialization_smoke()

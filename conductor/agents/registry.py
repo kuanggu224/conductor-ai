@@ -49,6 +49,8 @@ class AgentRegistry:
         """根据角色规格创建默认 Agent。"""
         agent_id = {
             "designer": "agent-designer",
+            "requirement_designer": "agent-requirement-designer",
+            "solution_designer": "agent-solution-designer",
             "backend_engineer": "agent-backend",
             "frontend_engineer": "agent-frontend",
             "tester": "agent-tester",

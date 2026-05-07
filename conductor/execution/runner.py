@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import shutil
 import sys
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
 from conductor.agents.agent import Agent
 from conductor.agents.cli_executor import AgentCLIExecution, AgentCLIExecutor
+from conductor.agents.llm import LLMHTTPConfig
 from conductor.artifacts.store import ArtifactStore
 from conductor.config.cli import CLISelectionConfig
 from conductor.config.llm import LLMUsagePolicy
@@ -16,9 +18,20 @@ from conductor.context.builder import ContextBuilder
 from conductor.context.models import ContextPack
 from conductor.domain.models import Artifact, Execution, ExecutionStatus, WorkItem, WorkItemStatus
 from conductor.harness.base import BaseHarness
+from conductor.harness.llm import LLMHarnessRequest, OpenAICompatibleLLMHarness
 from conductor.harness.models import HarnessRequest, HarnessResult
 from conductor.harness.shell import ShellHarness
 from conductor.execution.runtime_stream import RuntimeStreamStore
+from conductor.execution.failure_policy import (
+    FailureDecision,
+    FailureType,
+    classify_cli_failure,
+    classify_harness_failure,
+    configuration_required,
+    format_failure_reason,
+    no_code_changes,
+    validation_failed,
+)
 from conductor.state.store import InMemoryStateStore
 
 
@@ -29,14 +42,25 @@ class WorkItemRunResult:
     content: str
     source_backend: str
     succeeded: bool = True
+    failure: FailureDecision | None = None
+    cli_name: str = ""
+    model: str = ""
+    working_directory: str = ""
+    changed_files: list[str] | None = None
+    validation_command: list[str] | None = None
+    validation_exit_code: int | None = None
+    validation_success: bool | None = None
+    cli_stdout_tail: str = ""
+    cli_stderr_tail: str = ""
 
 
 class Runner:
     """Execute workitems through Agent CLI, harness, LLM, or mock fallback."""
 
-    HARNESS_WORKITEM_KINDS = {"automated_test", "api_validation", "ui_validation"}
+    HARNESS_WORKITEM_KINDS = {"acceptance_check", "automated_test", "api_validation", "ui_validation"}
     CODE_EDIT_WORKITEM_KINDS = {"api_implementation", "data_implementation", "generic_implementation", "ui_implementation"}
     CODE_EDIT_AGENT_ROLES = {"backend_engineer", "frontend_engineer"}
+    DESIGN_DOCUMENT_WORKITEM_KINDS = {"design_overview", "ui_design", "api_design", "test_design"}
 
     def __init__(
         self,
@@ -47,6 +71,10 @@ class Runner:
         enable_tester_harness: bool = False,
         cli_selection_config: CLISelectionConfig | None = None,
         runtime_stream_store: RuntimeStreamStore | None = None,
+        require_real_design_outputs: bool = False,
+        require_real_code_outputs: bool = False,
+        llm_harness: OpenAICompatibleLLMHarness | None = None,
+        llm_harness_config: LLMHTTPConfig | None = None,
     ) -> None:
         self.state_store = state_store
         self.llm_usage_policy = llm_usage_policy or LLMUsagePolicy()
@@ -57,6 +85,10 @@ class Runner:
         self.enable_tester_harness = enable_tester_harness
         self.cli_selection_config = cli_selection_config or CLISelectionConfig()
         self.runtime_stream_store = runtime_stream_store or RuntimeStreamStore()
+        self.require_real_design_outputs = require_real_design_outputs
+        self.require_real_code_outputs = require_real_code_outputs
+        self.llm_harness = llm_harness
+        self.llm_harness_config = llm_harness_config
         self.agent_cli_executor = AgentCLIExecutor(
             cli_selection_config=self.cli_selection_config,
             shell_harness=self.shell_harness,
@@ -75,6 +107,7 @@ class Runner:
 
         if self._should_fail_once(workitem):
             result = f"模拟失败: {workitem.description}"
+            failure = FailureDecision(FailureType.TRANSIENT, True, "Intentional fail_once retry test")
             self._failed_once_workitems.add(workitem.id)
             execution = Execution(
                 workitem_id=workitem.id,
@@ -88,6 +121,10 @@ class Runner:
                 status=WorkItemStatus.FAILED,
                 owner_agent=agent.id,
                 result=result,
+                blocked_reason=format_failure_reason(failure),
+                failure_type=failure.failure_type.value,
+                retryable=failure.retryable,
+                failure_summary=failure.summary,
             )
             self.state_store.add_event(project_id, f"WorkItem {workitem.id} 执行失败")
             self._finish_runtime_stream(project_id, succeeded=False, message=f"[mock] {result}")
@@ -101,6 +138,18 @@ class Runner:
             agent_id=agent.id,
             result=run_result.content,
             status=execution_status,
+            source_backend=run_result.source_backend,
+            cli_name=run_result.cli_name,
+            model=run_result.model,
+            working_directory=run_result.working_directory or self._project_root(project_id),
+            changed_files=[*(run_result.changed_files or [])],
+            validation_command=[*(run_result.validation_command or [])],
+            validation_exit_code=run_result.validation_exit_code,
+            validation_success=run_result.validation_success,
+            cli_stdout_tail=run_result.cli_stdout_tail,
+            cli_stderr_tail=run_result.cli_stderr_tail,
+            failure_type=run_result.failure.failure_type.value if run_result.failure else "",
+            failure_summary=run_result.failure.summary if run_result.failure else "",
         )
         self.state_store.update_workitem(
             project_id=project_id,
@@ -108,6 +157,10 @@ class Runner:
             status=workitem_status,
             owner_agent=agent.id,
             result=run_result.content,
+            blocked_reason=format_failure_reason(run_result.failure) if run_result.failure else None,
+            failure_type=run_result.failure.failure_type.value if run_result.failure else "",
+            retryable=run_result.failure.retryable if run_result.failure else True,
+            failure_summary=run_result.failure.summary if run_result.failure else "",
         )
         self._create_document_artifact(project_id, workitem, agent, run_result)
         self.state_store.add_event(
@@ -124,16 +177,57 @@ class Runner:
     def _execute_workitem(self, project_id: str, workitem: WorkItem, agent: Agent) -> WorkItemRunResult:
         """Choose the right execution path for the workitem."""
         project_root = self._project_root(project_id)
+        cli_failure_reason = ""
         if self.agent_cli_executor.is_binding_disabled(agent):
             self.state_store.add_event(
                 project_id,
                 f"Agent {agent.id} 绑定的 CLI 因 provider 兼容性问题已在当前进程内停用，直接回退到后备执行链路。",
             )
+        if self._should_use_llm_harness(workitem, agent):
+            self.state_store.add_event(project_id, f"WorkItem {workitem.id} 使用 LLMHarness 执行，role={agent.role}")
+            return self._run_llm_harness(project_id, workitem, agent, project_root)
+
+        if self._should_use_harness(workitem, agent):
+            if workitem.kind == "acceptance_check" and not self._has_project_deliverables(project_root):
+                self.state_store.add_event(
+                    project_id,
+                    f"WorkItem {workitem.id} 未发现可验收交付文件，跳过真实验收 harness 以避免误跑平台测试。",
+                )
+                return WorkItemRunResult(
+                    content=self._build_harness_skip_report(workitem, agent, project_root),
+                    source_backend="cli/harness_skipped",
+                )
+            request = self._build_harness_request(workitem, project_root, self._build_stream_callback(project_id))
+            self.state_store.add_event(
+                project_id,
+                f"WorkItem {workitem.id} 使用 Harness 执行，role={agent.role}, harness={self.shell_harness.name}",
+            )
+            try:
+                harness_result = self.shell_harness.run(request)
+                no_tests_discovered = self._is_no_tests_discovered(harness_result)
+                if no_tests_discovered:
+                    self.state_store.add_event(
+                        project_id,
+                        f"WorkItem {workitem.id} 未发现测试文件，记录为待补测试报告并继续推进。",
+                    )
+                return WorkItemRunResult(
+                    content=self._build_harness_report(workitem, agent, request, harness_result),
+                    source_backend=f"cli/{self.shell_harness.name}",
+                    succeeded=harness_result.success or no_tests_discovered,
+                    failure=None if harness_result.success or no_tests_discovered else classify_harness_failure(harness_result),
+                )
+            except Exception as error:
+                self.state_store.add_event(project_id, f"WorkItem {workitem.id} Harness 执行失败，使用 mock fallback: {error}")
+                return WorkItemRunResult(
+                    content=self._build_mock_document(workitem, agent, "Harness 调用失败后的模拟兜底产物"),
+                    source_backend="mock_fallback",
+                )
+
         if self._should_use_agent_cli(agent):
             is_code_edit = self._should_use_agent_cli_code_execution(workitem, agent)
             cli_name = self._resolve_agent_cli_binding(agent) or "-"
             prompt = (
-                self._build_code_execution_prompt(project_id, workitem, agent)
+                self._build_code_execution_prompt(project_id, workitem, agent, cli_name=cli_name)
                 if is_code_edit
                 else self._build_agent_cli_document_prompt(workitem, agent, cli_name)
             )
@@ -146,7 +240,9 @@ class Runner:
                         agent,
                         prompt,
                         execution_mode="documentation",
-                        timeout_seconds=180.0,
+                        timeout_seconds=600.0 if cli_name == "opencode" else 180.0,
+                        track_workspace_changes=cli_name == "opencode",
+                        workspace_root=project_root if cli_name == "opencode" else None,
                         working_directory=project_root,
                         stream_callback=self._build_stream_callback(project_id),
                     )
@@ -155,6 +251,27 @@ class Runner:
                     raise RuntimeError("未找到有效 Agent CLI 绑定")
                 if is_code_edit:
                     return self._finalize_code_execution(project_id, workitem, agent, cli_execution)
+                file_output = self._read_agent_cli_document_file(project_root, workitem, cli_execution.cli_name)
+                if file_output:
+                    return WorkItemRunResult(
+                        content=file_output,
+                        source_backend=f"agent_cli/{cli_execution.cli_name}",
+                    )
+                if cli_execution.cli_name == "opencode":
+                    self.state_store.add_event(
+                        project_id,
+                        f"WorkItem {workitem.id} OpenCode 未写入指定文档文件，拒绝将 stdout 当作真实产物。",
+                    )
+                    return WorkItemRunResult(
+                        content=self._real_backend_required_result(
+                            workitem,
+                            agent,
+                            "OpenCode did not create the required document output file.",
+                        ).content,
+                        source_backend=f"agent_cli/{cli_execution.cli_name}",
+                        succeeded=False,
+                        failure=configuration_required("OpenCode did not create the required document output file."),
+                    )
                 cli_stdout = (cli_execution.result.stdout or "").strip()
                 if cli_execution.result.success and cli_stdout:
                     return WorkItemRunResult(
@@ -173,7 +290,20 @@ class Runner:
             except Exception as error:
                 self.state_store.add_event(project_id, f"WorkItem {workitem.id} Agent CLI 调用异常，回退到后备执行链路: {error}")
 
+        if self._should_use_llm_code_harness(workitem, agent):
+            self.state_store.add_event(project_id, f"WorkItem {workitem.id} 使用 LLMHarness 生成代码，role={agent.role}")
+            return self._run_llm_code_harness(project_id, workitem, agent, project_root)
+
         if self._should_use_harness(workitem, agent):
+            if workitem.kind == "acceptance_check" and not self._has_project_deliverables(project_root):
+                self.state_store.add_event(
+                    project_id,
+                    f"WorkItem {workitem.id} 未发现可验收交付文件，跳过真实验收 harness 以避免误跑平台测试。",
+                )
+                return WorkItemRunResult(
+                    content=self._build_harness_skip_report(workitem, agent, project_root),
+                    source_backend="cli/harness_skipped",
+                )
             request = self._build_harness_request(workitem, project_root, self._build_stream_callback(project_id))
             self.state_store.add_event(
                 project_id,
@@ -181,10 +311,17 @@ class Runner:
             )
             try:
                 harness_result = self.shell_harness.run(request)
+                no_tests_discovered = self._is_no_tests_discovered(harness_result)
+                if no_tests_discovered:
+                    self.state_store.add_event(
+                        project_id,
+                        f"WorkItem {workitem.id} 未发现测试文件，记录为待补测试报告并继续推进。",
+                    )
                 return WorkItemRunResult(
                     content=self._build_harness_report(workitem, agent, request, harness_result),
                     source_backend=f"cli/{self.shell_harness.name}",
-                    succeeded=harness_result.success,
+                    succeeded=harness_result.success or no_tests_discovered,
+                    failure=None if harness_result.success or no_tests_discovered else classify_harness_failure(harness_result),
                 )
             except Exception as error:
                 self.state_store.add_event(project_id, f"WorkItem {workitem.id} Harness 执行失败，使用 mock fallback: {error}")
@@ -197,20 +334,39 @@ class Runner:
             preferred_backend = self.llm_usage_policy.preferred_backend or agent.preferred_llm_backend
             self.state_store.add_event(project_id, f"WorkItem {workitem.id} 使用 LLM 执行，role={agent.role}, backend={preferred_backend}")
             try:
+                content = agent.think(
+                    prompt=self._build_document_prompt(workitem, agent),
+                    context_pack=self._build_context_pack(project_id, workitem),
+                    preferred_backend=preferred_backend,
+                )
+                if self._is_disabled_llm_response(content) and self._requires_real_design_output(workitem, agent):
+                    return self._real_backend_required_result(workitem, agent, f"LLM backend `{preferred_backend}` 未启用")
                 return WorkItemRunResult(
-                    content=agent.think(
-                        prompt=self._build_document_prompt(workitem, agent),
-                        context_pack=self._build_context_pack(project_id, workitem),
-                        preferred_backend=preferred_backend,
-                    ),
+                    content=content,
                     source_backend=f"llm/{preferred_backend}",
                 )
             except Exception as error:
                 self.state_store.add_event(project_id, f"WorkItem {workitem.id} LLM 执行失败，使用 mock fallback: {error}")
+                if self._requires_real_design_output(workitem, agent):
+                    return self._real_backend_required_result(workitem, agent, f"LLM 执行失败: {error}")
                 return WorkItemRunResult(
                     content=self._build_mock_document(workitem, agent, "LLM 调用失败后的模拟兜底产物"),
                     source_backend="mock_fallback",
                 )
+
+        if self._requires_real_design_output(workitem, agent):
+            return self._real_backend_required_result(
+                workitem,
+                agent,
+                "设计阶段要求真实 Agent 产出，但当前没有可用 Agent CLI 或已启用的 LLM Runner",
+            )
+
+        if self._requires_real_code_output(workitem, agent):
+            return self._real_backend_required_result(
+                workitem,
+                agent,
+                "开发阶段要求真实代码产出，但当前没有可用 Agent CLI 绑定，系统不会用 mock 文档冒充实现。",
+            )
 
         if agent.execution_backend == "cli":
             self.state_store.add_event(project_id, f"Agent {agent.id} 预设 CLI backend，当前未启用，使用 mock fallback")
@@ -244,12 +400,25 @@ class Runner:
                 cli_stdout=cli_stdout,
                 cli_stderr=cli_stderr,
                 validation_result=None,
+                validation_command=None,
                 success=False,
             )
             return WorkItemRunResult(
                 content=report,
                 source_backend=f"agent_cli/{cli_execution.cli_name}",
                 succeeded=False,
+                failure=classify_cli_failure(
+                    exit_code=cli_result.exit_code,
+                    stdout=cli_stdout,
+                    stderr=cli_stderr,
+                    timed_out=cli_result.timed_out,
+                ),
+                cli_name=cli_execution.cli_name,
+                model=self._model_for_agent_cli(cli_execution.cli_name),
+                working_directory=self._project_root(project_id),
+                changed_files=changed_files,
+                cli_stdout_tail=self._tail(cli_stdout),
+                cli_stderr_tail=self._tail(cli_stderr),
             )
         if not changed_files:
             self.state_store.add_event(project_id, f"WorkItem {workitem.id} Agent CLI 未产生代码变更")
@@ -261,16 +430,27 @@ class Runner:
                 cli_stdout=cli_stdout,
                 cli_stderr=cli_stderr,
                 validation_result=None,
+                validation_command=None,
                 success=False,
             )
             return WorkItemRunResult(
                 content=report,
                 source_backend=f"agent_cli/{cli_execution.cli_name}",
                 succeeded=False,
+                failure=no_code_changes(),
+                cli_name=cli_execution.cli_name,
+                model=self._model_for_agent_cli(cli_execution.cli_name),
+                working_directory=self._project_root(project_id),
+                changed_files=[],
+                cli_stdout_tail=self._tail(cli_stdout),
+                cli_stderr_tail=self._tail(cli_stderr),
             )
 
-        validation_result = self._run_post_edit_validation(workitem, self._project_root(project_id))
-        if validation_result.success:
+        project_root = self._project_root(project_id)
+        validation_command = self._select_test_command(project_root)
+        validation_result = self._run_post_edit_validation(workitem, project_root)
+        validation_passed = validation_result.success or self._is_no_tests_discovered(validation_result)
+        if validation_passed:
             self.state_store.add_event(project_id, f"WorkItem {workitem.id} 代码变更后自动验证通过")
         else:
             self.state_store.add_event(project_id, f"WorkItem {workitem.id} 代码变更后自动验证失败")
@@ -282,12 +462,23 @@ class Runner:
             cli_stdout=cli_stdout,
             cli_stderr=cli_stderr,
             validation_result=validation_result,
-            success=validation_result.success,
+            validation_command=validation_command,
+            success=validation_passed,
         )
         return WorkItemRunResult(
             content=report,
             source_backend=f"agent_cli/{cli_execution.cli_name}",
-            succeeded=validation_result.success,
+            succeeded=validation_passed,
+            failure=None if validation_passed else validation_failed(validation_result),
+            cli_name=cli_execution.cli_name,
+            model=self._model_for_agent_cli(cli_execution.cli_name),
+            working_directory=project_root,
+            changed_files=changed_files,
+            validation_command=validation_command,
+            validation_exit_code=validation_result.exit_code,
+            validation_success=validation_passed,
+            cli_stdout_tail=self._tail(cli_stdout),
+            cli_stderr_tail=self._tail(cli_stderr),
         )
 
     def _execute_code_edit_with_retry(
@@ -299,11 +490,13 @@ class Runner:
     ) -> AgentCLIExecution | None:
         """Execute code-edit mode and retry once when the CLI returns without actual edits."""
         project_root = self._project_root(project_id)
+        cli_name = self._resolve_agent_cli_binding(agent)
+        timeout_seconds = 300.0 if cli_name == "opencode" else 600.0
         cli_execution = self.agent_cli_executor.execute(
             agent,
             prompt,
             execution_mode="code_edit",
-            timeout_seconds=600.0,
+            timeout_seconds=timeout_seconds,
             track_workspace_changes=True,
             workspace_root=project_root,
             working_directory=project_root,
@@ -311,27 +504,436 @@ class Runner:
         )
         if cli_execution is None:
             return None
-        if not cli_execution.result.success or cli_execution.result.changed_files:
+        if not cli_execution.result.success:
             return cli_execution
-        self.state_store.add_event(project_id, f"WorkItem {workitem.id} 首次代码执行未产生变更，触发一次强化重试")
+        if self._changed_files_satisfy_workitem(workitem, agent, cli_execution.result.changed_files):
+            return cli_execution
+        self.state_store.add_event(project_id, f"WorkItem {workitem.id} 首次代码执行未满足角色产物要求，触发一次强化重试")
         retry_prompt = (
             f"{prompt}\n\n"
             "# 上一次执行结果\n"
             f"{(cli_execution.result.stdout or '').strip()}\n\n"
-            "上一次你没有真正修改任何文件，这次必须直接修改代码文件并让测试通过。"
+            "上一次执行没有满足当前角色的产物要求。"
+            "如果你是 frontend_engineer，必须创建或修改真实前端 UI 文件，例如 index.html、static/app.js、"
+            "static/style.css、src/App.tsx、src/App.jsx 等；不能只修改后端 Python 文件。"
+            "如果你是 backend_engineer，必须创建或修改后端服务/API/测试相关文件。"
+            "这次必须直接修改代码文件并让测试通过。"
             "禁止只输出建议、说明或手工步骤；如果没有完成实际修改，这次执行视为失败。"
         )
         retry_execution = self.agent_cli_executor.execute(
             agent,
             retry_prompt,
             execution_mode="code_edit",
-            timeout_seconds=600.0,
+            timeout_seconds=timeout_seconds,
             track_workspace_changes=True,
             workspace_root=project_root,
             working_directory=project_root,
             stream_callback=self._build_stream_callback(project_id),
         )
         return retry_execution or cli_execution
+
+    def _run_llm_harness(
+        self,
+        project_id: str,
+        workitem: WorkItem,
+        agent: Agent,
+        project_root: str,
+    ) -> WorkItemRunResult:
+        """Run the controlled LLM harness for a document artifact."""
+        if self.llm_harness is None or self.llm_harness_config is None:
+            return self._real_backend_required_result(workitem, agent, "LLMHarness is not configured")
+        output_path = f".conductor/llm_outputs/{workitem.id}.md"
+        result = self.llm_harness.run(
+            LLMHarnessRequest(
+                prompt=self._build_llm_harness_document_prompt(project_id, workitem, agent),
+                system_prompt=(
+                    "You are a non-interactive software planning agent. "
+                    "Return only the requested Markdown artifact. Do not ask questions."
+                ),
+                working_directory=project_root,
+                output_path=output_path,
+                config=self.llm_harness_config,
+                max_tokens=3072,
+                stream_callback=self._build_stream_callback(project_id),
+                metadata={
+                    "project_id": project_id,
+                    "workitem_id": workitem.id,
+                    "agent_role": agent.role,
+                },
+            )
+        )
+        if not result.success:
+            return WorkItemRunResult(
+                content=self._real_backend_required_result(
+                    workitem,
+                    agent,
+                    f"LLMHarness failed: {result.error}",
+                ).content,
+                source_backend="llm_harness",
+                succeeded=False,
+                failure=configuration_required(f"LLMHarness failed: {result.error}"),
+            )
+        missing_sections = self._missing_llm_harness_sections(result.content, workitem)
+        if missing_sections:
+            reason = f"LLMHarness output missing required sections: {', '.join(missing_sections)}"
+            return WorkItemRunResult(
+                content=result.content,
+                source_backend="llm_harness",
+                succeeded=False,
+                failure=configuration_required(reason),
+            )
+        return WorkItemRunResult(
+            content=result.content,
+            source_backend=f"llm_harness/{self.llm_harness_config.model_name}",
+        )
+
+    def _run_llm_code_harness(
+        self,
+        project_id: str,
+        workitem: WorkItem,
+        agent: Agent,
+        project_root: str,
+    ) -> WorkItemRunResult:
+        """Use a controlled LLM call to generate concrete code files."""
+        if self.llm_harness is None or self.llm_harness_config is None:
+            return self._real_backend_required_result(workitem, agent, "LLMHarness is not configured for code")
+        result = self.llm_harness.run(
+            LLMHarnessRequest(
+                prompt=self._build_llm_code_prompt(project_id, workitem, agent),
+                system_prompt=(
+                    "You are a non-interactive coding agent. Return only JSON matching the requested schema. "
+                    "Do not include markdown fences or explanation."
+                ),
+                working_directory=project_root,
+                output_path=f".conductor/llm_outputs/{workitem.id}.code.json",
+                config=self.llm_harness_config,
+                max_tokens=4096,
+                temperature=0.1,
+                stream_callback=self._build_stream_callback(project_id),
+                metadata={
+                    "project_id": project_id,
+                    "workitem_id": workitem.id,
+                    "agent_role": agent.role,
+                    "mode": "code_generation",
+                },
+            )
+        )
+        if not result.success:
+            return WorkItemRunResult(
+                content=self._real_backend_required_result(workitem, agent, f"LLMHarness code generation failed: {result.error}").content,
+                source_backend="llm_harness_code",
+                succeeded=False,
+                failure=configuration_required(f"LLMHarness code generation failed: {result.error}"),
+                model=self.llm_harness_config.model_name,
+                working_directory=project_root,
+            )
+        try:
+            generated_files = self._extract_generated_files(result.content)
+            changed_files = self._write_llm_generated_files(project_root, generated_files)
+        except Exception as error:
+            return WorkItemRunResult(
+                content=self._build_llm_code_report(
+                    workitem=workitem,
+                    agent=agent,
+                    model=self.llm_harness_config.model_name,
+                    changed_files=[],
+                    raw_output=result.content,
+                    validation_result=None,
+                    validation_command=None,
+                    success=False,
+                    error=str(error),
+                ),
+                source_backend=f"llm_harness_code/{self.llm_harness_config.model_name}",
+                succeeded=False,
+                failure=configuration_required(str(error)),
+                model=self.llm_harness_config.model_name,
+                working_directory=project_root,
+                cli_stdout_tail=self._tail(result.content),
+            )
+        if not changed_files:
+            return WorkItemRunResult(
+                content=self._build_llm_code_report(
+                    workitem=workitem,
+                    agent=agent,
+                    model=self.llm_harness_config.model_name,
+                    changed_files=[],
+                    raw_output=result.content,
+                    validation_result=None,
+                    validation_command=None,
+                    success=False,
+                    error="LLMHarness generated files but no workspace content changed.",
+                ),
+                source_backend=f"llm_harness_code/{self.llm_harness_config.model_name}",
+                succeeded=False,
+                failure=no_code_changes(),
+                model=self.llm_harness_config.model_name,
+                working_directory=project_root,
+                changed_files=[],
+                cli_stdout_tail=self._tail(result.content),
+            )
+
+        validation_command = self._select_test_command(project_root)
+        validation_result = self._run_post_edit_validation(workitem, project_root)
+        validation_passed = validation_result.success or self._is_no_tests_discovered(validation_result)
+        self.state_store.add_event(
+            project_id,
+            (
+                f"WorkItem {workitem.id} LLMHarness 代码生成后自动验证"
+                f"{'通过' if validation_passed else '失败'}"
+            ),
+        )
+        return WorkItemRunResult(
+            content=self._build_llm_code_report(
+                workitem=workitem,
+                agent=agent,
+                model=self.llm_harness_config.model_name,
+                changed_files=changed_files,
+                raw_output=result.content,
+                validation_result=validation_result,
+                validation_command=validation_command,
+                success=validation_passed,
+                error="" if validation_passed else "Post-edit validation failed.",
+            ),
+            source_backend=f"llm_harness_code/{self.llm_harness_config.model_name}",
+            succeeded=validation_passed,
+            failure=None if validation_passed else validation_failed(validation_result),
+            model=self.llm_harness_config.model_name,
+            working_directory=project_root,
+            changed_files=changed_files,
+            validation_command=validation_command,
+            validation_exit_code=validation_result.exit_code,
+            validation_success=validation_passed,
+            cli_stdout_tail=self._tail(result.content),
+            cli_stderr_tail=self._tail(validation_result.stderr),
+        )
+
+    def _build_llm_harness_document_prompt(self, project_id: str, workitem: WorkItem, agent: Agent) -> str:
+        """Build a controlled artifact prompt for direct API models."""
+        state = self.state_store.get_state(project_id)
+        criteria = "\n".join(f"- {item}" for item in workitem.acceptance_criteria) or "- No explicit acceptance criteria"
+        return (
+            "请直接产出一份中文 Markdown 需求/设计文档。\n"
+            "不要说明你准备做什么，不要输出寒暄，不要反问。\n"
+            "总长度控制在 1200-1800 个中文字符，每个章节 2-4 条要点。\n"
+            "必须完整输出全部指定标题，不能在中途停止，不能展开长篇背景说明。\n\n"
+            f"项目需求:\n{state.project.goal}\n\n"
+            f"当前角色: {agent.role}\n"
+            f"WorkItem ID: {workitem.id}\n"
+            f"WorkItem 类型: {workitem.kind}\n"
+            f"任务描述: {workitem.description}\n\n"
+            f"验收标准:\n{criteria}\n\n"
+            "必须包含这些二级标题:\n"
+            "## 目标\n"
+            "## 需求理解\n"
+            "## 范围边界\n"
+            "## 核心流程\n"
+            "## 方案\n"
+            "## 接口与数据关注点\n"
+            "## 验收标准\n"
+            "## 风险\n"
+        )
+
+    def _build_llm_code_prompt(self, project_id: str, workitem: WorkItem, agent: Agent) -> str:
+        """Build a strict file-generation prompt for API models."""
+        context_pack = self._build_context_pack(project_id, workitem)
+        state = self.state_store.get_state(project_id)
+        criteria = "\n".join(f"- {item}" for item in workitem.acceptance_criteria) or "- No explicit acceptance criteria"
+        artifact_context = "\n\n".join(
+            f"### Upstream Artifact\n{artifact[:1800]}"
+            for artifact in context_pack.artifacts[-5:]
+        )
+        if agent.role == "frontend_engineer":
+            file_hint = (
+                "Prefer a small local web UI. Generate index.html, static/app.js, and static/style.css "
+                "unless the upstream design clearly requires another minimal structure."
+            )
+        elif agent.role == "backend_engineer":
+            file_hint = (
+                "Prefer a small Python API/service implementation with tests when no framework is already present. "
+                "Use app.py and tests/test_app.py for a minimal backend."
+            )
+        else:
+            file_hint = "Generate the smallest useful implementation files for the current work item."
+        return (
+            "Generate concrete project files for the current workspace.\n"
+            "Return JSON only, with this exact schema:\n"
+            '{"files":[{"path":"relative/path.ext","content":"complete file content"}]}\n'
+            "Rules:\n"
+            "- Paths must be relative to the project root.\n"
+            "- Do not write into .conductor, .git, __pycache__, .pytest_cache, node_modules, or virtualenv folders.\n"
+            "- Include complete file contents, not patches.\n"
+            "- Keep the implementation small and runnable.\n"
+            "- Do not include markdown fences or commentary outside JSON.\n\n"
+            f"Project requirement:\n{state.project.goal}\n\n"
+            f"Agent role: {agent.role}\n"
+            f"WorkItem ID: {workitem.id}\n"
+            f"WorkItem kind: {workitem.kind}\n"
+            f"Task:\n{workitem.description}\n\n"
+            f"Acceptance criteria:\n{criteria}\n\n"
+            f"File guidance:\n{file_hint}\n\n"
+            f"Upstream context:\n{artifact_context or '(none)'}\n"
+        )
+
+    def _extract_generated_files(self, content: str) -> list[dict[str, str]]:
+        """Parse and validate LLM-generated file JSON."""
+        payload_text = self._extract_json_payload(content)
+        payload = json.loads(payload_text)
+        files = payload.get("files") if isinstance(payload, dict) else None
+        if not isinstance(files, list) or not files:
+            raise RuntimeError("LLMHarness code output must contain a non-empty `files` list")
+        validated: list[dict[str, str]] = []
+        for item in files:
+            if not isinstance(item, dict):
+                raise RuntimeError("Each generated file entry must be an object")
+            path = item.get("path")
+            file_content = item.get("content")
+            if not isinstance(path, str) or not path.strip():
+                raise RuntimeError("Generated file entry missing string `path`")
+            if not isinstance(file_content, str):
+                raise RuntimeError(f"Generated file `{path}` missing string `content`")
+            validated.append({"path": path, "content": file_content})
+        return validated
+
+    def _extract_json_payload(self, content: str) -> str:
+        """Extract a JSON object from a raw model response."""
+        stripped = content.strip()
+        if stripped.startswith("```"):
+            lines = stripped.splitlines()
+            if lines and lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].startswith("```"):
+                lines = lines[:-1]
+            stripped = "\n".join(lines).strip()
+        if stripped.startswith("{") and stripped.endswith("}"):
+            return stripped
+        start = stripped.find("{")
+        end = stripped.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            raise RuntimeError("LLMHarness code output is not valid JSON")
+        return stripped[start : end + 1]
+
+    def _write_llm_generated_files(self, project_root: str, files: list[dict[str, str]]) -> list[str]:
+        """Write validated generated files and return changed relative paths."""
+        root = Path(project_root).expanduser().resolve()
+        changed: list[str] = []
+        for item in files:
+            relative_path = item["path"].replace("\\", "/").strip()
+            target = self._safe_generated_path(root, relative_path)
+            previous = target.read_text(encoding="utf-8", errors="replace") if target.exists() else None
+            if previous == item["content"]:
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(item["content"], encoding="utf-8")
+            changed.append(relative_path)
+        return changed
+
+    def _safe_generated_path(self, root: Path, relative_path: str) -> Path:
+        """Resolve one generated path and enforce the workspace boundary."""
+        if not relative_path or Path(relative_path).is_absolute():
+            raise RuntimeError(f"Generated path must be relative: {relative_path}")
+        blocked_prefixes = (
+            ".conductor/",
+            ".git/",
+            ".pytest_cache/",
+            "__pycache__/",
+            "node_modules/",
+            ".venv/",
+            "venv/",
+        )
+        normalized = relative_path.lower()
+        while normalized.startswith("./"):
+            normalized = normalized[2:]
+        if normalized.startswith(blocked_prefixes) or "/.conductor/" in normalized:
+            raise RuntimeError(f"Generated path targets a protected directory: {relative_path}")
+        target = (root / relative_path).resolve()
+        try:
+            target.relative_to(root)
+        except ValueError as error:
+            raise RuntimeError(f"Generated path escapes workspace: {relative_path}") from error
+        return target
+
+    def _build_llm_code_report(
+        self,
+        workitem: WorkItem,
+        agent: Agent,
+        model: str,
+        changed_files: list[str],
+        raw_output: str,
+        validation_result: HarnessResult | None,
+        validation_command: list[str] | None,
+        success: bool,
+        error: str = "",
+    ) -> str:
+        """Build a report for controlled LLM code generation."""
+        changed_lines = "\n".join(f"- `{path}`" for path in changed_files) or "- 无"
+        stdout = ((validation_result.stdout or "") if validation_result else "").strip() or "(无 stdout)"
+        stderr = ((validation_result.stderr or "") if validation_result else "").strip() or "(无 stderr)"
+        validation_section = (
+            "## 自动验证\n"
+            f"- Command: `{' '.join(validation_command or [])}`\n"
+            f"- Exit Code: `{validation_result.exit_code}`\n"
+            f"- Duration: `{validation_result.duration_ms}ms`\n"
+            f"```text\n{stdout}\n```\n\n"
+            f"```text\n{stderr}\n```\n"
+            if validation_result is not None
+            else "## 自动验证\n- 未执行\n"
+        )
+        status = "成功" if success else "失败"
+        error_section = f"\n## 失败原因\n- {error}\n" if error else ""
+        return (
+            f"# LLMHarness 代码生成报告 - {workitem.id}\n\n"
+            "## 执行摘要\n"
+            f"- 角色: `{agent.role}`\n"
+            f"- 模型: `{model}`\n"
+            f"- WorkItem 类型: `{workitem.kind}`\n"
+            f"- 结果: {status}\n\n"
+            f"## 写入文件\n{changed_lines}\n"
+            f"{error_section}\n"
+            f"{validation_section}\n\n"
+            "## LLM 原始输出摘要\n"
+            f"```text\n{self._tail(raw_output, limit=1600)}\n```\n"
+        )
+
+    def _missing_llm_harness_sections(self, content: str, workitem: WorkItem) -> list[str]:
+        """Validate the minimum sections needed by downstream agents."""
+        if workitem.kind == "design_overview":
+            required = ["目标", "需求理解", "范围边界", "核心流程", "方案", "接口与数据关注点", "验收标准", "风险"]
+        elif workitem.kind == "api_design":
+            required = ["目标", "接口", "输入", "输出", "验收"]
+        else:
+            required = ["目标", "方案", "验收", "风险"]
+        return [section for section in required if section not in content]
+
+    def _changed_files_satisfy_workitem(self, workitem: WorkItem, agent: Agent, changed_files: list[str]) -> bool:
+        """Return whether code-edit changed files match the agent's output contract."""
+        if not changed_files:
+            return False
+        if agent.role == "frontend_engineer" and workitem.kind == "ui_implementation":
+            return any(self._is_frontend_file(path) for path in changed_files)
+        return True
+
+    def _is_frontend_file(self, path: str) -> bool:
+        """Return whether a changed file is a concrete frontend deliverable."""
+        normalized = path.replace("\\", "/").lower()
+        frontend_suffixes = (
+            ".html",
+            ".css",
+            ".js",
+            ".jsx",
+            ".ts",
+            ".tsx",
+            ".vue",
+            ".svelte",
+        )
+        frontend_markers = (
+            "/frontend/",
+            "/static/",
+            "/templates/",
+            "/src/",
+            "package.json",
+            "vite.config.",
+        )
+        return normalized.endswith(frontend_suffixes) or any(marker in normalized for marker in frontend_markers)
 
     def _should_fail_once(self, workitem: WorkItem) -> bool:
         """Return whether the workitem should fail once for retry tests."""
@@ -342,7 +944,6 @@ class Runner:
         return (
             self.enable_tester_harness
             and self.shell_harness is not None
-            and not self._should_use_agent_cli(agent)
             and agent.role == "tester"
             and agent.execution_backend == "cli"
             and workitem.kind in self.HARNESS_WORKITEM_KINDS
@@ -356,9 +957,45 @@ class Runner:
         """Return whether the current workitem should use code-edit mode."""
         return agent.role in self.CODE_EDIT_AGENT_ROLES and workitem.kind in self.CODE_EDIT_WORKITEM_KINDS
 
+    def _should_use_llm_harness(self, workitem: WorkItem, agent: Agent) -> bool:
+        """Return whether the controlled LLM harness should produce this document."""
+        return (
+            self.llm_harness is not None
+            and self.llm_harness_config is not None
+            and self.llm_harness_config.enabled
+            and agent.role == "designer"
+            and workitem.stage == "design"
+            and workitem.kind in self.DESIGN_DOCUMENT_WORKITEM_KINDS
+        )
+
+    def _should_use_llm_code_harness(self, workitem: WorkItem, agent: Agent) -> bool:
+        """Return whether the controlled LLM harness should generate code files."""
+        return (
+            self.require_real_code_outputs
+            and self.llm_harness is not None
+            and self.llm_harness_config is not None
+            and self.llm_harness_config.enabled
+            and agent.role in self.CODE_EDIT_AGENT_ROLES
+            and workitem.kind in self.CODE_EDIT_WORKITEM_KINDS
+        )
+
     def _resolve_agent_cli_binding(self, agent: Agent) -> str | None:
         """Resolve the active CLI binding for the agent."""
         return self.agent_cli_executor.resolve_binding(agent)
+
+    def _model_for_agent_cli(self, cli_name: str) -> str:
+        """Return the configured model label for an Agent CLI."""
+        if cli_name == "codex":
+            return f"{self.cli_selection_config.codex_model}/{self.cli_selection_config.codex_reasoning_effort}"
+        if cli_name:
+            return "local-cli-config"
+        return ""
+
+    def _tail(self, text: str, limit: int = 2000) -> str:
+        """Return a bounded tail for manifest-safe execution metadata."""
+        if len(text) <= limit:
+            return text
+        return text[-limit:]
 
     def _should_use_llm(self, workitem: WorkItem, agent: Agent) -> bool:
         """Return whether LLM execution is allowed for this agent and workitem."""
@@ -369,11 +1006,55 @@ class Runner:
             and workitem.kind in self.llm_usage_policy.runner_allowed_kinds
         )
 
+    def _requires_real_design_output(self, workitem: WorkItem, agent: Agent) -> bool:
+        """Return whether this design work must not fall back to mock output."""
+        return (
+            self.require_real_design_outputs
+            and agent.role == "designer"
+            and workitem.stage == "design"
+            and workitem.kind in self.DESIGN_DOCUMENT_WORKITEM_KINDS
+        )
+
+    def _requires_real_code_output(self, workitem: WorkItem, agent: Agent) -> bool:
+        """Return whether code work must not fall back to mock output."""
+        return (
+            self.require_real_code_outputs
+            and agent.role in self.CODE_EDIT_AGENT_ROLES
+            and workitem.kind in self.CODE_EDIT_WORKITEM_KINDS
+        )
+
+    def _is_disabled_llm_response(self, content: str) -> bool:
+        """Return whether a hybrid LLM backend returned a disabled-backend placeholder."""
+        return content.startswith("[local-disabled]") or content.startswith("[cloud-disabled]")
+
+    def _real_backend_required_result(self, workitem: WorkItem, agent: Agent, reason: str) -> WorkItemRunResult:
+        """Return a failed document when a real design backend is required but unavailable."""
+        failure = configuration_required(reason)
+        return WorkItemRunResult(
+            content=(
+                f"# 真实 Agent 产出未完成 - {workitem.id}\n\n"
+                "## 状态\n"
+                "当前工作项要求由真实 Agent 后端产出，系统不会再生成模拟设计文档。\n\n"
+                "## 原因\n"
+                f"- {reason}\n\n"
+                "## 需要处理\n"
+                f"- 为 `{agent.role}` 绑定可用 Agent CLI，或启用 LLM Runner。\n"
+                "- 重新运行当前步骤后，才会生成真实需求/设计文档。\n"
+            ),
+            source_backend="real_backend_required",
+            succeeded=False,
+            failure=failure,
+        )
+
     def _build_document_prompt(self, workitem: WorkItem, agent: Agent) -> str:
         """Build the document-style execution prompt."""
         criteria = "\n".join(f"- {item}" for item in workitem.acceptance_criteria) or "- 无显式验收标准"
         role_instruction = {
-            "designer": "请产出产品/设计文档，不要反问用户；信息不足时基于现有需求给出合理假设。",
+            "designer": (
+                "请产出可直接交给后端、前端、测试 Agent 使用的需求设计文档。"
+                "不要反问用户；信息不足时基于现有需求给出合理假设，并明确标注为假设。"
+                "必须覆盖：用户目标、范围边界、核心流程、页面/接口/数据/验收关注点、非目标范围、风险。"
+            ),
             "backend_engineer": "请产出后端实现说明文档，不要写入文件、不执行命令；包含接口、数据结构、关键流程和风险。",
             "frontend_engineer": "请产出前端实现说明文档，不要写入文件、不执行命令；包含页面结构、组件拆分、状态和交互。",
             "tester": "请产出测试/验收文档，不要执行命令；包含测试范围、测试用例、验收标准和风险。",
@@ -385,19 +1066,50 @@ class Runner:
             f"类型: {workitem.kind}\n"
             f"描述: {workitem.description}\n"
             f"验收标准:\n{criteria}\n\n"
-            "请使用中文输出结构化 Markdown 文档，包含：目标、关键假设、方案、交付物、风险。"
+            "请使用中文输出结构化 Markdown 文档，至少包含：目标、需求理解、范围边界、关键假设、方案、交付物、验收标准、风险。"
         )
 
     def _build_agent_cli_document_prompt(self, workitem: WorkItem, agent: Agent, cli_name: str) -> str:
         """Build CLI-specific document prompts when a provider has special constraints."""
         if cli_name == "claude":
             return self._build_compact_claude_document_prompt(workitem, agent)
+        if cli_name == "codex":
+            return self._build_compact_codex_document_prompt(workitem, agent)
+        if cli_name == "opencode":
+            return self._build_compact_opencode_document_prompt(workitem, agent)
         return self._build_document_prompt(workitem, agent)
+
+    def _build_compact_codex_document_prompt(self, workitem: WorkItem, agent: Agent) -> str:
+        """Build a strict non-interactive document prompt for Codex CLI."""
+        criteria = "\n".join(f"- {item}" for item in workitem.acceptance_criteria) or "- No explicit acceptance criteria"
+        if agent.role == "designer":
+            role_goal = (
+                "Produce a complete requirement/design document that downstream backend, frontend, "
+                "and testing agents can execute from."
+            )
+            required_sections = "目标, 需求理解, 范围边界, 核心流程, 页面设计关注点, 接口与数据关注点, 验收标准, 风险"
+        else:
+            role_goal = f"Produce a practical execution document for the {agent.role} role."
+            required_sections = "目标, 需求理解, 方案, 交付物, 验收标准, 风险"
+        return (
+            "You are running as a non-interactive Conductor agent.\n"
+            "Do not introduce yourself. Do not ask follow-up questions. Do not say you are waiting for a task.\n"
+            "You must directly produce the requested deliverable as Chinese Markdown.\n\n"
+            f"Agent role: {agent.role}\n"
+            f"WorkItem ID: {workitem.id}\n"
+            f"Stage: {workitem.stage}\n"
+            f"Kind: {workitem.kind}\n"
+            f"Task description:\n{workitem.description}\n\n"
+            f"Acceptance criteria:\n{criteria}\n\n"
+            f"Goal: {role_goal}\n"
+            f"Required sections: {required_sections}.\n"
+            "Return only the Markdown document."
+        )
 
     def _build_compact_claude_document_prompt(self, workitem: WorkItem, agent: Agent) -> str:
         """Build a compact English prompt for Claude CLI, but keep Chinese output."""
         kind_focus = {
-            "design_overview": "Create an overall requirement and design brief with implementation boundaries.",
+            "design_overview": "Create a requirement design document with user goals, scope boundaries, main flows, implementation constraints, acceptance criteria, and risks.",
             "ui_design": "Describe UI structure, core interactions, primary views, and state changes.",
             "api_design": "Describe API boundaries, payloads, main endpoints, and failure handling.",
             "test_design": "Describe testing scope, acceptance checks, edge cases, and validation focus.",
@@ -412,27 +1124,79 @@ class Runner:
             f"Acceptance checklist:\n{criteria}\n\n"
             "Return concise Chinese markdown.\n"
             "Do not ask follow-up questions.\n"
-            "Use these sections: 目标, 关键假设, 方案, 交付物, 风险.\n"
+            "Use these sections: 目标, 需求理解, 范围边界, 关键假设, 方案, 交付物, 验收标准, 风险.\n"
         )
 
-    def _build_code_execution_prompt(self, project_id: str, workitem: WorkItem, agent: Agent) -> str:
+    def _build_compact_opencode_document_prompt(self, workitem: WorkItem, agent: Agent) -> str:
+        """Build a file-output document prompt for OpenCode/local models."""
+        output_path = f"CONDUCTOR_OUTPUT_{workitem.id}.md"
+        if agent.role == "designer":
+            sections = "目标, 需求理解, 范围边界, 核心流程, 接口与数据关注点, 验收标准, 风险"
+        else:
+            sections = "目标, 需求理解, 方案, 交付物, 验收标准, 风险"
+        description = workitem.description.replace("\n", " ")
+        criteria = "; ".join(workitem.acceptance_criteria) or "No explicit acceptance criteria"
+        return (
+            f"Create a file {output_path} in the project root.\n"
+            "Write concise Chinese Markdown into that file.\n"
+            f"The document is for role {agent.role}, work item {workitem.id}, kind {workitem.kind}.\n"
+            f"Task: {description}\n"
+            f"Acceptance criteria: {criteria}\n"
+            f"Required Markdown sections: {sections}.\n"
+            "Do not ask questions. After the file is written, reply exactly: DONE\n"
+        )
+
+    def _read_agent_cli_document_file(self, project_root: str, workitem: WorkItem, cli_name: str) -> str:
+        """Read file-based document output from CLI agents that may not exit cleanly."""
+        if cli_name != "opencode":
+            return ""
+        output_path = Path(project_root) / f"CONDUCTOR_OUTPUT_{workitem.id}.md"
+        if not output_path.exists() or output_path.stat().st_size == 0:
+            return ""
+        return output_path.read_text(encoding="utf-8", errors="replace").strip()
+
+    def _build_code_execution_prompt(
+        self,
+        project_id: str,
+        workitem: WorkItem,
+        agent: Agent,
+        cli_name: str | None = None,
+    ) -> str:
         """Build the real code-edit prompt."""
         context_pack = self._build_context_pack(project_id, workitem)
+        state = self.state_store.get_state(project_id)
+        project_goal = state.project.goal
+        if cli_name == "opencode":
+            return self._build_compact_opencode_code_prompt(workitem, agent, project_goal)
         criteria = "; ".join(workitem.acceptance_criteria) or "no explicit acceptance criteria"
         artifact_context = "\n\n".join(
-            f"- {artifact[:400]}"
-            for artifact in context_pack.artifacts[-3:]
+            f"### Upstream Artifact\n{artifact[:1600]}"
+            for artifact in context_pack.artifacts[-5:]
         )
         role_hint = ""
         if agent.role == "frontend_engineer":
-            role_hint = "Focus on UI files first, such as html, css, js, tsx, jsx, or template files.\n"
+            role_hint = (
+                "You own the frontend/UI deliverable. Create or update actual UI files first, "
+                "such as index.html, static/app.js, static/style.css, src/App.tsx, src/App.jsx, "
+                "templates/*.html, or equivalent frontend files. "
+                "Do not satisfy this task by only editing backend Python/API files. "
+                "The UI must implement the actual business domain from the project requirement, not a generic task board.\n"
+                "For a minimal Python/FastAPI project, prefer creating index.html plus static/app.js and static/style.css. "
+                "Do not inspect or edit .conductor/, .pytest_cache/, __pycache__, or generated artifact/log files.\n"
+            )
         elif agent.role == "backend_engineer":
-            role_hint = "Focus on backend and service files first, then update tests if needed.\n"
+            role_hint = (
+                "You own the backend/API deliverable. Implement endpoints, data structures, and tests that match "
+                "the actual business domain from the project requirement. Do not build a generic project/task API "
+                "unless the requirement explicitly asks for one.\n"
+            )
 
         prompt = (
             "You must directly edit files in the current workspace.\n"
             "Do not ask follow-up questions. Do not stop at analysis. Do not only describe a plan.\n"
-            "Inspect the relevant files, make the minimum code changes required, run pytest -q, and finish.\n\n"
+            "Ignore generated directories: .conductor/, .pytest_cache/, __pycache__, node_modules/.\n"
+            "Inspect the relevant files, make the minimum code changes required, run the local tests when applicable, and finish.\n\n"
+            f"Full project requirement:\n{project_goal}\n\n"
             f"Agent role: {agent.role}\n"
             f"{role_hint}"
             f"Task: {workitem.description}\n"
@@ -445,6 +1209,31 @@ class Runner:
         prompt += "\nAfter the code and tests are done, output exactly: done"
         return prompt
 
+    def _build_compact_opencode_code_prompt(self, workitem: WorkItem, agent: Agent, project_goal: str) -> str:
+        """Build a short code-edit prompt for OpenCode to avoid slow artifact exploration."""
+        criteria = "; ".join(workitem.acceptance_criteria) or "no explicit acceptance criteria"
+        if agent.role == "frontend_engineer" and workitem.kind == "ui_implementation":
+            return (
+                "You are the frontend_engineer. Work only in the current directory.\n"
+                "Do not inspect or edit .conductor/, .pytest_cache/, __pycache__, node_modules/, or generated logs.\n"
+                f"Full project requirement: {project_goal}\n"
+                "Task: create a minimal frontend UI for the actual business domain described above.\n"
+                "Required files: create or update index.html, static/app.js, and static/style.css, unless an equivalent frontend structure already exists.\n"
+                "UI requirements: cover the entities, fields, actions, and filters in the requirement. Use the matching backend API paths when possible.\n"
+                "If app.py is FastAPI and does not serve the UI, add only the minimal root/static serving code needed. Do not rewrite backend API logic.\n"
+                f"Acceptance criteria: {criteria}\n"
+                "Run the local tests if available. Then output exactly: done"
+            )
+        return (
+            f"You are the {agent.role}. Work only in the current directory.\n"
+            "Do not inspect or edit .conductor/, .pytest_cache/, __pycache__, node_modules/, or generated logs.\n"
+            f"Full project requirement: {project_goal}\n"
+            f"Task: {workitem.description}\n"
+            f"WorkItem kind: {workitem.kind}\n"
+            f"Acceptance criteria: {criteria}\n"
+            "Make the smallest real code changes that satisfy the business domain, run local tests if available, then output exactly: done"
+        )
+
     def _build_context_pack(self, project_id: str, workitem: WorkItem) -> ContextPack:
         """Build a lightweight context pack for the current workitem."""
         state = self.state_store.get_state(project_id)
@@ -453,7 +1242,7 @@ class Runner:
     def _build_harness_request(self, workitem: WorkItem, working_directory: str, stream_callback=None) -> HarnessRequest:
         """Build tester harness request."""
         return HarnessRequest(
-            command=self._select_test_command(),
+            command=self._select_test_command(working_directory),
             working_directory=working_directory,
             timeout_seconds=180.0,
             description=f"{workitem.kind}:{workitem.description}",
@@ -462,8 +1251,9 @@ class Runner:
 
     def _run_post_edit_validation(self, workitem: WorkItem, working_directory: str) -> HarnessResult:
         """Run a post-edit validation pass."""
+        command = self._select_test_command(working_directory)
         request = HarnessRequest(
-            command=self._select_test_command(),
+            command=command,
             working_directory=working_directory,
             timeout_seconds=300.0,
             description=f"post-validate:{workitem.id}",
@@ -512,13 +1302,84 @@ class Runner:
             return compact
         return compact[: limit - 1].rstrip() + "…"
 
-    def _select_test_command(self) -> list[str]:
+    def _select_test_command(self, working_directory: str | None = None) -> list[str]:
         """Choose the local validation command."""
-        if shutil.which("uv"):
+        root = Path(working_directory or Path.cwd())
+        package_json = root / "package.json"
+        if package_json.exists() and shutil.which("npm"):
+            try:
+                package = json.loads(package_json.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                package = {}
+            if isinstance(package.get("scripts"), dict) and package["scripts"].get("test"):
+                return ["npm", "test"]
+        if self._looks_like_static_web_project(root):
+            return [sys.executable, "-m", "conductor.harness.static_web_cli"]
+        if (root / "pytest.ini").exists() or (root / "conftest.py").exists() or any(root.glob("test*.py")) or (root / "tests").exists():
+            return [sys.executable, "-m", "pytest", "-q"]
+        if self._pyproject_declares_pytest(root) and shutil.which("uv"):
             return ["uv", "run", "python", "-m", "pytest", "-q"]
         if shutil.which("pytest"):
             return ["pytest", "-q"]
         return [sys.executable, "-m", "pytest", "-q"]
+
+    def _looks_like_static_web_project(self, root: Path) -> bool:
+        """Return whether a workspace should use static web validation."""
+        index = root / "index.html"
+        if not index.exists():
+            return False
+        return (
+            (root / "static").exists()
+            or any(root.glob("*.js"))
+            or any(root.glob("*.css"))
+            or any(root.glob("static/*.js"))
+            or any(root.glob("static/*.css"))
+        )
+
+    def _has_project_deliverables(self, working_directory: str) -> bool:
+        """Return whether a project root contains files worth validating."""
+        root = Path(working_directory)
+        deliverable_paths = [
+            "index.html",
+            "app.py",
+            "main.py",
+            "package.json",
+            "pyproject.toml",
+            "src",
+            "static",
+        ]
+        if any((root / path).exists() for path in deliverable_paths):
+            return True
+        return False
+
+    def _build_harness_skip_report(self, workitem: WorkItem, agent: Agent, working_directory: str) -> str:
+        """Build a report when no concrete deliverable exists to validate."""
+        return (
+            f"# 验收检查报告 - {workitem.id}\n\n"
+            "## 执行摘要\n"
+            f"- 角色: `{agent.role}`\n"
+            f"- WorkItem 类型: `{workitem.kind}`\n"
+            f"- Working Directory: `{working_directory}`\n"
+            "- 结果: 跳过真实命令执行\n\n"
+            "## 原因\n"
+            "- 当前项目目录未发现可验收交付文件，因此没有运行测试命令。\n"
+            "- 这可以避免在平台源码目录下误触发平台自身测试套件。\n\n"
+            "## 结论\n"
+            "- 该 WorkItem 已记录为无可验收目标；真实项目应在 development 阶段产生交付文件后再进入验收。\n"
+        )
+
+    def _pyproject_declares_pytest(self, root: Path) -> bool:
+        """Return whether pyproject explicitly declares pytest for uv-managed validation."""
+        pyproject = root / "pyproject.toml"
+        if not pyproject.exists():
+            return False
+        text = pyproject.read_text(encoding="utf-8", errors="ignore").lower()
+        return "pytest" in text
+
+    def _is_no_tests_discovered(self, result: HarnessResult) -> bool:
+        """Pytest exit code 5 means collection found no tests, not a product failure."""
+        output = f"{result.stdout or ''}\n{result.stderr or ''}".lower()
+        return result.exit_code == 5 and "no tests ran" in output
 
     def _build_harness_report(
         self,
@@ -528,7 +1389,9 @@ class Runner:
         result: HarnessResult,
     ) -> str:
         """Convert a harness result into a Markdown report."""
-        status_label = "通过" if result.success else "失败"
+        no_tests_discovered = self._is_no_tests_discovered(result)
+        status_label = "无测试文件" if no_tests_discovered else ("通过" if result.success else "失败")
+        no_tests_note = "- 当前项目目录未发现测试文件，本次记录为待补测试报告，不阻塞主流程。\n" if no_tests_discovered else ""
         stdout = (result.stdout or "").strip() or "(无 stdout)"
         stderr = (result.stderr or "").strip() or "(无 stderr)"
         command = " ".join(request.command)
@@ -550,6 +1413,7 @@ class Runner:
             f"## stderr\n```text\n{stderr}\n```\n\n"
             "## 结论\n"
             f"- 当前测试执行{status_label}。\n"
+            f"{no_tests_note}"
             "- 若失败，Gate 应据此进入重试或升级路径。\n"
         )
 
@@ -562,6 +1426,7 @@ class Runner:
         cli_stdout: str,
         cli_stderr: str,
         validation_result: HarnessResult | None,
+        validation_command: list[str] | None,
         success: bool,
     ) -> str:
         """Convert a real code-edit execution into a Markdown report."""
@@ -570,7 +1435,7 @@ class Runner:
         validation_stderr = ((validation_result.stderr or "") if validation_result else "").strip() or "(无 stderr)"
         validation_section = (
             "## 自动验证\n"
-            f"- Command: `{' '.join(self._select_test_command())}`\n"
+            f"- Command: `{' '.join(validation_command or [])}`\n"
             f"- Exit Code: `{validation_result.exit_code}`\n"
             f"- Duration: `{validation_result.duration_ms}ms`\n"
             f"```text\n{validation_stdout}\n```\n\n"
@@ -660,7 +1525,6 @@ class Runner:
         }.get(agent.role, self._mock_generic_sections(workitem))
         return (
             f"# {self._build_artifact_title(workitem, agent)}\n\n"
-            f"> 来源说明：{source_note}。该内容用于开发期验证，不代表真实 Agent 交付物。\n\n"
             "## 目标\n"
             f"围绕 `{workitem.kind}` 完成工作项 `{workitem.id}` 的文档化输出，支撑后续阶段理解需求边界和执行重点。\n\n"
             "## 输入\n"

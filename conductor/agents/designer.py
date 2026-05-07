@@ -34,8 +34,8 @@ class DesignerAgent(Agent):
             capabilities=profile.capabilities,
             backend="llm",
             llm_backend=llm_backend,
-            execution_backend="llm",
-            preferred_llm_backend="cloud",
+            execution_backend=profile.execution_backend,
+            preferred_llm_backend=profile.preferred_backend,
         )
 
     def execute(self, workitem: WorkItem) -> str:

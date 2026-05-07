@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """Simple project flow smoke test."""
 
+from conductor.config.cli import CLISelectionConfig
 from conductor.controller.engine import ConductorEngine
 
 
-def test_simple_project_flow():
+def run_simple_project_flow():
     """Smoke test for creating and stepping through a simple project."""
     print("=== Conductor project flow smoke test ===")
 
-    engine = ConductorEngine()
+    engine = ConductorEngine(cli_selection_config=CLISelectionConfig())
     print("Engine created successfully")
 
     requirement = "Implement a simple to-do application"
@@ -48,9 +49,14 @@ def test_simple_project_flow():
     return state
 
 
+def test_simple_project_flow() -> None:
+    state = run_simple_project_flow()
+    assert state is not None
+
+
 if __name__ == "__main__":
     try:
-        test_simple_project_flow()
+        run_simple_project_flow()
     except Exception as exc:
         print(f"\nError: {exc}")
         import traceback

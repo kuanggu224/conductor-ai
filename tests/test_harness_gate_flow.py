@@ -36,6 +36,20 @@ class FailOnceHarness(BaseHarness):
         )
 
 
+class TimeoutHarness(BaseHarness):
+    name = "shell"
+
+    def run(self, request: HarnessRequest) -> HarnessResult:
+        return HarnessResult(
+            success=False,
+            exit_code=124,
+            stdout="",
+            stderr="timed out",
+            duration_ms=1000,
+            timed_out=True,
+        )
+
+
 def test_harness_failure_enters_retry_then_recovers() -> None:
     state_store = InMemoryStateStore()
     runner = Runner(
@@ -75,3 +89,42 @@ def test_harness_failure_enters_retry_then_recovers() -> None:
     state = controller.advance(state)
     assert state.executions[-1].status == ExecutionStatus.SUCCESS
     assert state.workitems[0].status.value == "done"
+
+
+def test_timeout_failure_is_classified_and_retried() -> None:
+    state_store = InMemoryStateStore()
+    runner = Runner(
+        state_store,
+        shell_harness=TimeoutHarness(),
+        enable_tester_harness=True,
+    )
+    controller = LeadController(
+        workflow_template=WorkflowTemplate(),
+        state_store=state_store,
+        runner=runner,
+    )
+    state = controller.initialize_project("验证超时重试")
+    automated_test = WorkItem(
+        id="workitem-timeout",
+        description="执行自动化测试",
+        stage="testing",
+        kind="automated_test",
+    )
+    state = replace(
+        state,
+        workitems=[automated_test],
+        current_stage="testing",
+        project=replace(state.project, current_stage="testing", status=ProjectStatus.IN_PROGRESS),
+        project_status=ProjectStatus.IN_PROGRESS,
+    )
+    state_store.save_state(state)
+
+    state = controller.advance(state)
+    assert state.workitems[0].failure_type == "timeout"
+    assert state.workitems[0].retryable is True
+
+    state = controller.advance(state)
+    assert state.workitems[0].status.value == "pending"
+    assert state.workitems[0].retry_count == 1
+    assert state.workitems[0].failure_type == ""
+    assert any("失败策略" in event for event in state.recent_events)

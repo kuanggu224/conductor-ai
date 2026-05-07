@@ -40,6 +40,45 @@ class FakeFailHarness(BaseHarness):
         )
 
 
+class FakeNoTestsHarness(BaseHarness):
+    name = "shell"
+
+    def run(self, request: HarnessRequest) -> HarnessResult:
+        return HarnessResult(
+            success=False,
+            exit_code=5,
+            stdout="no tests ran in 0.00s",
+            stderr="",
+            duration_ms=9,
+        )
+
+
+class FakeCodeExecutionNoTestsHarness(BaseHarness):
+    name = "shell"
+
+    def __init__(self) -> None:
+        self.requests: list[HarnessRequest] = []
+
+    def run(self, request: HarnessRequest) -> HarnessResult:
+        self.requests.append(request)
+        if request.description.startswith("backend_engineer:"):
+            return HarnessResult(
+                success=True,
+                exit_code=0,
+                stdout="code changed",
+                stderr="",
+                duration_ms=20,
+                changed_files=["app.py"],
+            )
+        return HarnessResult(
+            success=False,
+            exit_code=5,
+            stdout="no tests ran in 0.00s",
+            stderr="",
+            duration_ms=10,
+        )
+
+
 class FakeCodeExecutionHarness(BaseHarness):
     name = "shell"
 
@@ -64,6 +103,24 @@ class FakeCodeExecutionHarness(BaseHarness):
             stdout="2 passed" if self.validation_success else "1 failed",
             stderr="" if self.validation_success else "traceback",
             duration_ms=22,
+        )
+
+
+class FakeDocumentationHarness(BaseHarness):
+    name = "shell"
+
+    def __init__(self, success: bool = True) -> None:
+        self.requests: list[HarnessRequest] = []
+        self.success = success
+
+    def run(self, request: HarnessRequest) -> HarnessResult:
+        self.requests.append(request)
+        return HarnessResult(
+            success=self.success,
+            exit_code=0 if self.success else 1,
+            stdout="# 真实需求设计文档\n\n## 目标\n由 Agent CLI 生成。",
+            stderr="" if self.success else "cli failed",
+            duration_ms=25,
         )
 
 
@@ -167,6 +224,90 @@ def test_runner_creates_new_artifact_version_on_repeat_success() -> None:
     assert latest.artifacts[1].parent_artifact_id == "artifact-workitem-repeat"
 
 
+def test_runner_uses_agent_cli_for_real_design_document(monkeypatch) -> None:
+    monkeypatch.setattr("conductor.agents.cli_executor.shutil.which", lambda name: f"C:/bin/{name}.cmd")
+    state_store = InMemoryStateStore()
+    harness = FakeDocumentationHarness(success=True)
+    runner = Runner(
+        state_store,
+        shell_harness=harness,
+        cli_selection_config=CLISelectionConfig(
+            selected_cli_names=["codex"],
+            role_cli_bindings={"designer": "codex"},
+        ),
+        require_real_design_outputs=True,
+    )
+    controller = LeadController(
+        workflow_template=WorkflowTemplate(),
+        state_store=state_store,
+        runner=runner,
+    )
+    state = controller.initialize_project("生成真实需求设计文档")
+    workitem = WorkItem(
+        id="workitem-design",
+        description="形成需求设计文档",
+        stage="design",
+        kind="design_overview",
+    )
+    state.workitems = [workitem]
+    state_store.save_state(state)
+    profile = next(profile for profile in build_default_agent_profiles() if profile.role_name == "designer")
+    agent = Agent(
+        id="agent-designer",
+        role="designer",
+        profile=profile,
+        capabilities=[Capability.PLANNING],
+        backend="llm",
+        execution_backend="llm",
+    )
+
+    execution = runner.run(project_id=state.project.id, workitem=workitem, agent=agent)
+    latest = state_store.get_state(state.project.id)
+
+    assert execution.status == ExecutionStatus.SUCCESS
+    assert latest.workitems[0].status == WorkItemStatus.DONE
+    assert latest.artifacts[0].source_backend == "agent_cli/codex"
+    assert "真实需求设计文档" in latest.artifacts[0].content
+
+
+def test_runner_blocks_real_design_when_no_real_backend_available() -> None:
+    state_store = InMemoryStateStore()
+    runner = Runner(state_store, require_real_design_outputs=True)
+    controller = LeadController(
+        workflow_template=WorkflowTemplate(),
+        state_store=state_store,
+        runner=runner,
+    )
+    state = controller.initialize_project("生成真实需求设计文档")
+    workitem = WorkItem(
+        id="workitem-design",
+        description="形成需求设计文档",
+        stage="design",
+        kind="design_overview",
+    )
+    state.workitems = [workitem]
+    state_store.save_state(state)
+    profile = next(profile for profile in build_default_agent_profiles() if profile.role_name == "designer")
+    agent = Agent(
+        id="agent-designer",
+        role="designer",
+        profile=profile,
+        capabilities=[Capability.PLANNING],
+        backend="llm",
+        execution_backend="llm",
+    )
+
+    execution = runner.run(project_id=state.project.id, workitem=workitem, agent=agent)
+    latest = state_store.get_state(state.project.id)
+
+    assert execution.status == ExecutionStatus.FAILED
+    assert latest.workitems[0].status == WorkItemStatus.FAILED
+    assert latest.artifacts[0].source_backend == "real_backend_required"
+    assert latest.workitems[0].failure_type == "configuration_required"
+    assert latest.workitems[0].retryable is False
+    assert "不会再生成模拟设计文档" in latest.artifacts[0].content
+
+
 def test_runner_uses_shell_harness_for_tester_workitems() -> None:
     state_store = InMemoryStateStore()
     runner = Runner(
@@ -208,6 +349,50 @@ def test_runner_uses_shell_harness_for_tester_workitems() -> None:
     assert "Exit Code: `0`" in latest.artifacts[0].content
 
 
+def test_tester_validation_prefers_shell_harness_even_when_bound_to_agent_cli(monkeypatch) -> None:
+    monkeypatch.setattr("conductor.agents.cli_executor.shutil.which", lambda name: f"C:/bin/{name}.cmd")
+    state_store = InMemoryStateStore()
+    runner = Runner(
+        state_store,
+        shell_harness=FakeSuccessHarness(),
+        enable_tester_harness=True,
+        cli_selection_config=CLISelectionConfig(
+            selected_cli_names=["codex"],
+            role_cli_bindings={"tester": "codex"},
+        ),
+    )
+    controller = LeadController(
+        workflow_template=WorkflowTemplate(),
+        state_store=state_store,
+        runner=runner,
+    )
+    state = controller.initialize_project("验证 API")
+    test_workitem = WorkItem(
+        id="workitem-test",
+        description="执行 API 验证",
+        stage="testing",
+        kind="api_validation",
+    )
+    state.workitems = [test_workitem]
+    state_store.save_state(state)
+    tester_profile = next(profile for profile in build_default_agent_profiles() if profile.role_name == "tester")
+    agent = Agent(
+        id="agent-tester",
+        role="tester",
+        profile=tester_profile,
+        capabilities=[Capability.TESTING],
+        backend="mock",
+        execution_backend="cli",
+    )
+
+    execution = runner.run(project_id=state.project.id, workitem=test_workitem, agent=agent)
+    latest = state_store.get_state(state.project.id)
+
+    assert execution.status == ExecutionStatus.SUCCESS
+    assert latest.artifacts[0].source_backend == "cli/shell"
+    assert not latest.artifacts[0].source_backend.startswith("agent_cli/")
+
+
 def test_runner_marks_failed_when_shell_harness_fails() -> None:
     state_store = InMemoryStateStore()
     runner = Runner(
@@ -246,6 +431,47 @@ def test_runner_marks_failed_when_shell_harness_fails() -> None:
     assert latest.workitems[0].status == WorkItemStatus.FAILED
     assert latest.artifacts[0].source_backend == "cli/shell"
     assert "Exit Code: `1`" in latest.artifacts[0].content
+
+
+def test_runner_does_not_block_when_pytest_finds_no_tests() -> None:
+    state_store = InMemoryStateStore()
+    runner = Runner(
+        state_store,
+        shell_harness=FakeNoTestsHarness(),
+        enable_tester_harness=True,
+    )
+    controller = LeadController(
+        workflow_template=WorkflowTemplate(),
+        state_store=state_store,
+        runner=runner,
+    )
+    state = controller.initialize_project("验证没有测试文件时不阻塞")
+    test_workitem = WorkItem(
+        id="workitem-no-tests",
+        description="执行自动化测试",
+        stage="testing",
+        kind="automated_test",
+    )
+    state.workitems = [test_workitem]
+    state_store.save_state(state)
+    tester_profile = next(profile for profile in build_default_agent_profiles() if profile.role_name == "tester")
+    agent = Agent(
+        id="agent-tester",
+        role="tester",
+        profile=tester_profile,
+        capabilities=[Capability.TESTING],
+        backend="mock",
+        execution_backend="cli",
+    )
+
+    execution = runner.run(project_id=state.project.id, workitem=test_workitem, agent=agent)
+    latest = state_store.get_state(state.project.id)
+
+    assert execution.status == ExecutionStatus.SUCCESS
+    assert latest.workitems[0].status == WorkItemStatus.DONE
+    assert latest.artifacts[0].source_backend == "cli/shell"
+    assert "Exit Code: `5`" in latest.artifacts[0].content
+    assert "无测试文件" in latest.artifacts[0].content
 
 
 def test_runner_executes_real_code_loop_for_backend_agent(monkeypatch) -> None:
@@ -343,3 +569,126 @@ def test_runner_fails_code_execution_when_post_validation_fails(monkeypatch) -> 
     assert latest.workitems[0].status == WorkItemStatus.FAILED
     assert latest.artifacts[0].source_backend == "agent_cli/claude"
     assert "Exit Code: `1`" in latest.artifacts[0].content
+
+
+def test_runner_requires_frontend_files_for_ui_implementation() -> None:
+    runner = Runner(InMemoryStateStore())
+    workitem = WorkItem(
+        id="workitem-frontend-contract",
+        description="Implement UI",
+        stage="development",
+        kind="ui_implementation",
+    )
+    agent = Agent(
+        id="agent-frontend",
+        role="frontend_engineer",
+        capabilities=[Capability.CODING],
+        backend="mock",
+        execution_backend="cli",
+    )
+
+    assert runner._changed_files_satisfy_workitem(workitem, agent, ["app.py"]) is False
+    assert runner._changed_files_satisfy_workitem(workitem, agent, ["index.html"]) is True
+    assert runner._changed_files_satisfy_workitem(workitem, agent, ["static/app.js"]) is True
+
+
+def test_runner_code_prompt_includes_full_requirement_and_avoids_generic_task_board() -> None:
+    state_store = InMemoryStateStore()
+    runner = Runner(state_store)
+    controller = LeadController(
+        workflow_template=WorkflowTemplate(),
+        state_store=state_store,
+        runner=runner,
+    )
+    state = controller.initialize_project("实现 Bug triage 看板：录入 bug、严重级别、复现步骤和状态流转")
+    workitem = WorkItem(
+        id="workitem-frontend",
+        description="实现前端页面",
+        stage="development",
+        kind="ui_implementation",
+    )
+    state.workitems = [*state.workitems, workitem]
+    state_store.save_state(state)
+    agent = Agent(
+        id="agent-frontend",
+        role="frontend_engineer",
+        capabilities=[Capability.CODING],
+        backend="mock",
+        execution_backend="cli",
+    )
+
+    prompt = runner._build_code_execution_prompt(state.project.id, workitem, agent, cli_name="opencode")
+
+    assert "Bug triage" in prompt
+    assert "actual business domain" in prompt
+    assert "task board" not in prompt.lower()
+
+
+def test_runner_blocks_code_mock_when_real_code_required() -> None:
+    state_store = InMemoryStateStore()
+    runner = Runner(state_store, require_real_code_outputs=True)
+    controller = LeadController(
+        workflow_template=WorkflowTemplate(),
+        state_store=state_store,
+        runner=runner,
+    )
+    state = controller.initialize_project("实现费用报销系统")
+    workitem = WorkItem(
+        id="workitem-backend",
+        description="实现报销 API",
+        stage="development",
+        kind="api_implementation",
+    )
+    state.workitems = [workitem]
+    state_store.save_state(state)
+    agent = Agent(
+        id="agent-backend",
+        role="backend_engineer",
+        capabilities=[Capability.CODING],
+        backend="mock",
+        execution_backend="mock",
+    )
+
+    execution = runner.run(state.project.id, workitem, agent)
+
+    assert execution.status == ExecutionStatus.FAILED
+    assert "不会用 mock 文档冒充实现" in execution.result
+
+
+def test_runner_code_execution_allows_no_tests_until_testing_stage(monkeypatch) -> None:
+    monkeypatch.setattr("conductor.agents.cli_executor.shutil.which", lambda name: f"C:/bin/{name}.cmd")
+    state_store = InMemoryStateStore()
+    runner = Runner(
+        state_store,
+        shell_harness=FakeCodeExecutionNoTestsHarness(),
+        cli_selection_config=CLISelectionConfig(
+            selected_cli_names=["codex"],
+            role_cli_bindings={"backend_engineer": "codex"},
+        ),
+    )
+    controller = LeadController(
+        workflow_template=WorkflowTemplate(),
+        state_store=state_store,
+        runner=runner,
+    )
+    state = controller.initialize_project("实现后端 API，测试阶段后补测试")
+    workitem = WorkItem(
+        id="workitem-backend",
+        description="实现后端 API",
+        stage="development",
+        kind="api_implementation",
+    )
+    state.workitems = [workitem]
+    state_store.save_state(state)
+    agent = Agent(
+        id="agent-backend",
+        role="backend_engineer",
+        capabilities=[Capability.CODING],
+        backend="mock",
+        execution_backend="cli",
+    )
+
+    execution = runner.run(state.project.id, workitem, agent)
+
+    assert execution.status == ExecutionStatus.SUCCESS
+    assert "Exit Code: `5`" in execution.result

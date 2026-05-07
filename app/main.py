@@ -1,63 +1,36 @@
-"""Conductor Sprint 1 示例入口。"""
+"""Compatibility entrypoint for the standalone to-do app."""
 
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 
-ROOT_DIR = Path(__file__).resolve().parents[1]
-if str(ROOT_DIR) not in sys.path:
-    sys.path.insert(0, str(ROOT_DIR))
+from app.todo_app import app as todo_app
+from app.todo_app import create_app
+from app.todo_app import main as todo_main
 
-from conductor.controller.engine import ConductorEngine
+app = todo_app
+
+__all__ = ["app", "create_app", "main", "parse_requirement"]
 
 
 def parse_requirement(argv: list[str]) -> str:
-    """从命令行参数中读取自然语言需求。"""
+    """Legacy helper kept for compatibility with existing tests."""
     if len(argv) < 2:
-        raise ValueError('请通过命令行传入需求，例如: python app/main.py "实现一个包含 API 和测试的功能"')
+        raise ValueError('Please pass a requirement, for example: python app/main.py "Implement a simple to-do app"')
     return " ".join(argv[1:]).strip()
 
 
-def main(argv: list[str] | None = None) -> int:
-    """运行最小 mock 项目流程。"""
-    args = argv if argv is not None else sys.argv
-    try:
-        requirement = parse_requirement(args)
-    except ValueError as error:
-        print(str(error))
-        return 1
-
-    engine = ConductorEngine()
-    state = engine.create_project(requirement=requirement)
-    print(f"项目已创建: {state.project.id}")
-    print(f"项目目标: {state.project.goal}")
-    print(f"可用角色: {', '.join(engine.registry.list_roles())}")
-    print(f"规划角色: {', '.join(state.planned_roles)}")
-
-    while not engine.is_terminal(state):
-        print(f"当前阶段: {state.current_stage}")
-        state = engine.step_project(state.project.id)
-
-    print("流程日志:")
-    for event in state.recent_events:
-        print(f"- {event}")
-
-    print("执行结果:")
-    for execution in state.executions:
-        print(f"- {execution.workitem_id} / {execution.agent_id} / {execution.status.value}")
-
-    print("路由结果:")
-    for decision in state.route_decisions:
-        print(f"- {decision.workitem_id} -> {decision.selected_agent}")
-
-    if state.blockers:
-        print("阻塞项:")
-        for blocker in state.blockers:
-            print(f"- {blocker}")
-
-    return 0
+def main(argv: list[str] | None = None) -> int | None:
+    """Delegate to the to-do application entrypoint."""
+    args = list(argv) if argv is not None else None
+    if args is not None and args and not args[0].startswith("-"):
+        # Preserve the legacy script-style invocation used by older callers
+        # while still allowing any real CLI flags that follow the requirement text.
+        first_flag_index = next((index for index, token in enumerate(args) if token.startswith("-")), len(args))
+        args = args[first_flag_index:] if first_flag_index < len(args) else []
+    result = todo_main(args)
+    return 0 if result is None else result
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main(sys.argv[1:]))

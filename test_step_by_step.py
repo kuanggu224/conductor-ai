@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """Step-by-step project flow smoke test."""
 
+from conductor.config.cli import CLISelectionConfig
 from conductor.controller.engine import ConductorEngine
 
 
-def test_step_by_step():
+def run_step_by_step():
     """Smoke test that steps through a project a few times."""
     print("=== Step-by-step project flow smoke test ===")
     try:
-        engine = ConductorEngine()
+        engine = ConductorEngine(cli_selection_config=CLISelectionConfig())
         requirement = "Implement a simple to-do application"
         state = engine.create_project(requirement=requirement)
         print("Project created successfully")
@@ -58,8 +59,13 @@ def test_step_by_step():
         return None
 
 
+def test_step_by_step() -> None:
+    state = run_step_by_step()
+    assert state is not None
+
+
 if __name__ == "__main__":
-    state = test_step_by_step()
+    state = run_step_by_step()
     if state and state.blockers:
         print("\nBlockers:")
         for blocker in state.blockers:

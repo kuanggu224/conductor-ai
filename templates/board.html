@@ -37,6 +37,32 @@
         .chip.blue { border-color:rgba(96,165,250,.18); background:rgba(96,165,250,.1); color:var(--blue); } .chip.green { border-color:rgba(52,211,153,.2); background:rgba(52,211,153,.12); color:var(--green); } .chip.warn { border-color:rgba(251,191,36,.2); background:rgba(251,191,36,.12); color:var(--amber); } .chip.error { border-color:rgba(251,113,133,.2); background:rgba(251,113,133,.1); color:var(--red); } .chip.muted { border-color:rgba(148,163,184,.14); background:rgba(148,163,184,.08); color:var(--muted); }
         .project-item,.artifact-item,.workitem-item,.review-item { border:1px solid var(--line); background:rgba(15,23,42,.55); border-radius:16px; padding:14px; }
         .project-item + .project-item,.artifact-item + .artifact-item,.workitem-item + .workitem-item,.review-item + .review-item { margin-top:10px; }
+        .activation-arena { position:relative; min-height:420px; border-radius:24px; border:1px solid var(--line); background:radial-gradient(circle at 50% 48%, rgba(168,85,247,.14), transparent 18%),linear-gradient(to right, rgba(148,163,184,.07) 1px, transparent 1px),linear-gradient(to bottom, rgba(148,163,184,.07) 1px, transparent 1px),linear-gradient(180deg, rgba(2,6,23,.96), rgba(8,12,28,.92)); background-size:auto,60px 60px,60px 60px,auto; overflow:hidden; }
+        .activation-arena::before { content:""; position:absolute; inset:0; background:radial-gradient(circle at center, rgba(96,165,250,.08), transparent 34%); pointer-events:none; }
+        .activation-core { position:absolute; left:50%; top:50%; width:168px; height:168px; transform:translate(-50%, -50%); border-radius:50%; border:3px solid rgba(226,232,240,.9); background:radial-gradient(circle at 50% 50%, rgba(30,41,59,.96), rgba(2,6,23,.98)); box-shadow:0 0 36px rgba(168,85,247,.24), inset 0 0 30px rgba(96,165,250,.12); display:grid; place-items:center; text-align:center; padding:22px; z-index:2; }
+        .activation-core::after { content:""; position:absolute; inset:-18px; border-radius:50%; border:1px solid rgba(168,85,247,.18); }
+        .activation-core strong { display:block; color:#fff; font-size:16px; letter-spacing:.08em; }
+        .activation-core span { display:block; margin-top:8px; color:var(--muted); font-size:12px; line-height:1.5; text-transform:uppercase; letter-spacing:.12em; }
+        .activation-node { position:absolute; width:118px; z-index:2; text-align:center; }
+        .activation-node::before { content:""; position:absolute; left:50%; top:50%; width:140px; height:1px; transform-origin:left center; background:linear-gradient(90deg, rgba(96,165,250,.55), rgba(96,165,250,0)); opacity:.45; z-index:0; }
+        .activation-node.node-top-left { left:16%; top:10%; }
+        .activation-node.node-top-left::before { transform:rotate(36deg); }
+        .activation-node.node-top-right { right:16%; top:10%; }
+        .activation-node.node-top-right::before { transform:rotate(144deg); width:132px; }
+        .activation-node.node-bottom-right { right:16%; bottom:10%; }
+        .activation-node.node-bottom-right::before { transform:rotate(216deg); width:132px; }
+        .activation-node.node-bottom-left { left:16%; bottom:10%; }
+        .activation-node.node-bottom-left::before { transform:rotate(324deg); }
+        .activation-orb { position:relative; z-index:1; width:94px; height:94px; margin:0 auto; border-radius:50%; border:2px solid rgba(148,163,184,.32); background:radial-gradient(circle at 30% 30%, rgba(30,41,59,.96), rgba(2,6,23,.98)); display:grid; place-items:center; box-shadow:0 12px 28px rgba(0,0,0,.4); }
+        .activation-orb span { display:grid; place-items:center; width:42px; height:42px; border-radius:14px; border:1px solid rgba(148,163,184,.28); color:#dbeafe; font-weight:700; font-size:15px; background:rgba(15,23,42,.72); }
+        .activation-node.active .activation-orb { border-color:rgba(34,211,238,.72); box-shadow:0 0 26px rgba(34,211,238,.22), 0 12px 28px rgba(0,0,0,.38); }
+        .activation-node.active .activation-orb span { color:#67e8f9; border-color:rgba(34,211,238,.34); box-shadow:0 0 18px rgba(34,211,238,.12); }
+        .activation-node.standby { opacity:.58; }
+        .activation-node-label { margin-top:10px; color:#fff; font-size:14px; font-weight:600; }
+        .activation-node-state { margin-top:4px; color:var(--muted); font-size:12px; }
+        .activation-details { display:grid; gap:10px; margin-top:16px; }
+        .activation-detail-item { border:1px solid var(--line); border-radius:14px; background:rgba(15,23,42,.5); padding:12px; }
+        .activation-detail-item.active { border-color:rgba(34,211,238,.26); background:rgba(34,211,238,.06); }
         .meeting-layout { display:grid; grid-template-columns:1.1fr .9fr; gap:18px; }
         .meeting-table { position:relative; min-height:460px; border-radius:24px; background:radial-gradient(circle at 20% 15%, rgba(34,211,238,.14), transparent 22%),radial-gradient(circle at 80% 15%, rgba(168,85,247,.16), transparent 22%),radial-gradient(circle at 80% 85%, rgba(59,130,246,.12), transparent 24%),linear-gradient(180deg, rgba(2,6,23,.96), rgba(15,23,42,.88)); border:1px solid var(--line); overflow:hidden; }
         .meeting-table::before { content:""; position:absolute; inset:0; background:linear-gradient(to right, rgba(148,163,184,.06) 1px, transparent 1px),linear-gradient(to bottom, rgba(148,163,184,.06) 1px, transparent 1px); background-size:40px 40px; }
@@ -212,25 +238,51 @@
                     <section class="card" style="padding:18px;">
                         <div class="section-title">
                             <div>
-                                <h2>Active Instances</h2>
-                                <p>当前项目 Agent 与最近项目实例。</p>
+                                <h2>Agent 激活矩阵</h2>
+                                <p>预置 Agent 池中，哪些角色被当前需求按需激活。</p>
                             </div>
+                            {% if snapshot and snapshot.project_agents %}<span class="tag">{{ snapshot.project_agents | length }} / 4 已激活</span>{% endif %}
                         </div>
-                        {% if snapshot and snapshot.project_agents %}
-                            {% for agent in snapshot.project_agents %}
-                            <div class="project-item">
-                                <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">
-                                    <div>
-                                        <div style="color:white;font-weight:600;">{{ agent.role_label }}</div>
-                                        <div class="muted" style="margin-top:4px;">{{ agent.agent_id }}</div>
-                                        <div class="muted" style="margin-top:8px;">{{ agent.reason }}</div>
-                                    </div>
-                                    <span class="chip blue">{{ agent.related_kinds | length }} kinds</span>
+                        {% if snapshot %}
+                        <div class="activation-arena">
+                            <div class="activation-core">
+                                <div>
+                                    <strong>MAIN PROCESSOR</strong>
+                                    <span>Conductor Core</span>
                                 </div>
                             </div>
+                            {% for node in snapshot.activation_nodes %}
+                            <div class="activation-node {{ node.position_class }} {% if node.active %}active{% else %}standby{% endif %}">
+                                <div class="activation-orb">
+                                    <span>{{ node.short_label }}</span>
+                                </div>
+                                <div class="activation-node-label">{{ node.role_label }}</div>
+                                <div class="activation-node-state">{{ node.status_label }}</div>
+                            </div>
                             {% endfor %}
-                        {% else %}
-                            <div class="empty">当前项目尚未激活 Agent。</div>
+                        </div>
+
+                        <div class="activation-details">
+                            {% for node in snapshot.activation_nodes %}
+                            <div class="activation-detail-item {% if node.active %}active{% endif %}">
+                                <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">
+                                    <div>
+                                        <div style="color:white;font-weight:600;">{{ node.role_label }}</div>
+                                        <div class="muted" style="margin-top:6px;">{{ node.reason }}</div>
+                                        <div class="muted" style="margin-top:8px;">{{ node.mission }}</div>
+                                    </div>
+                                    <span class="chip {% if node.active %}blue{% else %}muted{% endif %}">{{ node.status_label }}</span>
+                                </div>
+                                {% if node.related_kinds %}
+                                <div class="chips" style="margin-top:10px;">
+                                    {% for kind in node.related_kinds %}
+                                    <span class="chip">{{ kind }}</span>
+                                    {% endfor %}
+                                </div>
+                                {% endif %}
+                            </div>
+                            {% endfor %}
+                        </div>
                         {% endif %}
                         <div style="margin-top:18px;" class="muted">最近项目</div>
                         {% for project in project_summaries[:4] %}

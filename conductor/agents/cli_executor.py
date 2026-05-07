@@ -81,6 +81,7 @@ class AgentCLIExecutor:
             track_workspace_changes=track_workspace_changes,
             workspace_root=workspace_root,
             stream_callback=stream_callback,
+            stdin_text=prompt if cli_name == "codex" else None,
         )
         execution = AgentCLIExecution(
             cli_name=cli_name,
@@ -146,18 +147,21 @@ class AgentCLIExecutor:
             ]
             if execution_mode == "code_edit":
                 command.append("--dangerously-bypass-approvals-and-sandbox")
-            command.append(prompt)
+            command.append("-")
             return command
         if cli_name == "qwen":
             return [executable_path, prompt, "-o", "text"]
-        if cli_name == "opencode":
+        if cli_name in {"opencode", "aspirecode"}:
             command = [
                 executable_path,
                 "run",
                 "--dir",
                 working_directory,
-                "--dangerously-skip-permissions",
             ]
+            if cli_name == "opencode":
+                command.append("--dangerously-skip-permissions")
+            if cli_name == "aspirecode":
+                command.extend(["--model", self.cli_selection_config.aspirecode_model])
             if execution_mode == "documentation":
                 command.extend(["--format", "default"])
             command.append(prompt)

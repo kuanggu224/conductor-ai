@@ -33,6 +33,8 @@ def test_artifact_store_saves_markdown_file(tmp_path) -> None:
     assert "Source Backend: `llm/cloud`" in path.read_text(encoding="utf-8")
     assert "Parent Artifact ID: `artifact-root`" in path.read_text(encoding="utf-8")
     assert "Version: `2`" in path.read_text(encoding="utf-8")
+    assert "Artifact Contract" in path.read_text(encoding="utf-8")
+    assert "Missing Sections" in path.read_text(encoding="utf-8")
     assert "设计内容" in store.read_content(saved)
 
 

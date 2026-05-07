@@ -43,6 +43,13 @@ class ContextBuilder:
             for artifact in state.artifacts
             if artifact.workitem_id != workitem.id
         ]
+        dependency_ids = set(workitem.dependencies)
+        dependency_artifacts = [
+            artifact for artifact in previous_artifacts if artifact.workitem_id in dependency_ids
+        ]
+        design_artifacts = [
+            artifact for artifact in previous_artifacts if self._infer_artifact_stage(artifact.kind) == "design"
+        ]
         stage_rank = {"design": 0, "development": 1, "testing": 2}
         current_rank = stage_rank.get(workitem.stage, 99)
         relevant = [
@@ -50,7 +57,17 @@ class ContextBuilder:
             for artifact in previous_artifacts
             if stage_rank.get(self._infer_artifact_stage(artifact.kind), 99) <= current_rank
         ]
-        return relevant[-self.max_artifacts :]
+        priority = [*dependency_artifacts, *design_artifacts]
+        recents = relevant[-self.max_artifacts :]
+        ordered = [*priority, *recents]
+        deduped: list[Artifact] = []
+        seen: set[str] = set()
+        for artifact in ordered:
+            if artifact.id in seen:
+                continue
+            seen.add(artifact.id)
+            deduped.append(artifact)
+        return deduped[: self.max_artifacts]
 
     def _infer_artifact_stage(self, kind: str) -> str:
         """根据产物类型推断来源阶段。"""

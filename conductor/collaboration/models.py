@@ -32,6 +32,26 @@ class ReviewContribution:
     role: str
     decision: ReviewDecision
     content: str
+    phase: str = "cross_functional_review"
+    source_backend: str = ""
+    model: str = ""
+    output_path: str = ""
+    duration_ms: int = 0
+
+
+@dataclass(slots=True)
+class CollaborationDraftVersion:
+    """Draft snapshot produced during a collaboration session."""
+
+    version: int
+    round_index: int
+    author_agent_id: str
+    content: str
+    review_ids: list[str] = field(default_factory=list)
+    source_backend: str = ""
+    model: str = ""
+    output_path: str = ""
+    duration_ms: int = 0
 
 
 @dataclass(slots=True)
@@ -47,4 +67,5 @@ class Collaboration:
     max_rounds: int
     current_round: int
     contributions: list[ReviewContribution] = field(default_factory=list)
+    draft_versions: list[CollaborationDraftVersion] = field(default_factory=list)
     final_artifact_id: str | None = None

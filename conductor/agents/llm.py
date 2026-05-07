@@ -48,6 +48,7 @@ class LLMHTTPConfig:
     model_name: str
     api_key: str | None = None
     timeout_seconds: float = 30.0
+    reasoning_effort: str | None = None
     enabled: bool = False
 
 

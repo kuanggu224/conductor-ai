@@ -42,6 +42,8 @@ def test_board_service_builds_snapshot_from_state() -> None:
     assert snapshot.artifacts[0].source_backend_label
     assert snapshot.project_agents
     assert snapshot.project_agents[0].reason
+    assert snapshot.activation_nodes
+    assert any(node.active for node in snapshot.activation_nodes)
     assert snapshot.design_collaboration.enabled is True
     assert snapshot.design_collaboration.current_document_title
     assert snapshot.design_collaboration.agents

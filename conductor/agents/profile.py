@@ -38,7 +38,18 @@ def build_default_agent_profiles(config: SystemConfig | None = None) -> list[Age
     config = config or SystemConfig.load()
     profiles = []
 
-    for profile_config in config.agents.default_profiles:
+    configured_by_role = {
+        item.get("role_name"): item
+        for item in config.agents.default_profiles
+        if item.get("role_name")
+    }
+    profile_configs = []
+    for default_profile in SystemConfig().agents.default_profiles:
+        role_name = default_profile.get("role_name")
+        profile_configs.append(configured_by_role.pop(role_name, default_profile))
+    profile_configs.extend(configured_by_role.values())
+
+    for profile_config in profile_configs:
         # 转换 capability 字符串为枚举类型
         capabilities = [
             Capability[capability.upper()]

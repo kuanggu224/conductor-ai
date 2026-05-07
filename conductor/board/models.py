@@ -90,6 +90,40 @@ class BoardProjectAgentView:
 
 
 @dataclass(slots=True)
+class BoardActivationNodeView:
+    """按需激活 Agent 的可视化节点。"""
+
+    role: str
+    role_label: str
+    short_label: str
+    position_class: str
+    active: bool
+    status_label: str
+    reason: str = ""
+    mission: str = ""
+    related_kinds: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class BoardTaskAssignmentView:
+    """Task Center assignment display item."""
+
+    id: str
+    workitem_id: str
+    role: str
+    role_label: str
+    status: str
+    status_label: str
+    assigned_agent_id: str
+    assigned_agent_label: str
+    dependencies: list[str] = field(default_factory=list)
+    input_artifact_ids: list[str] = field(default_factory=list)
+    output_artifact_ids: list[str] = field(default_factory=list)
+    claim_reason: str = ""
+    blocked_reason: str = ""
+
+
+@dataclass(slots=True)
 class BoardExecutionRuntimeView:
     """当前或最近一次执行的运行上下文。"""
 
@@ -151,6 +185,8 @@ class BoardSnapshot:
     artifacts: list[BoardArtifactView] = field(default_factory=list)
     route_lines: list[str] = field(default_factory=list)
     project_agents: list[BoardProjectAgentView] = field(default_factory=list)
+    activation_nodes: list[BoardActivationNodeView] = field(default_factory=list)
+    task_assignments: list[BoardTaskAssignmentView] = field(default_factory=list)
     execution_runtime: BoardExecutionRuntimeView = field(default_factory=BoardExecutionRuntimeView)
     design_collaboration: BoardDesignCollaborationView = field(default_factory=BoardDesignCollaborationView)
 

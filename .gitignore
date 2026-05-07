@@ -1,5 +1,6 @@
 __pycache__/
 *.pyc
+**/__pycache__/
 .venv/
 .env
 .idea/
@@ -8,6 +9,13 @@ __pycache__/
 .conductor/
 .conductor_artifacts/
 .conductor_logs/
+.codexbridge/
+.tmp_*/
+backend-*.log
+frontend-review*.md
+review-frontend*.md
+review-workitem-*.md
+reviews/
 AGENT.md
 conductor_architecture_v1.md
 TASK.md

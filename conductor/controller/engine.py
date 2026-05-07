@@ -12,7 +12,7 @@ from conductor.artifacts.store import ArtifactStore
 from conductor.collaboration.runner import CollaborationRunner
 from conductor.collaboration.policy import CollaborationPolicy
 from conductor.config.cli import CLISelectionConfig, load_cli_selection_config
-from conductor.config.execution import ExecutionScopeConfig, load_execution_scope_config
+from conductor.config.execution import ExecutionScopeConfig, RunProfile, load_execution_scope_config
 from conductor.config.llm import LLMRuntimeConfig, build_default_hybrid_llm_backend, load_llm_runtime_config
 from conductor.config.system import SystemConfig
 from conductor.controller.lead_controller import LeadController
@@ -21,7 +21,9 @@ from conductor.execution.planner import Planner
 from conductor.execution.runner import Runner
 from conductor.execution.runtime_stream import RuntimeStreamStore
 from conductor.execution.router import Router
+from conductor.harness.llm import OpenAICompatibleLLMHarness
 from conductor.logging.store import ProjectLogStore
+from conductor.manifest import RunManifestWriter
 from conductor.state.store import InMemoryStateStore
 from conductor.workflow.template import WorkflowTemplate
 
@@ -39,13 +41,21 @@ class ConductorEngine:
         execution_scope_config: ExecutionScopeConfig | None = None,
         cli_selection_config: CLISelectionConfig | None = None,
         system_config: SystemConfig | None = None,
+        state_store: InMemoryStateStore | None = None,
+        run_profile: str | RunProfile = RunProfile.MOCK,
+        require_real_design_outputs: bool = False,
+        require_real_code_outputs: bool | None = None,
+        llm_harness_backend: str | None = None,
     ) -> None:
-        self.state_store = InMemoryStateStore()
+        self.state_store = state_store or InMemoryStateStore()
         self.system_config = system_config or SystemConfig.load()
         self.workflow_template = WorkflowTemplate(config=self.system_config)
         self.llm_runtime_config = llm_runtime_config or load_llm_runtime_config()
         self.execution_scope_config = execution_scope_config or load_execution_scope_config()
         self.cli_selection_config = cli_selection_config or load_cli_selection_config()
+        self.run_profile = run_profile.value if isinstance(run_profile, RunProfile) else str(run_profile)
+        self.llm_harness_backend = llm_harness_backend
+        llm_harness_config = self._select_llm_harness_config(llm_harness_backend)
         self.planner = Planner(
             scope_config=self.execution_scope_config,
             config=self.system_config,
@@ -67,16 +77,36 @@ class ConductorEngine:
             enable_tester_harness=True,
             cli_selection_config=self.cli_selection_config,
             runtime_stream_store=self.runtime_stream_store,
+            require_real_design_outputs=require_real_design_outputs,
+            require_real_code_outputs=(
+                bool(self.cli_selection_config.selected_cli_names)
+                if require_real_code_outputs is None
+                else require_real_code_outputs
+            ),
+            llm_harness=OpenAICompatibleLLMHarness() if llm_harness_config is not None else None,
+            llm_harness_config=llm_harness_config,
         )
         self.collaboration_runner = CollaborationRunner(
             state_store=self.state_store,
             registry=self.registry,
             artifact_store=self.artifact_store,
-            policy=CollaborationPolicy(enabled=self.execution_scope_config.design_collaboration_enabled),
-            cli_selection_config=self.cli_selection_config,
+            policy=CollaborationPolicy(
+                enabled=self.execution_scope_config.design_collaboration_enabled and self.system_config.collaboration.enabled,
+                max_rounds=self.system_config.collaboration.max_rounds,
+                lead_role_by_stage=self.system_config.collaboration.lead_role_by_stage,
+                peer_reviewer_roles_by_stage=self.system_config.collaboration.peer_reviewer_roles_by_stage,
+                reviewer_roles_by_stage=self.system_config.collaboration.reviewer_roles_by_stage,
+                enabled_kinds=self.system_config.collaboration.enabled_kinds,
+            ),
+            cli_selection_config=CLISelectionConfig() if llm_harness_backend is not None else self.cli_selection_config,
             runtime_stream_store=self.runtime_stream_store,
+            require_real_outputs=llm_harness_config is not None or require_real_design_outputs,
+            use_llm=llm_harness_backend is None,
+            llm_harness=OpenAICompatibleLLMHarness() if llm_harness_config is not None else None,
+            llm_harness_config=llm_harness_config,
         )
         self.log_store = ProjectLogStore(log_dir or Path(".conductor_logs"))
+        self.manifest_writer = RunManifestWriter()
         self._logged_event_counts: dict[str, int] = {}
         self.controller = LeadController(
             workflow_template=self.workflow_template,
@@ -87,6 +117,14 @@ class ConductorEngine:
             router=self.router,
             collaboration_runner=self.collaboration_runner,
         )
+
+    def _select_llm_harness_config(self, backend: str | None):
+        """Select the runtime LLM config used by the controlled LLM harness."""
+        if backend == "local":
+            return self.llm_runtime_config.local
+        if backend == "cloud":
+            return self.llm_runtime_config.cloud
+        return None
 
     def create_project(self, requirement: str, project_root: str | None = None) -> SharedProjectState:
         """创建新的 Project 实例。"""
@@ -134,15 +172,26 @@ class ConductorEngine:
         state = self.get_project(project_id)
         return self.log_store.read_events(project_id, project_root=state.project.project_root)
 
+    def write_project_report(self, project_id: str) -> Path:
+        """Write a Markdown report for the current project state."""
+        state = self.get_project(project_id)
+        self._sync_logs(state)
+        return self.log_store.write_project_report(state)
+
+    def write_run_manifest(self, project_id: str, report_path: str | Path) -> Path:
+        """Write a run manifest for the current project state."""
+        state = self.get_project(project_id)
+        return self.manifest_writer.write(
+            state=state,
+            cli_config=self.cli_selection_config,
+            run_profile=self.run_profile,
+            report_path=report_path,
+        )
+
     def _sync_logs(self, state: SharedProjectState) -> None:
         """把尚未落盘的 recent_events 追加写入 JSONL。"""
         project_id = state.project.id
         start_index = self._logged_event_counts.get(project_id, 0)
         for event_index, message in enumerate(state.recent_events[start_index:], start=start_index):
-            self.log_store.append_event(
-                project_id=project_id,
-                event_index=event_index,
-                message=message,
-                project_root=state.project.project_root,
-            )
+            self.log_store.append_state_event(state=state, event_index=event_index, message=message)
         self._logged_event_counts[project_id] = len(state.recent_events)

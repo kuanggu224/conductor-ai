@@ -1,6 +1,7 @@
 
 """Test Conductor system directly from Python."""
 
+from conductor.config.cli import CLISelectionConfig
 from conductor.controller.engine import ConductorEngine
 
 
@@ -9,7 +10,7 @@ def test_system():
     print("=== Conductor System Test ===")
 
     try:
-        engine = ConductorEngine()
+        engine = ConductorEngine(cli_selection_config=CLISelectionConfig())
         print("Engine initialized successfully")
 
         requirement = "实现一个简单的待办事项应用，包含添加、删除和查询功能"

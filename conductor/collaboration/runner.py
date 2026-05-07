@@ -2,16 +2,37 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from conductor.agents.agent import Agent
+from conductor.agents.llm import LLMHTTPConfig
 from conductor.agents.cli_executor import AgentCLIExecutor
 from conductor.agents.registry import AgentRegistry
 from conductor.artifacts.store import ArtifactStore
-from conductor.collaboration.models import Collaboration, CollaborationStatus, ReviewContribution, ReviewDecision
+from conductor.collaboration.models import (
+    Collaboration,
+    CollaborationDraftVersion,
+    CollaborationStatus,
+    ReviewContribution,
+    ReviewDecision,
+)
 from conductor.collaboration.policy import CollaborationPolicy
 from conductor.config.cli import CLISelectionConfig
 from conductor.domain.models import Artifact, WorkItem
+from conductor.harness.llm import LLMHarnessRequest, OpenAICompatibleLLMHarness
 from conductor.execution.runtime_stream import RuntimeStreamStore
 from conductor.state.store import InMemoryStateStore
+
+
+@dataclass(slots=True)
+class CollaborationRunResult:
+    """Structured runtime metadata for one collaboration LLM/CLI call."""
+
+    content: str
+    source_backend: str = ""
+    model: str = ""
+    output_path: str = ""
+    duration_ms: int = 0
 
 
 class CollaborationRunner:
@@ -25,6 +46,10 @@ class CollaborationRunner:
         policy: CollaborationPolicy | None = None,
         cli_selection_config: CLISelectionConfig | None = None,
         runtime_stream_store: RuntimeStreamStore | None = None,
+        require_real_outputs: bool = False,
+        use_llm: bool = True,
+        llm_harness: OpenAICompatibleLLMHarness | None = None,
+        llm_harness_config: LLMHTTPConfig | None = None,
     ) -> None:
         self.state_store = state_store
         self.registry = registry
@@ -32,6 +57,10 @@ class CollaborationRunner:
         self.policy = policy or CollaborationPolicy()
         self.cli_selection_config = cli_selection_config or CLISelectionConfig()
         self.runtime_stream_store = runtime_stream_store or RuntimeStreamStore()
+        self.require_real_outputs = require_real_outputs
+        self.use_llm = use_llm
+        self.llm_harness = llm_harness
+        self.llm_harness_config = llm_harness_config
         self.agent_cli_executor = AgentCLIExecutor(cli_selection_config=self.cli_selection_config)
 
     def should_collaborate(self, project_id: str, workitem: WorkItem) -> bool:
@@ -45,13 +74,29 @@ class CollaborationRunner:
         """Run one collaboration session around an existing draft artifact."""
         project_root = self.state_store.get_state(project_id).project.project_root
         lead = self.registry.get_agent_by_role(self.policy.lead_role_by_stage[workitem.stage])
-        reviewers = [
+        peer_reviewers = [
+            self.registry.get_agent_by_role(role)
+            for role in self.policy.peer_reviewer_roles_by_stage.get(workitem.stage, [])
+        ]
+        functional_reviewers = [
             self.registry.get_agent_by_role(role)
             for role in self.policy.reviewer_roles_by_stage.get(workitem.stage, [])
         ]
+        reviewers = [*peer_reviewers, *functional_reviewers]
         collaboration_id = f"collaboration-{workitem.id}"
         draft = self.artifact_store.read_content(draft_artifact)
         contributions: list[ReviewContribution] = []
+        draft_versions = [
+            CollaborationDraftVersion(
+                version=1,
+                round_index=0,
+                author_agent_id=lead.id,
+                content=draft,
+                source_backend=draft_artifact.source_backend,
+                model=self._model_from_source_backend(draft_artifact.source_backend),
+                output_path=draft_artifact.path or "",
+            )
+        ]
         status = CollaborationStatus.RUNNING
         collaboration = Collaboration(
             id=collaboration_id,
@@ -63,6 +108,7 @@ class CollaborationRunner:
             max_rounds=self.policy.max_rounds,
             current_round=1,
             contributions=[],
+            draft_versions=draft_versions,
         )
 
         self.runtime_stream_store.start(
@@ -77,16 +123,73 @@ class CollaborationRunner:
 
         for round_index in range(1, self.policy.max_rounds + 1):
             self.state_store.add_event(project_id, f"协作 {collaboration_id} 进入第 {round_index} 轮审阅")
-            round_reviews = [
-                self._review(project_id, collaboration_id, round_index, reviewer, workitem, draft, project_root)
-                for reviewer in reviewers
-            ]
-            contributions.extend(round_reviews)
+            round_reviews: list[ReviewContribution] = []
+
+            peer_reviews = self._run_review_phase(
+                project_id=project_id,
+                collaboration_id=collaboration_id,
+                round_index=round_index,
+                phase="design_peer_review",
+                reviewers=peer_reviewers,
+                workitem=workitem,
+                draft=draft,
+                project_root=project_root,
+            )
+            if peer_reviews:
+                round_reviews.extend(peer_reviews)
+                contributions.extend(peer_reviews)
+                collaboration = self._update_collaboration(
+                    collaboration=collaboration,
+                    status=CollaborationStatus.RUNNING,
+                    current_round=round_index,
+                    contributions=contributions,
+                    draft_versions=draft_versions,
+                )
+                self.state_store.upsert_collaboration(project_id, collaboration)
+                if any(review.decision == ReviewDecision.REQUEST_CHANGES for review in peer_reviews):
+                    revision = self._revise(
+                        project_id,
+                        lead,
+                        workitem,
+                        draft,
+                        peer_reviews,
+                        round_index,
+                        project_root,
+                        phase="design_peer_review",
+                    )
+                    draft = revision.content
+                    draft_versions.append(
+                        CollaborationDraftVersion(
+                            version=len(draft_versions) + 1,
+                            round_index=round_index,
+                            author_agent_id=lead.id,
+                            content=draft,
+                            review_ids=[review.id for review in peer_reviews],
+                            source_backend=revision.source_backend,
+                            model=revision.model,
+                            output_path=revision.output_path,
+                            duration_ms=revision.duration_ms,
+                        )
+                    )
+
+            functional_reviews = self._run_review_phase(
+                project_id=project_id,
+                collaboration_id=collaboration_id,
+                round_index=round_index,
+                phase="cross_functional_review",
+                reviewers=functional_reviewers,
+                workitem=workitem,
+                draft=draft,
+                project_root=project_root,
+            )
+            round_reviews.extend(functional_reviews)
+            contributions.extend(functional_reviews)
             collaboration = self._update_collaboration(
                 collaboration=collaboration,
                 status=CollaborationStatus.RUNNING,
                 current_round=round_index,
                 contributions=contributions,
+                draft_versions=draft_versions,
             )
             self.state_store.upsert_collaboration(project_id, collaboration)
 
@@ -94,14 +197,40 @@ class CollaborationRunner:
                 status = CollaborationStatus.ACCEPTED
                 break
 
-            draft = self._revise(project_id, lead, workitem, draft, round_reviews, round_index, project_root)
-            collaboration = self._update_collaboration(
-                collaboration=collaboration,
-                status=CollaborationStatus.RUNNING,
-                current_round=round_index,
-                contributions=contributions,
-            )
-            self.state_store.upsert_collaboration(project_id, collaboration)
+            rework_reviews = functional_reviews or peer_reviews
+            if rework_reviews:
+                revision = self._revise(
+                    project_id,
+                    lead,
+                    workitem,
+                    draft,
+                    rework_reviews,
+                    round_index,
+                    project_root,
+                    phase="cross_functional_review",
+                )
+                draft = revision.content
+                draft_versions.append(
+                    CollaborationDraftVersion(
+                        version=len(draft_versions) + 1,
+                        round_index=round_index,
+                        author_agent_id=lead.id,
+                        content=draft,
+                        review_ids=[review.id for review in rework_reviews],
+                        source_backend=revision.source_backend,
+                        model=revision.model,
+                        output_path=revision.output_path,
+                        duration_ms=revision.duration_ms,
+                    )
+                )
+                collaboration = self._update_collaboration(
+                    collaboration=collaboration,
+                    status=CollaborationStatus.RUNNING,
+                    current_round=round_index,
+                    contributions=contributions,
+                    draft_versions=draft_versions,
+                )
+                self.state_store.upsert_collaboration(project_id, collaboration)
 
         if status == CollaborationStatus.RUNNING:
             status = CollaborationStatus.MAX_ROUNDS_REACHED
@@ -114,12 +243,14 @@ class CollaborationRunner:
             contributions=contributions,
             status=status,
             project_root=project_root,
+            draft_versions=draft_versions,
         )
         collaboration = self._update_collaboration(
             collaboration=collaboration,
             status=status,
             current_round=min(self.policy.max_rounds, max((item.round_index for item in contributions), default=1)),
             contributions=contributions,
+            draft_versions=draft_versions,
             final_artifact_id=final_artifact.id,
         )
         self.state_store.upsert_collaboration(project_id, collaboration)
@@ -131,12 +262,33 @@ class CollaborationRunner:
         )
         return collaboration
 
+    def _run_review_phase(
+        self,
+        project_id: str,
+        collaboration_id: str,
+        round_index: int,
+        phase: str,
+        reviewers: list[Agent],
+        workitem: WorkItem,
+        draft: str,
+        project_root: str,
+    ) -> list[ReviewContribution]:
+        """Run one named review phase against the current draft."""
+        if not reviewers:
+            return []
+        self.state_store.add_event(project_id, f"协作 {collaboration_id} 第 {round_index} 轮进入 {phase}")
+        return [
+            self._review(project_id, collaboration_id, round_index, phase, reviewer, workitem, draft, project_root)
+            for reviewer in reviewers
+        ]
+
     def _update_collaboration(
         self,
         collaboration: Collaboration,
         status: CollaborationStatus,
         current_round: int,
         contributions: list[ReviewContribution],
+        draft_versions: list[CollaborationDraftVersion] | None = None,
         final_artifact_id: str | None = None,
     ) -> Collaboration:
         """Return a refreshed collaboration snapshot."""
@@ -150,6 +302,7 @@ class CollaborationRunner:
             max_rounds=collaboration.max_rounds,
             current_round=current_round,
             contributions=[*contributions],
+            draft_versions=[*(draft_versions if draft_versions is not None else collaboration.draft_versions)],
             final_artifact_id=final_artifact_id if final_artifact_id is not None else collaboration.final_artifact_id,
         )
 
@@ -158,25 +311,31 @@ class CollaborationRunner:
         project_id: str,
         collaboration_id: str,
         round_index: int,
+        phase: str,
         reviewer: Agent,
         workitem: WorkItem,
         draft: str,
         project_root: str,
     ) -> ReviewContribution:
         """Run one reviewer against the same draft."""
-        content = self._run_agent_or_mock_review(project_id, reviewer, workitem, draft, round_index, project_root)
-        decision = self._parse_review_decision(content)
+        result = self._run_agent_or_mock_review(project_id, reviewer, workitem, draft, round_index, project_root, phase)
+        decision = self._parse_review_decision(result.content)
         self.state_store.add_event(
             project_id,
-            f"协作 {collaboration_id} 第 {round_index} 轮审阅: {reviewer.role} -> {decision.value}",
+            f"协作 {collaboration_id} 第 {round_index} 轮 {phase}: {reviewer.role} -> {decision.value}",
         )
         return ReviewContribution(
-            id=f"{collaboration_id}-round-{round_index}-{reviewer.id}",
+            id=f"{collaboration_id}-{phase}-round-{round_index}-{reviewer.id}",
             round_index=round_index,
             agent_id=reviewer.id,
             role=reviewer.role,
             decision=decision,
-            content=content,
+            content=result.content,
+            phase=phase,
+            source_backend=result.source_backend,
+            model=result.model,
+            output_path=result.output_path,
+            duration_ms=result.duration_ms,
         )
 
     def _revise(
@@ -188,27 +347,32 @@ class CollaborationRunner:
         reviews: list[ReviewContribution],
         round_index: int,
         project_root: str,
-    ) -> str:
+        phase: str,
+    ) -> CollaborationRunResult:
         """Let the lead revise the draft after all reviews in the round are collected."""
         review_text = "\n\n".join(
-            f"### {review.role} ({review.decision.value})\n{review.content}"
+            f"### {review.role} ({review.decision.value})\n{self._clip_text(review.content, 1000)}"
             for review in reviews
         )
+        draft_excerpt = self._clip_text(draft, 3200)
         prompt = (
-            "你是需求阶段的 lead agent。请在完整阅读所有 reviewer 意见后统一修订草案。\n"
+            "你是需求设计阶段的 lead designer agent。请在完整阅读所有 reviewer 意见后统一修订草案。\n"
+            f"当前评审阶段: {phase}\n"
             f"WorkItem: {workitem.id} / {workitem.description}\n\n"
-            f"# 当前草案\n{draft}\n\n"
+            f"# 当前草案摘要\n{draft_excerpt}\n\n"
             f"# 本轮审阅意见\n{review_text}\n\n"
-            "请直接输出修订后的完整 Markdown 文档，不要只输出差异。"
+            "请直接输出修订后的完整中文 Markdown 需求设计文档，不要只输出差异。"
+            "必须保留并完善：目标、需求理解、范围边界、关键假设、方案、交付物、验收标准、风险。"
         )
         if self.agent_cli_executor.resolve_binding(lead) == "claude":
             prompt = (
-                "You are the lead design agent in Conductor.\n"
+                "You are the lead requirement/design agent in Conductor.\n"
                 f"Work item kind: {workitem.kind}\n"
+                f"Review phase: {phase}\n"
                 "Revise the current design draft after reading all reviewer feedback.\n"
-                "Return a full Chinese markdown document, not a diff.\n"
-                "Keep the sections clear and practical.\n\n"
-                f"Current draft:\n{draft[:2400]}\n\n"
+                "Return a full Chinese markdown requirement design document, not a diff.\n"
+                "Keep the sections clear and practical: 目标, 需求理解, 范围边界, 关键假设, 方案, 交付物, 验收标准, 风险.\n\n"
+                f"Current draft:\n{draft_excerpt[:2400]}\n\n"
                 f"Reviewer feedback:\n{review_text[:2400]}"
             )
         cli_execution = self.agent_cli_executor.execute(
@@ -221,24 +385,49 @@ class CollaborationRunner:
             cli_stdout = (cli_execution.result.stdout or "").strip()
             if cli_execution.result.success and cli_stdout:
                 self.state_store.add_event(project_id, f"协作修订使用 Agent CLI: {lead.role} -> {cli_execution.cli_name}")
-                return cli_stdout
+                return CollaborationRunResult(
+                    content=cli_stdout,
+                    source_backend=f"agent_cli/{cli_execution.cli_name}",
+                    model=cli_execution.cli_name,
+                )
             self.state_store.add_event(
                 project_id,
-                f"协作修订 Agent CLI 失败，回退到 LLM/mocks: exit_code={cli_execution.result.exit_code}",
+                f"协作修订 Agent CLI 失败，尝试 LLM: exit_code={cli_execution.result.exit_code}",
             )
-        if lead.llm_backend is None:
-            return self._build_mock_revision(workitem, draft, reviews, round_index)
+        if self._can_use_llm_harness():
+            return self._run_llm_harness_revision(project_id, lead, workitem, prompt, project_root, phase)
+        if not self.use_llm or lead.llm_backend is None:
+            if self.require_real_outputs:
+                raise RuntimeError(self._real_backend_required_message(lead, "协作修订未配置 LLM backend"))
+            return CollaborationRunResult(
+                content=self._build_mock_revision(workitem, draft, reviews, round_index),
+                source_backend="mock",
+            )
         try:
             revision = lead.think(
                 prompt=prompt,
                 preferred_backend=lead.preferred_llm_backend,
             )
             if self._is_disabled_llm_response(revision):
-                return self._build_mock_revision(workitem, draft, reviews, round_index)
-            return revision
+                if self.require_real_outputs:
+                    raise RuntimeError(self._real_backend_required_message(lead, "协作修订 LLM backend 未启用"))
+                return CollaborationRunResult(
+                    content=self._build_mock_revision(workitem, draft, reviews, round_index),
+                    source_backend="mock_fallback",
+                )
+            return CollaborationRunResult(
+                content=revision,
+                source_backend=f"llm/{lead.preferred_llm_backend}",
+                model=getattr(lead.llm_backend, "model_name", ""),
+            )
         except Exception as error:
+            if self.require_real_outputs:
+                raise RuntimeError(self._real_backend_required_message(lead, f"协作修订 LLM 失败: {error}")) from error
             self.state_store.add_event(project_id, f"协作修订 LLM 失败，使用 mock 修订: {error}")
-            return self._build_mock_revision(workitem, draft, reviews, round_index)
+            return CollaborationRunResult(
+                content=self._build_mock_revision(workitem, draft, reviews, round_index),
+                source_backend="mock_fallback",
+            )
 
     def _run_agent_or_mock_review(
         self,
@@ -248,14 +437,30 @@ class CollaborationRunner:
         draft: str,
         round_index: int,
         project_root: str,
-    ) -> str:
+        phase: str,
+    ) -> CollaborationRunResult:
         """Run a review through Agent CLI, LLM, or structured mock fallback."""
+        review_focus = {
+            "requirement_designer": "重点检查需求是否符合用户目标、范围是否合理、业务规则是否完整、是否存在需求歧义。",
+            "solution_designer": "重点检查方案是否自洽、流程是否完整、信息结构是否清晰、验收标准是否可执行。",
+            "backend_engineer": "重点检查接口边界、数据结构、状态流转、错误处理、后端实现风险。",
+            "frontend_engineer": "重点检查页面结构、交互路径、状态展示、空/错/加载状态、前端实现风险。",
+            "tester": "重点检查验收标准、测试覆盖、边界条件、异常路径、可验证性。",
+        }.get(reviewer.role, "重点检查当前角色负责的交付风险和缺失信息。")
+        phase_instruction = (
+            "这是设计同侪评审阶段。请优先判断需求本身是否合理、完整、符合用户目标；不要只从代码实现难度出发。"
+            if phase == "design_peer_review"
+            else "这是跨职能评审阶段。请基于已修订的需求设计，从本角色交付风险和验收可执行性角度审阅。"
+        )
         prompt = (
-            f"你是 {reviewer.role} reviewer。请审阅同一轮固定 draft，不要修改原文。\n"
+            f"你是 {reviewer.role} reviewer，正在参与需求设计评审。请审阅同一轮固定 draft，不要修改原文。\n"
+            f"评审阶段：{phase}\n"
+            f"{phase_instruction}\n"
+            f"评审重点：{review_focus}\n"
             f"WorkItem: {workitem.id} / {workitem.description}\n\n"
-            f"# Draft\n{draft}\n\n"
+            f"# Draft 摘要\n{self._clip_text(draft, 4200)}\n\n"
             "请用中文输出 Markdown，必须包含 `Decision: approve` 或 `Decision: request_changes`，"
-            "并列出主要问题、建议和风险。"
+            "并列出主要问题、建议、风险和你认为后续 Agent 必须遵守的约束。"
         )
         cli_execution = self.agent_cli_executor.execute(
             reviewer,
@@ -267,28 +472,194 @@ class CollaborationRunner:
             cli_stdout = (cli_execution.result.stdout or "").strip()
             if cli_execution.result.success and cli_stdout:
                 self.state_store.add_event(project_id, f"协作审阅使用 Agent CLI: {reviewer.role} -> {cli_execution.cli_name}")
-                return cli_stdout
+                return CollaborationRunResult(
+                    content=cli_stdout,
+                    source_backend=f"agent_cli/{cli_execution.cli_name}",
+                    model=cli_execution.cli_name,
+                )
             self.state_store.add_event(
                 project_id,
-                f"协作审阅 Agent CLI 失败，回退到 LLM/mocks: {reviewer.role} -> exit_code={cli_execution.result.exit_code}",
+                f"协作审阅 Agent CLI 失败，尝试 LLM: {reviewer.role} -> exit_code={cli_execution.result.exit_code}",
             )
-        if reviewer.llm_backend is None:
-            return self._build_mock_review(reviewer, workitem, round_index)
+        if self._can_use_llm_harness():
+            return self._run_llm_harness_review(project_id, reviewer, workitem, prompt, round_index, project_root, phase)
+        if not self.use_llm or reviewer.llm_backend is None:
+            if self.require_real_outputs:
+                raise RuntimeError(self._real_backend_required_message(reviewer, "协作审阅未配置 LLM backend"))
+            return CollaborationRunResult(
+                content=self._build_mock_review(reviewer, workitem, round_index),
+                source_backend="mock",
+            )
         try:
             review = reviewer.think(
                 prompt=prompt,
                 preferred_backend=reviewer.preferred_llm_backend,
             )
             if self._is_disabled_llm_response(review):
-                return self._build_mock_review(reviewer, workitem, round_index)
-            return review
+                if self.require_real_outputs:
+                    raise RuntimeError(self._real_backend_required_message(reviewer, "协作审阅 LLM backend 未启用"))
+                return CollaborationRunResult(
+                    content=self._build_mock_review(reviewer, workitem, round_index),
+                    source_backend="mock_fallback",
+                )
+            return CollaborationRunResult(
+                content=review,
+                source_backend=f"llm/{reviewer.preferred_llm_backend}",
+                model=getattr(reviewer.llm_backend, "model_name", ""),
+            )
         except Exception as error:
+            if self.require_real_outputs:
+                raise RuntimeError(self._real_backend_required_message(reviewer, f"协作审阅 LLM 失败: {error}")) from error
             self.state_store.add_event(project_id, f"协作审阅 LLM 失败，使用 mock review: {reviewer.role} -> {error}")
-            return self._build_mock_review(reviewer, workitem, round_index)
+            return CollaborationRunResult(
+                content=self._build_mock_review(reviewer, workitem, round_index),
+                source_backend="mock_fallback",
+            )
+
+    def _can_use_llm_harness(self) -> bool:
+        """Return whether collaboration can use the controlled LLM harness."""
+        return (
+            self.llm_harness is not None
+            and self.llm_harness_config is not None
+            and self.llm_harness_config.enabled
+        )
+
+    def _model_from_source_backend(self, source_backend: str) -> str:
+        """Extract the model identifier from a source backend string."""
+        if source_backend.startswith(("llm_harness/", "llm_harness_code/")):
+            return source_backend.split("/", 1)[1]
+        return ""
+
+    def _run_llm_harness_review(
+        self,
+        project_id: str,
+        reviewer: Agent,
+        workitem: WorkItem,
+        prompt: str,
+        round_index: int,
+        project_root: str,
+        phase: str,
+    ) -> CollaborationRunResult:
+        """Run one collaboration review through the controlled LLM harness."""
+        assert self.llm_harness is not None
+        assert self.llm_harness_config is not None
+        result = self.llm_harness.run(
+            LLMHarnessRequest(
+                prompt=(
+                    f"{prompt}\n\n"
+                    "Output contract:\n"
+                    "- Must include exactly one line starting with `Decision: approve` or `Decision: request_changes`.\n"
+                    "- Include sections: 主要问题, 建议, 风险, 可执行验收关注点.\n"
+                    "- Be specific to the current requirement. Do not use generic filler.\n"
+                ),
+                system_prompt=(
+                    "You are a strict non-interactive reviewer agent in a multi-agent design review. "
+                    "Return concise Chinese Markdown only."
+                ),
+                working_directory=project_root,
+                output_path=f".conductor/llm_outputs/{workitem.id}.{phase}.{reviewer.role}.round-{round_index}.review.md",
+                config=self.llm_harness_config,
+                max_tokens=2048,
+                temperature=0.1,
+                stream_callback=self._build_stream_callback(project_id),
+                metadata={
+                    "project_id": project_id,
+                    "workitem_id": workitem.id,
+                    "agent_role": reviewer.role,
+                    "mode": "collaboration_review",
+                    "phase": phase,
+                    "round": str(round_index),
+                },
+            )
+        )
+        if result.success and result.content.strip():
+            self.state_store.add_event(project_id, f"协作审阅使用 LLMHarness: {reviewer.role} -> {result.model_name}")
+            return CollaborationRunResult(
+                content=result.content,
+                source_backend=f"llm_harness/{result.model_name}",
+                model=result.model_name,
+                output_path=result.output_path or "",
+                duration_ms=result.duration_ms,
+            )
+        if self.require_real_outputs:
+            raise RuntimeError(self._real_backend_required_message(reviewer, f"协作审阅 LLMHarness 失败: {result.error}"))
+        return CollaborationRunResult(
+            content=self._build_mock_review(reviewer, workitem, round_index),
+            source_backend="mock_fallback",
+        )
+
+    def _run_llm_harness_revision(
+        self,
+        project_id: str,
+        lead: Agent,
+        workitem: WorkItem,
+        prompt: str,
+        project_root: str,
+        phase: str,
+    ) -> CollaborationRunResult:
+        """Run collaboration draft revision through the controlled LLM harness."""
+        assert self.llm_harness is not None
+        assert self.llm_harness_config is not None
+        result = self.llm_harness.run(
+            LLMHarnessRequest(
+                prompt=(
+                    f"{prompt}\n\n"
+                    "Output contract:\n"
+                    "- Return the full revised Chinese requirement/design Markdown, not a diff.\n"
+                    "- Must include executable acceptance cases with concrete input and expected output.\n"
+                    "- Incorporate all reviewer roles before approving the draft.\n"
+                ),
+                system_prompt=(
+                    "You are the lead designer agent revising a requirement document after multi-agent review. "
+                    "Return Chinese Markdown only."
+                ),
+                working_directory=project_root,
+                output_path=f".conductor/llm_outputs/{workitem.id}.{phase}.designer.revision.md",
+                config=self.llm_harness_config,
+                max_tokens=4096,
+                temperature=0.1,
+                stream_callback=self._build_stream_callback(project_id),
+                metadata={
+                    "project_id": project_id,
+                    "workitem_id": workitem.id,
+                    "agent_role": lead.role,
+                    "mode": "collaboration_revision",
+                    "phase": phase,
+                },
+            )
+        )
+        if result.success and result.content.strip():
+            self.state_store.add_event(project_id, f"协作修订使用 LLMHarness: {lead.role} -> {result.model_name}")
+            return CollaborationRunResult(
+                content=result.content,
+                source_backend=f"llm_harness/{result.model_name}",
+                model=result.model_name,
+                output_path=result.output_path or "",
+                duration_ms=result.duration_ms,
+            )
+        if self.require_real_outputs:
+            raise RuntimeError(self._real_backend_required_message(lead, f"协作修订 LLMHarness 失败: {result.error}"))
+        return CollaborationRunResult(
+            content=self._build_mock_revision(workitem, "", [], 0),
+            source_backend="mock_fallback",
+        )
 
     def _is_disabled_llm_response(self, content: str) -> bool:
         """Return whether the response is a disabled-backend placeholder."""
         return content.startswith("[local-disabled]") or content.startswith("[cloud-disabled]")
+
+    def _clip_text(self, text: str, limit: int) -> str:
+        """Clip prompt context while keeping the boundary explicit."""
+        if len(text) <= limit:
+            return text
+        return text[:limit].rstrip() + "\n\n[内容已截断，保留关键摘要用于本轮协作]"
+
+    def _real_backend_required_message(self, agent: Agent, reason: str) -> str:
+        """Build a clear error for real-only collaboration paths."""
+        return (
+            f"{agent.role} 参与需求评审时要求真实 Agent 产出，但当前不可用。"
+            f"原因: {reason}。请为该角色绑定可用 Agent CLI，或启用 LLM。"
+        )
 
     def _parse_review_decision(self, content: str) -> ReviewDecision:
         """Parse the review decision from reviewer output."""
@@ -342,11 +713,16 @@ class CollaborationRunner:
         contributions: list[ReviewContribution],
         status: CollaborationStatus,
         project_root: str,
+        draft_versions: list[CollaborationDraftVersion],
     ) -> Artifact:
         """Persist the final collaboration artifact."""
         contribution_text = "\n\n".join(
-            f"### 第 {item.round_index} 轮 | {item.role} | {item.decision.value}\n{item.content}"
+            f"### 第 {item.round_index} 轮 | {item.phase} | {item.role} | {item.decision.value}\n{item.content}"
             for item in contributions
+        )
+        draft_version_text = "\n\n".join(
+            f"### Version {item.version} / Round {item.round_index}\n{item.content}"
+            for item in draft_versions
         )
         artifact = Artifact(
             id=f"artifact-collaboration-{workitem.id}",
@@ -359,6 +735,7 @@ class CollaborationRunner:
                 f"# 多 Agent 协作评审 - {workitem.id}\n\n"
                 f"## 最终状态\n{status.value}\n\n"
                 f"## 最终草案\n{draft}\n\n"
+                f"## Draft Versions\n{draft_version_text}\n\n"
                 f"## Review Rounds\n{contribution_text}\n"
             ),
             source_backend="collaboration",

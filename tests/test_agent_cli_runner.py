@@ -183,6 +183,103 @@ def test_codex_code_edit_command_uses_model_and_reasoning(monkeypatch) -> None:
     assert "workspace-write" in request.command
 
 
+def test_opencode_command_passes_prompt_as_argument(monkeypatch) -> None:
+    monkeypatch.setattr("conductor.agents.cli_executor.shutil.which", lambda name: f"C:/bin/{name}.cmd")
+    from conductor.agents.cli_executor import AgentCLIExecutor
+
+    profile = next(profile for profile in build_default_agent_profiles() if profile.role_name == "designer")
+    agent = Agent(
+        id="agent-designer",
+        role="designer",
+        profile=profile,
+        capabilities=[Capability.PLANNING],
+        execution_backend="cli",
+    )
+    executor = AgentCLIExecutor(
+        cli_selection_config=CLISelectionConfig(
+            selected_cli_names=["opencode"],
+            role_cli_bindings={"designer": "opencode"},
+        ),
+        shell_harness=FakeAgentCLIHarness(success=True),
+    )
+
+    execution = executor.execute(
+        agent=agent,
+        prompt="Write DESIGN.md",
+        execution_mode="documentation",
+        timeout_seconds=30.0,
+        working_directory="C:/repo",
+    )
+
+    assert execution is not None
+    assert executor.shell_harness.last_request is not None
+    request = executor.shell_harness.last_request
+    assert request.command[:3] == ["C:/bin/opencode.cmd", "run", "--dir"]
+    assert "C:/repo" in request.command
+    assert request.command[-1] == "Write DESIGN.md"
+    assert request.stdin_text is None
+
+
+def test_aspirecode_command_uses_opencode_protocol_with_model(monkeypatch) -> None:
+    monkeypatch.setattr("conductor.agents.cli_executor.shutil.which", lambda name: f"C:/bin/{name}.cmd")
+    from conductor.agents.cli_executor import AgentCLIExecutor
+
+    profile = next(profile for profile in build_default_agent_profiles() if profile.role_name == "designer")
+    agent = Agent(
+        id="agent-designer",
+        role="designer",
+        profile=profile,
+        capabilities=[Capability.PLANNING],
+        execution_backend="cli",
+    )
+    executor = AgentCLIExecutor(
+        cli_selection_config=CLISelectionConfig(
+            selected_cli_names=["aspirecode"],
+            role_cli_bindings={"designer": "aspirecode"},
+            aspirecode_model="lmstudio-local/qwen3.6-35b-a3b",
+        ),
+        shell_harness=FakeAgentCLIHarness(success=True),
+    )
+
+    execution = executor.execute(
+        agent=agent,
+        prompt="Write DESIGN.md",
+        execution_mode="documentation",
+        timeout_seconds=30.0,
+        working_directory="C:/repo",
+    )
+
+    assert execution is not None
+    assert executor.shell_harness.last_request is not None
+    request = executor.shell_harness.last_request
+    assert request.command[:3] == ["C:/bin/aspirecode.cmd", "run", "--dir"]
+    assert "--model" in request.command
+    assert "lmstudio-local/qwen3.6-35b-a3b" in request.command
+    assert "--dangerously-skip-permissions" not in request.command
+    assert request.command[-1] == "Write DESIGN.md"
+    assert request.stdin_text is None
+
+
+def test_opencode_document_prompt_uses_file_output(tmp_path) -> None:
+    runner = Runner(state_store=InMemoryStateStore())
+    profile = next(profile for profile in build_default_agent_profiles() if profile.role_name == "designer")
+    agent = Agent(
+        id="agent-designer",
+        role="designer",
+        profile=profile,
+        capabilities=[Capability.PLANNING],
+        execution_backend="cli",
+    )
+    workitem = WorkItem(id="workitem-001", description="Create design", stage="design", kind="design_overview")
+
+    prompt = runner._build_agent_cli_document_prompt(workitem, agent, "opencode")
+    output_file = tmp_path / "CONDUCTOR_OUTPUT_workitem-001.md"
+    output_file.write_text("# 目标\n真实产出", encoding="utf-8")
+
+    assert "CONDUCTOR_OUTPUT_workitem-001.md" in prompt
+    assert runner._read_agent_cli_document_file(str(tmp_path), workitem, "opencode") == "# 目标\n真实产出"
+
+
 def test_claude_binding_is_disabled_after_provider_compatibility_failure(monkeypatch) -> None:
     monkeypatch.setattr("conductor.agents.cli_executor.shutil.which", lambda name: f"C:/bin/{name}.cmd")
     from conductor.agents.cli_executor import AgentCLIExecutor

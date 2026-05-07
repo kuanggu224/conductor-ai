@@ -22,6 +22,8 @@ def test_registry_exposes_default_roles() -> None:
 
     assert registry.list_roles() == [
         "designer",
+        "requirement_designer",
+        "solution_designer",
         "backend_engineer",
         "frontend_engineer",
         "tester",

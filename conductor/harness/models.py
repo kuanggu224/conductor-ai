@@ -21,6 +21,7 @@ class HarnessRequest:
     track_workspace_changes: bool = False
     workspace_root: str | None = None
     stream_callback: StreamCallback | None = None
+    stdin_text: str | None = None
 
 
 @dataclass(slots=True)
@@ -34,3 +35,5 @@ class HarnessResult:
     duration_ms: int
     changed_files: list[str] = field(default_factory=list)
     artifacts: list[str] = field(default_factory=list)
+    timed_out: bool = False
+    failure_reason: str = ""

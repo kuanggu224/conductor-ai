@@ -135,3 +135,46 @@ def test_context_builder_prefers_artifact_file_content(tmp_path) -> None:
 
     assert "文件中的真实产物内容" in context.artifacts[0]
     assert "内存里的旧内容" not in context.artifacts[0]
+def test_context_builder_keeps_dependency_and_design_artifacts_when_many_recents() -> None:
+    design = WorkItem(id="workitem-design", description="design", stage="design", kind="design_overview")
+    backend = WorkItem(
+        id="workitem-backend",
+        description="backend",
+        stage="development",
+        kind="api_implementation",
+        dependencies=["workitem-design"],
+    )
+    artifacts = [
+        Artifact(
+            id="artifact-design",
+            project_id="project-1",
+            workitem_id="workitem-design",
+            agent_id="agent-designer",
+            kind="design_overview",
+            title="Domain design",
+            content="业务领域设计不能丢",
+        ),
+        *[
+            Artifact(
+                id=f"artifact-recent-{index}",
+                project_id="project-1",
+                workitem_id=f"workitem-recent-{index}",
+                agent_id="agent",
+                kind="api_implementation",
+                title=f"Recent {index}",
+                content=f"recent {index}",
+            )
+            for index in range(10)
+        ],
+    ]
+    state = SharedProjectState(
+        project=Project(id="project-1", goal="实现业务系统", current_stage="development"),
+        project_status=ProjectStatus.IN_PROGRESS,
+        current_stage="development",
+        workitems=[design, backend],
+        artifacts=artifacts,
+    )
+
+    context = ContextBuilder(max_artifacts=4).build(state, backend)
+
+    assert "业务领域设计不能丢" in "\n".join(context.artifacts)

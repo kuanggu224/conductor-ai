@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from conductor.collaboration.models import Collaboration
-from conductor.domain.models import Artifact, ProjectStatus, SharedProjectState, WorkItemStatus
+from conductor.domain.models import Artifact, ProjectStatus, SharedProjectState, TaskAssignment, TaskAssignmentStatus, WorkItemStatus
 
 
 class InMemoryStateStore:
@@ -44,6 +44,12 @@ class InMemoryStateStore:
         owner_agent: str | None = None,
         result: str | None = None,
         retry_count: int | None = None,
+        blocked_reason: str | None = None,
+        failure_type: str | None = None,
+        retryable: bool | None = None,
+        failure_summary: str | None = None,
+        output_artifact_ids: list[str] | None = None,
+        collaboration_session_id: str | None = None,
     ) -> SharedProjectState:
         """更新 WorkItem 状态并返回最新 state。"""
         state = self.get_state(project_id)
@@ -59,6 +65,16 @@ class InMemoryStateStore:
                         owner_agent=owner_agent if owner_agent is not None else workitem.owner_agent,
                         result=result if result is not None else workitem.result,
                         retry_count=retry_count if retry_count is not None else workitem.retry_count,
+                        blocked_reason=blocked_reason if blocked_reason is not None else workitem.blocked_reason,
+                        failure_type=failure_type if failure_type is not None else workitem.failure_type,
+                        retryable=retryable if retryable is not None else workitem.retryable,
+                        failure_summary=failure_summary if failure_summary is not None else workitem.failure_summary,
+                        output_artifact_ids=output_artifact_ids if output_artifact_ids is not None else workitem.output_artifact_ids,
+                        collaboration_session_id=(
+                            collaboration_session_id
+                            if collaboration_session_id is not None
+                            else workitem.collaboration_session_id
+                        ),
                     )
                 )
                 found = True
@@ -101,6 +117,58 @@ class InMemoryStateStore:
         if not replaced:
             artifacts.append(artifact)
         new_state = replace(state, artifacts=artifacts)
+        self.save_state(new_state)
+        return new_state
+
+    def upsert_task_assignment(self, project_id: str, assignment: TaskAssignment) -> SharedProjectState:
+        """Add or update a Task Center assignment."""
+        state = self.get_state(project_id)
+        replaced = False
+        assignments = []
+        for existing in state.task_assignments:
+            if existing.id == assignment.id:
+                assignments.append(assignment)
+                replaced = True
+            else:
+                assignments.append(existing)
+        if not replaced:
+            assignments.append(assignment)
+        new_state = replace(state, task_assignments=assignments)
+        self.save_state(new_state)
+        return new_state
+
+    def update_task_assignment(
+        self,
+        project_id: str,
+        workitem_id: str,
+        status: TaskAssignmentStatus,
+        assigned_agent_id: str | None = None,
+        output_artifact_ids: list[str] | None = None,
+        result_summary: str | None = None,
+        blocked_reason: str | None = None,
+    ) -> SharedProjectState:
+        """Update the assignment linked to one WorkItem."""
+        state = self.get_state(project_id)
+        updated = []
+        found = False
+        for assignment in state.task_assignments:
+            if assignment.workitem_id == workitem_id:
+                updated.append(
+                    replace(
+                        assignment,
+                        status=status,
+                        assigned_agent_id=assigned_agent_id if assigned_agent_id is not None else assignment.assigned_agent_id,
+                        output_artifact_ids=output_artifact_ids if output_artifact_ids is not None else assignment.output_artifact_ids,
+                        result_summary=result_summary if result_summary is not None else assignment.result_summary,
+                        blocked_reason=blocked_reason if blocked_reason is not None else assignment.blocked_reason,
+                    )
+                )
+                found = True
+            else:
+                updated.append(assignment)
+        if not found:
+            raise KeyError(f"未找到任务中心记录: {workitem_id}")
+        new_state = replace(state, task_assignments=updated)
         self.save_state(new_state)
         return new_state
 
