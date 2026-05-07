@@ -262,6 +262,8 @@ class ProjectLogStore:
             return "controller_decision"
         if "GateDecision" in message:
             return "gate_decision"
+        if "TaskCenter" in message or "\u4efb\u52a1\u4e2d\u5fc3" in message:
+            return "task_center"
         if "进入阶段" in message or "切回阶段" in message:
             return "stage_transition"
         if "Artifact" in message or "产物" in message:

@@ -11,12 +11,14 @@ def test_project_log_store_can_append_and_read_entries(tmp_path) -> None:
 
     store.append_event("project-1", 0, "项目已创建")
     store.append_event("project-1", 1, "进入阶段 design")
+    store.append_event("project-1", 2, "TaskCenterCLI: agent-backend claimed workitem-001")
     entries = store.read_events("project-1")
 
-    assert len(entries) == 2
+    assert len(entries) == 3
     assert entries[0].project_id == "project-1"
     assert entries[1].message == "进入阶段 design"
     assert entries[1].event_type == "stage_transition"
+    assert entries[2].event_type == "task_center"
 
 
 def test_project_log_store_writes_structured_state_events_and_report(tmp_path) -> None:
