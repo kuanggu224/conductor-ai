@@ -122,6 +122,9 @@ class TaskClaimRequest(BaseModel):
 
     agent_id: TodoTitle
     claim_reason: TodoContent = ""
+    include_context: StrictBool = False
+    include_context_content: StrictBool = True
+    max_context_content_chars: int = 12000
 
 
 class TaskClaimNextRequest(TaskClaimRequest):
@@ -527,11 +530,12 @@ async def claim_next_project_task_api(project_id: str, payload: TaskClaimNextReq
         claim_reason=payload.claim_reason,
     )
     return JSONResponse(
-        {
-            "project_id": project_id,
-            "summary": _task_center_service().summary(transition.state),
-            "task": _task_assignment_payload(transition.assignment, transition.state),
-        }
+        _task_claim_response_payload(
+            project_id,
+            transition.state,
+            transition.assignment,
+            payload,
+        )
     )
 
 
@@ -546,11 +550,12 @@ async def claim_project_task_api(project_id: str, assignment_id: str, payload: T
         claim_reason=payload.claim_reason,
     )
     return JSONResponse(
-        {
-            "project_id": project_id,
-            "summary": _task_center_service().summary(transition.state),
-            "task": _task_assignment_payload(transition.assignment, transition.state),
-        }
+        _task_claim_response_payload(
+            project_id,
+            transition.state,
+            transition.assignment,
+            payload,
+        )
     )
 
 
@@ -638,6 +643,28 @@ def _task_return_output_artifact_ids(
     )
     output_artifact_ids.append(artifact.id)
     return output_artifact_ids
+
+
+def _task_claim_response_payload(
+    project_id: str,
+    state: SharedProjectState,
+    assignment: TaskAssignment,
+    payload: TaskClaimRequest,
+) -> dict[str, object]:
+    response = {
+        "project_id": project_id,
+        "summary": _task_center_service().summary(state),
+        "task": _task_assignment_payload(assignment, state),
+    }
+    if payload.include_context:
+        response["context"] = TaskContextBuilder(engine.artifact_store).build(
+            state,
+            assignment.id,
+            service=_task_center_service(),
+            include_content=payload.include_context_content,
+            max_content_chars=payload.max_context_content_chars,
+        )
+    return response
 
 
 def _task_center_payload(state: SharedProjectState, status: str | None = None) -> dict[str, object]:

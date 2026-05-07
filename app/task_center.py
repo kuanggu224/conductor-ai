@@ -43,11 +43,17 @@ def build_parser() -> argparse.ArgumentParser:
     claim_parser.add_argument("assignment_id")
     claim_parser.add_argument("--agent-id", required=True)
     claim_parser.add_argument("--claim-reason", default="")
+    claim_parser.add_argument("--with-context", action="store_true", help="Include input artifact context in the claim response.")
+    claim_parser.add_argument("--no-content", action="store_true", help="Only print artifact metadata with --with-context.")
+    claim_parser.add_argument("--max-content-chars", type=int, default=12000)
 
     claim_next_parser = subparsers.add_parser("claim-next", parents=[common], help="Claim the next queued assignment.")
     claim_next_parser.add_argument("--agent-id", required=True)
     claim_next_parser.add_argument("--role", help="Only claim assignments for this role.")
     claim_next_parser.add_argument("--claim-reason", default="")
+    claim_next_parser.add_argument("--with-context", action="store_true", help="Include input artifact context in the claim response.")
+    claim_next_parser.add_argument("--no-content", action="store_true", help="Only print artifact metadata with --with-context.")
+    claim_next_parser.add_argument("--max-content-chars", type=int, default=12000)
 
     complete_parser = subparsers.add_parser("complete", parents=[common], help="Return one claimed assignment as completed.")
     complete_parser.add_argument("assignment_id")
@@ -101,6 +107,7 @@ def main(argv: list[str] | None = None) -> int:
                 claim_reason=args.claim_reason,
             )
             payload = _assignment_payload(result.state, result.assignment, service)
+            payload = _attach_context_if_requested(payload, args, result.state, result.assignment, service)
         elif args.command == "claim-next":
             result = service.claim_next(
                 state.project.id,
@@ -109,6 +116,7 @@ def main(argv: list[str] | None = None) -> int:
                 claim_reason=args.claim_reason,
             )
             payload = _assignment_payload(result.state, result.assignment, service)
+            payload = _attach_context_if_requested(payload, args, result.state, result.assignment, service)
         elif args.command == "complete":
             output_artifact_ids = _return_output_artifact_ids(args, store, state, service)
             result = service.complete(
@@ -204,6 +212,25 @@ def _return_output_artifact_ids(
     )
     output_artifact_ids.append(artifact.id)
     return output_artifact_ids
+
+
+def _attach_context_if_requested(
+    payload: dict[str, object],
+    args,
+    state: SharedProjectState,
+    assignment: TaskAssignment,
+    service: TaskCenterService,
+) -> dict[str, object]:
+    if not getattr(args, "with_context", False):
+        return payload
+    payload["context"] = TaskContextBuilder().build(
+        state,
+        assignment.id,
+        service=service,
+        include_content=not getattr(args, "no_content", False),
+        max_content_chars=getattr(args, "max_content_chars", 12000),
+    )
+    return payload
 
 
 def _assignment_payload(

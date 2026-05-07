@@ -291,6 +291,38 @@ def test_project_task_context_api_returns_input_artifact_content() -> None:
     assert "content" in payload["input_artifacts"][0]
 
 
+def test_project_task_claim_api_can_include_context() -> None:
+    client = TestClient(board.app)
+    state = board.engine.create_project(requirement="Build a local reading list with CSV export", project_root="")
+    artifact = board.engine.artifact_store.save_markdown(
+        Artifact(
+            id="artifact-claim-context",
+            project_id=state.project.id,
+            workitem_id="workitem-upstream",
+            agent_id="agent-designer",
+            kind="frozen_requirement_spec",
+            title="Frozen Requirement",
+            content="Acceptance: add book, persist refresh, export CSV.",
+        ),
+        project_root=state.project.project_root,
+    )
+    state = board.engine.state_store.add_artifact(state.project.id, artifact)
+    assignment = replace(state.task_assignments[0], input_artifact_ids=[artifact.id])
+    board.engine.state_store.upsert_task_assignment(state.project.id, assignment)
+
+    response = client.post(
+        f"/api/projects/{state.project.id}/tasks/{assignment.id}/claim",
+        json={"agent_id": "agent-api-worker", "include_context": True},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["task"]["status"] == "claimed"
+    assert payload["context"]["assignment"]["id"] == assignment.id
+    assert payload["context"]["input_artifacts"][0]["id"] == artifact.id
+    assert "content" in payload["context"]["input_artifacts"][0]
+
+
 def test_project_task_claim_rejects_non_queued_assignment() -> None:
     client = TestClient(board.app)
     state = board.engine.create_project(requirement="Build a local reading list", project_root="")
