@@ -21,6 +21,7 @@ from conductor.config.cli import CLISelectionConfig
 from conductor.config.llm import LLMRuntimeConfig
 
 STAGE_LABELS = {
+    "requirement": "需求",
     "design": "设计",
     "development": "研发",
     "testing": "测试",
@@ -47,6 +48,8 @@ EXECUTION_STATUS_LABELS = {
 }
 
 ROLE_LABELS = {
+    "requirement_designer": "需求设计",
+    "solution_designer": "方案设计",
     "designer": "产品/设计",
     "backend_engineer": "后端研发",
     "frontend_engineer": "前端研发",
@@ -54,6 +57,8 @@ ROLE_LABELS = {
 }
 
 AGENT_LABELS = {
+    "agent-requirement-designer": "需求设计 Agent",
+    "agent-solution-designer": "方案设计 Agent",
     "agent-designer": "产品/设计 Agent",
     "agent-backend": "后端研发 Agent",
     "agent-frontend": "前端研发 Agent",
@@ -61,6 +66,8 @@ AGENT_LABELS = {
 }
 
 ROLE_SHORT_LABELS = {
+    "requirement_designer": "REQ",
+    "solution_designer": "SOL",
     "designer": "UX",
     "backend_engineer": "BE",
     "frontend_engineer": "FE",
@@ -75,6 +82,8 @@ ROLE_POSITION_CLASSES = {
 }
 
 WORKITEM_KIND_LABELS = {
+    "requirement_spec": "冻结需求规格",
+    "frozen_requirement_spec": "冻结需求规格",
     "design_overview": "总体设计",
     "ui_design": "界面设计",
     "api_design": "接口设计",
@@ -280,7 +289,7 @@ class BoardService:
         design_artifacts = [
             artifact
             for artifact in artifacts
-            if artifact.kind in {"design_overview", "collaboration_review"}
+            if artifact.kind in {"requirement_spec", "frozen_requirement_spec", "design_overview", "collaboration_review"}
         ]
         current_document = design_artifacts[-1] if design_artifacts else None
         collaboration = state.collaborations[-1] if state.collaborations else None
@@ -297,7 +306,7 @@ class BoardService:
                 )
                 for contribution in collaboration.contributions
             ]
-        agent_roles = ["designer", "backend_engineer", "frontend_engineer", "tester"]
+        agent_roles = ["requirement_designer", "solution_designer", "designer", "backend_engineer", "frontend_engineer", "tester"]
         active_role = self._infer_active_meeting_role(state)
         agent_views = [
             BoardMeetingAgentView(
@@ -310,7 +319,7 @@ class BoardService:
             for role in agent_roles
         ]
         return BoardDesignCollaborationView(
-            enabled=bool(design_artifacts or collaboration or state.current_stage == "design"),
+            enabled=bool(design_artifacts or collaboration or state.current_stage in {"requirement", "design"}),
             current_step_label=self._build_current_step_label(active_role, collaboration),
             status_label=(
                 COLLABORATION_STATUS_LABELS.get(collaboration.status.value, collaboration.status.value)
@@ -323,6 +332,7 @@ class BoardService:
             agents=agent_views,
             reviews=reviews,
             history=design_artifacts[:-1],
+            team_plan=dict(collaboration.team_plan) if collaboration else {},
         )
 
     def _build_execution_runtime_view(
@@ -550,7 +560,7 @@ class BoardService:
     def _build_activation_nodes(self, state: SharedProjectState) -> list[BoardActivationNodeView]:
         """构建按需激活 Agent 的环形节点视图。"""
         active_by_role = {agent.role: agent for agent in self._build_project_agents(state)}
-        ordered_roles = ["designer", "backend_engineer", "frontend_engineer", "tester"]
+        ordered_roles = ["requirement_designer", "solution_designer", "designer", "backend_engineer", "frontend_engineer", "tester"]
         nodes: list[BoardActivationNodeView] = []
         for role in ordered_roles:
             active_agent = active_by_role.get(role)
@@ -572,6 +582,8 @@ class BoardService:
     def _mission_for_role(self, role: str) -> str:
         """返回角色使命摘要。"""
         return {
+            "requirement_designer": "澄清用户目标、范围边界、非目标、验收标准和风险假设，并推动需求冻结。",
+            "solution_designer": "从方案一致性、流程完整性和可验收性角度审查需求与设计。",
             "designer": "把自然语言需求转成结构化设计文档，并在协作评审后统一修订。",
             "backend_engineer": "从后端实现角度审阅需求和设计，并产出接口与数据结构说明。",
             "frontend_engineer": "从前端交互与页面实现角度审阅设计，并产出页面结构说明。",
@@ -580,6 +592,8 @@ class BoardService:
 
     def _role_for_workitem_kind(self, kind: str) -> str | None:
         """根据 WorkItem kind 推断负责角色。"""
+        if kind == "requirement_spec":
+            return "requirement_designer"
         if kind in {"design_overview", "ui_design", "api_design", "test_design"}:
             return "designer"
         if kind in {"api_implementation", "data_implementation", "generic_implementation"}:
@@ -593,6 +607,8 @@ class BoardService:
     def _agent_id_for_role(self, role: str) -> str:
         """按角色返回默认 Agent ID。"""
         return {
+            "requirement_designer": "agent-requirement-designer",
+            "solution_designer": "agent-solution-designer",
             "designer": "agent-designer",
             "backend_engineer": "agent-backend",
             "frontend_engineer": "agent-frontend",
@@ -602,6 +618,10 @@ class BoardService:
     def _infer_active_meeting_role(self, state: SharedProjectState) -> str | None:
         """从最近事件中推断当前会议桌高亮角色。"""
         for event in reversed(state.recent_events[-24:]):
+            if "requirement_designer" in event or "agent-requirement-designer" in event:
+                return "requirement_designer"
+            if "solution_designer" in event or "agent-solution-designer" in event:
+                return "solution_designer"
             if "backend_engineer" in event or "agent-backend" in event:
                 return "backend_engineer"
             if "frontend_engineer" in event or "agent-frontend" in event:
@@ -610,6 +630,8 @@ class BoardService:
                 return "tester"
             if "designer" in event or "agent-designer" in event or "lead=designer" in event:
                 return "designer"
+        if state.current_stage == "requirement":
+            return "requirement_designer"
         if state.current_stage == "design":
             return "designer"
         return None

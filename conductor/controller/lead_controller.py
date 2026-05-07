@@ -6,6 +6,7 @@ from dataclasses import replace
 from uuid import uuid4
 
 from conductor.agents.registry import AgentRegistry
+from conductor.collaboration.models import CollaborationStatus
 from conductor.collaboration.runner import CollaborationRunner
 from conductor.domain.models import (
     AgentActivation,
@@ -30,6 +31,8 @@ from conductor.workflow.template import GateDecision, WorkflowGateEvaluator, Wor
 
 class LeadController:
     """Advance a project through workflow stages using explicit shared state."""
+
+    MAX_REQUIREMENT_REWORK_DEPTH = 3
 
     def __init__(
         self,
@@ -171,6 +174,8 @@ class LeadController:
             if draft_artifact:
                 self._ensure_collaboration_agent_activations(project_id, workitem)
                 collaboration = self.collaboration_runner.run_review_loop(project_id, workitem, draft_artifact)
+                if collaboration.status != CollaborationStatus.ACCEPTED:
+                    return self._fail_workitem_on_collaboration_gate(project_id, workitem.id, collaboration)
                 self.state_store.update_workitem(
                     project_id,
                     workitem.id,
@@ -178,6 +183,198 @@ class LeadController:
                     collaboration_session_id=collaboration.id,
                 )
         return self._return_assignment(project_id, workitem.id, execution)
+
+    def _fail_workitem_on_collaboration_gate(
+        self,
+        project_id: str,
+        workitem_id: str,
+        collaboration,
+    ) -> SharedProjectState:
+        """Fail a WorkItem when collaboration cannot approve the draft."""
+        reason = (
+            "failure_type=validation_failed; retryable=false; "
+            f"summary=collaboration {collaboration.id} ended with {collaboration.status.value}"
+        )
+        latest = self.state_store.update_workitem(
+            project_id,
+            workitem_id,
+            WorkItemStatus.FAILED,
+            blocked_reason=reason,
+            failure_type="validation_failed",
+            retryable=False,
+            failure_summary=f"Collaboration gate did not accept requirement/design draft: {collaboration.status.value}",
+            collaboration_session_id=collaboration.id,
+        )
+        failed_workitem = next((item for item in latest.workitems if item.id == workitem_id), None)
+        if failed_workitem and failed_workitem.kind == "requirement_spec":
+            return self._create_requirement_rework_from_collaboration_gate(
+                project_id=project_id,
+                failed_workitem=failed_workitem,
+                collaboration_id=collaboration.id,
+                reason=reason,
+            )
+        assignment = self._assignment_for(latest, workitem_id)
+        if assignment:
+            output_artifact_ids = [
+                artifact.id for artifact in latest.artifacts if artifact.workitem_id == workitem_id
+            ]
+            self.state_store.upsert_task_assignment(
+                project_id,
+                replace(
+                    assignment,
+                    status=TaskAssignmentStatus.FAILED,
+                    output_artifact_ids=output_artifact_ids,
+                    blocked_reason=reason,
+                    result_summary=f"Collaboration gate failed: {collaboration.status.value}",
+                ),
+            )
+        self.state_store.add_event(
+            project_id,
+            f"需求/设计协作门禁未通过: {collaboration.id} -> {collaboration.status.value}",
+        )
+        return self.state_store.get_state(project_id)
+
+    def _create_requirement_rework_from_collaboration_gate(
+        self,
+        project_id: str,
+        failed_workitem: WorkItem,
+        collaboration_id: str,
+        reason: str,
+    ) -> SharedProjectState:
+        """Create a requirement rework WorkItem instead of letting a weak requirement pass."""
+        latest = self.state_store.get_state(project_id)
+        if self._has_existing_requirement_rework(latest, failed_workitem.id):
+            return self.state_store.get_state(project_id)
+        rework_depth = self._requirement_rework_depth(latest, failed_workitem)
+        if rework_depth >= self.MAX_REQUIREMENT_REWORK_DEPTH:
+            return self._block_requirement_rework_exhausted(
+                project_id=project_id,
+                failed_workitem=failed_workitem,
+                collaboration_id=collaboration_id,
+                reason=reason,
+                rework_depth=rework_depth,
+            )
+        output_artifact_ids = [
+            artifact.id for artifact in latest.artifacts if artifact.workitem_id == failed_workitem.id
+        ]
+        rework_item = WorkItem(
+            id=self._next_workitem_id(latest, []),
+            description=(
+                f"根据需求协作/质量门禁反馈返工 `{failed_workitem.id}`：{failed_workitem.description}\n\n"
+                f"门禁原因: {failed_workitem.failure_summary or reason}\n"
+                "要求：补齐用户目标、范围边界、非目标、验收标准、风险假设和待确认问题，并重新接受多角色评审。"
+            ),
+            stage="requirement",
+            kind="requirement_spec",
+            input_artifact_ids=output_artifact_ids,
+            acceptance_criteria=[
+                f"修复需求门禁失败 {failed_workitem.id}",
+                "产出可冻结的需求规格",
+                "需求质量评分达到阈值并通过协作评审",
+            ],
+            feedback_from=[failed_workitem.id],
+            rework_of=failed_workitem.id,
+        )
+        assignments = self._build_task_assignments([rework_item])
+        updated_workitems = [
+            replace(item, status=WorkItemStatus.DONE, blocked_reason="需求门禁失败已转入返工 WorkItem")
+            if item.id == failed_workitem.id
+            else item
+            for item in latest.workitems
+        ]
+        latest_state = replace(
+            latest,
+            workitems=[*updated_workitems, rework_item],
+            task_assignments=[*latest.task_assignments, *assignments],
+            planned_roles=list(dict.fromkeys([*latest.planned_roles, "requirement_designer"])),
+            recent_events=[
+                *latest.recent_events,
+                f"需求门禁返工: {failed_workitem.id} -> {rework_item.id}, collaboration={collaboration_id}",
+            ],
+        )
+        self.state_store.save_state(latest_state)
+        assignment = self._assignment_for(latest_state, failed_workitem.id)
+        if assignment:
+            self.state_store.upsert_task_assignment(
+                project_id,
+                replace(
+                    assignment,
+                    status=TaskAssignmentStatus.FAILED,
+                    output_artifact_ids=output_artifact_ids,
+                    blocked_reason=reason,
+                    result_summary=f"Requirement gate rework created: {rework_item.id}",
+                ),
+        )
+        return self.state_store.get_state(project_id)
+
+    def _block_requirement_rework_exhausted(
+        self,
+        *,
+        project_id: str,
+        failed_workitem: WorkItem,
+        collaboration_id: str,
+        reason: str,
+        rework_depth: int,
+    ) -> SharedProjectState:
+        """Block the project when requirement rework keeps failing."""
+        latest = self.state_store.get_state(project_id)
+        output_artifact_ids = [
+            artifact.id for artifact in latest.artifacts if artifact.workitem_id == failed_workitem.id
+        ]
+        blocker = (
+            f"需求门禁连续返工仍未通过: {failed_workitem.id}, "
+            f"depth={rework_depth}, max={self.MAX_REQUIREMENT_REWORK_DEPTH}, "
+            f"collaboration={collaboration_id}"
+        )
+        assignment = self._assignment_for(latest, failed_workitem.id)
+        assignments = latest.task_assignments
+        if assignment:
+            assignments = [
+                replace(
+                    item,
+                    status=TaskAssignmentStatus.FAILED,
+                    output_artifact_ids=output_artifact_ids,
+                    blocked_reason=reason,
+                    result_summary=blocker,
+                )
+                if item.workitem_id == failed_workitem.id
+                else item
+                for item in latest.task_assignments
+            ]
+        blocked_state = replace(
+            latest,
+            project=replace(latest.project, status=ProjectStatus.BLOCKED),
+            project_status=ProjectStatus.BLOCKED,
+            task_assignments=assignments,
+            blockers=[*latest.blockers, blocker],
+            recent_events=[*latest.recent_events, f"需求门禁返工上限触发: {blocker}"],
+        )
+        self.state_store.save_state(blocked_state)
+        return blocked_state
+
+    def _has_existing_requirement_rework(self, state: SharedProjectState, failed_workitem_id: str) -> bool:
+        """Return whether a requirement WorkItem already has a rework child."""
+        return any(
+            item.stage == "requirement"
+            and item.kind == "requirement_spec"
+            and failed_workitem_id in item.feedback_from
+            for item in state.workitems
+        )
+
+    def _requirement_rework_depth(self, state: SharedProjectState, workitem: WorkItem) -> int:
+        """Return how many requirement rework hops led to this WorkItem."""
+        by_id = {item.id: item for item in state.workitems}
+        depth = 0
+        current = workitem
+        seen: set[str] = set()
+        while current.rework_of and current.rework_of not in seen:
+            seen.add(current.id)
+            parent = by_id.get(current.rework_of)
+            if parent is None:
+                break
+            depth += 1
+            current = parent
+        return depth
 
     def _retry_failed_workitem(self, state: SharedProjectState) -> SharedProjectState:
         project_id = state.project.id
@@ -579,7 +776,7 @@ class LeadController:
         if not new_workitems:
             return []
         stage = new_workitems[0].stage
-        prerequisite_stage = {"development": "design", "testing": "development"}.get(stage)
+        prerequisite_stage = {"design": "requirement", "development": "design", "testing": "development"}.get(stage)
         if prerequisite_stage is None:
             return new_workitems
         dependency_ids = [item.id for item in existing_workitems if item.stage == prerequisite_stage]
@@ -767,6 +964,8 @@ class LeadController:
 
     def _role_for_workitem_kind(self, kind: str) -> str | None:
         """Infer the default role for a WorkItem kind."""
+        if kind == "requirement_spec":
+            return "requirement_designer"
         if kind in {"design_overview", "ui_design", "api_design", "test_design"}:
             return "designer"
         if kind in {"api_implementation", "data_implementation", "generic_implementation"}:

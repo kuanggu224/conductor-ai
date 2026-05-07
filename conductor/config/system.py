@@ -15,6 +15,11 @@ SYSTEM_CONFIG_PATH = CONFIG_DIR / "system.config.json"
 def _default_workflow_stages() -> list[dict[str, str]]:
     return [
         {
+            "name": "requirement",
+            "objective": "澄清需求、收敛范围并冻结可执行需求规格",
+            "expected_output": "冻结需求规格、验收标准、范围边界和风险假设",
+        },
+        {
             "name": "design",
             "objective": "把需求拆解成可实施方案",
             "expected_output": "设计说明和实现边界",
@@ -34,6 +39,7 @@ def _default_workflow_stages() -> list[dict[str, str]]:
 
 def _default_role_mapping() -> dict[str, str]:
     return {
+        "requirement_spec": "requirement_designer",
         "design_overview": "designer",
         "ui_design": "designer",
         "api_design": "designer",
@@ -71,7 +77,7 @@ def _default_agent_profiles() -> list[dict[str, Any]]:
             "execution_backend": "cli",
             "default_cli_name": "codex",
             "capabilities": ["planning"],
-            "default_workitem_kinds": ["design_overview", "ui_design", "api_design", "test_design"],
+            "default_workitem_kinds": ["requirement_spec", "design_overview", "ui_design", "api_design", "test_design"],
             "context_preferences": ["requirements", "recent_state"],
         },
         {
@@ -85,7 +91,7 @@ def _default_agent_profiles() -> list[dict[str, Any]]:
             "execution_backend": "cli",
             "default_cli_name": "codex",
             "capabilities": ["planning"],
-            "default_workitem_kinds": ["design_overview"],
+            "default_workitem_kinds": ["requirement_spec", "design_overview"],
             "context_preferences": ["requirements", "design_output"],
         },
         {
@@ -172,6 +178,7 @@ class PlannerConfig:
     api_keywords: tuple[str, ...] = field(default_factory=lambda: _default_planner_keywords()["api_keywords"])
     test_keywords: tuple[str, ...] = field(default_factory=lambda: _default_planner_keywords()["test_keywords"])
     data_keywords: tuple[str, ...] = field(default_factory=lambda: _default_planner_keywords()["data_keywords"])
+    requirement_workitem_kinds: list[str] = field(default_factory=lambda: ["requirement_spec"])
     design_workitem_kinds: list[str] = field(default_factory=lambda: ["design_overview", "ui_design", "api_design", "test_design"])
     development_workitem_kinds: list[str] = field(default_factory=lambda: ["api_implementation", "data_implementation", "generic_implementation", "ui_implementation"])
     testing_workitem_kinds: list[str] = field(default_factory=lambda: ["acceptance_check", "automated_test", "api_validation", "ui_validation"])
@@ -181,10 +188,21 @@ class PlannerConfig:
 class CollaborationConfig:
     enabled: bool = True
     max_rounds: int = 2
-    lead_role_by_stage: dict[str, str] = field(default_factory=lambda: {"design": "designer"})
-    peer_reviewer_roles_by_stage: dict[str, list[str]] = field(default_factory=lambda: {"design": ["requirement_designer", "solution_designer"]})
-    reviewer_roles_by_stage: dict[str, list[str]] = field(default_factory=lambda: {"design": ["backend_engineer", "frontend_engineer", "tester"]})
-    enabled_kinds: set[str] = field(default_factory=lambda: {"design_overview"})
+    lead_role_by_stage: dict[str, str] = field(default_factory=lambda: {"requirement": "requirement_designer", "design": "designer"})
+    peer_reviewer_roles_by_stage: dict[str, list[str]] = field(
+        default_factory=lambda: {
+            "requirement": ["designer", "solution_designer"],
+            "design": ["requirement_designer", "solution_designer"],
+        }
+    )
+    reviewer_roles_by_stage: dict[str, list[str]] = field(
+        default_factory=lambda: {
+            "requirement": ["backend_engineer", "frontend_engineer", "tester"],
+            "design": ["backend_engineer", "frontend_engineer", "tester"],
+        }
+    )
+    enabled_kinds: set[str] = field(default_factory=lambda: {"requirement_spec", "design_overview"})
+    dynamic_requirement_review_enabled: bool = True
 
 
 @dataclass(slots=True)
@@ -249,11 +267,32 @@ class SystemConfig:
         kind_to_role = role_mapping_section.get("kind_to_role")
         if kind_to_role is None:
             kind_to_role = role_mapping_section.get("workitem_kind_to_role", _default_role_mapping())
+        kind_to_role = dict(kind_to_role)
+        kind_to_role.setdefault("requirement_spec", "requirement_designer")
+        workflow_stages = _with_requirement_stage(list(workflow_section.get("stages", _default_workflow_stages())))
+        lead_roles = dict(collaboration_section.get("lead_role_by_stage", {"design": "designer"}))
+        lead_roles.setdefault("requirement", "requirement_designer")
+        peer_reviewers = dict(
+            collaboration_section.get(
+                "peer_reviewer_roles_by_stage",
+                {"design": ["requirement_designer", "solution_designer"]},
+            )
+        )
+        peer_reviewers.setdefault("requirement", ["designer", "solution_designer"])
+        functional_reviewers = dict(
+            collaboration_section.get(
+                "reviewer_roles_by_stage",
+                {"design": ["backend_engineer", "frontend_engineer", "tester"]},
+            )
+        )
+        functional_reviewers.setdefault("requirement", ["backend_engineer", "frontend_engineer", "tester"])
+        enabled_kinds = set(collaboration_section.get("enabled_kinds", {"design_overview"}))
+        enabled_kinds.add("requirement_spec")
 
         return cls(
-            workflow=WorkflowConfig(stages=list(workflow_section.get("stages", _default_workflow_stages()))),
+            workflow=WorkflowConfig(stages=workflow_stages),
             role_mapping=RoleMappingConfig(
-                kind_to_role=dict(kind_to_role),
+                kind_to_role=kind_to_role,
                 default_role=str(role_mapping_section.get("default_role", "backend_engineer")),
             ),
             planner=PlannerConfig(
@@ -261,6 +300,7 @@ class SystemConfig:
                 api_keywords=tuple(planner_section.get("api_keywords", keywords["api_keywords"])),
                 test_keywords=tuple(planner_section.get("test_keywords", keywords["test_keywords"])),
                 data_keywords=tuple(planner_section.get("data_keywords", keywords["data_keywords"])),
+                requirement_workitem_kinds=list(planner_section.get("requirement_workitem_kinds", PlannerConfig().requirement_workitem_kinds)),
                 design_workitem_kinds=list(planner_section.get("design_workitem_kinds", PlannerConfig().design_workitem_kinds)),
                 development_workitem_kinds=list(planner_section.get("development_workitem_kinds", PlannerConfig().development_workitem_kinds)),
                 testing_workitem_kinds=list(planner_section.get("testing_workitem_kinds", PlannerConfig().testing_workitem_kinds)),
@@ -268,20 +308,13 @@ class SystemConfig:
             collaboration=CollaborationConfig(
                 enabled=bool(collaboration_section.get("enabled", True)),
                 max_rounds=int(collaboration_section.get("max_rounds", 2)),
-                lead_role_by_stage=dict(collaboration_section.get("lead_role_by_stage", {"design": "designer"})),
-                peer_reviewer_roles_by_stage=dict(
-                    collaboration_section.get(
-                        "peer_reviewer_roles_by_stage",
-                        {"design": ["requirement_designer", "solution_designer"]},
-                    )
+                lead_role_by_stage=lead_roles,
+                peer_reviewer_roles_by_stage=peer_reviewers,
+                reviewer_roles_by_stage=functional_reviewers,
+                enabled_kinds=enabled_kinds,
+                dynamic_requirement_review_enabled=bool(
+                    collaboration_section.get("dynamic_requirement_review_enabled", True)
                 ),
-                reviewer_roles_by_stage=dict(
-                    collaboration_section.get(
-                        "reviewer_roles_by_stage",
-                        {"design": ["backend_engineer", "frontend_engineer", "tester"]},
-                    )
-                ),
-                enabled_kinds=set(collaboration_section.get("enabled_kinds", {"design_overview"})),
             ),
             agents=AgentsConfig(default_profiles=list(agents_section.get("default_profiles", _default_agent_profiles()))),
             config_path=Path(config_path) if config_path is not None else config_path_obj,
@@ -297,6 +330,18 @@ class SystemConfig:
         with resolved_path.open("w", encoding="utf-8") as file:
             json.dump(payload, file, ensure_ascii=False, indent=2)
         return resolved_path
+
+
+def _with_requirement_stage(stages: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Return workflow stages with the formal requirement stage inserted first."""
+    if any(stage.get("name") == "requirement" for stage in stages):
+        return stages
+    requirement_stage = {
+        "name": "requirement",
+        "objective": "澄清需求、收敛范围并冻结可执行需求规格",
+        "expected_output": "冻结需求规格、验收标准、范围边界和风险假设",
+    }
+    return [requirement_stage, *stages]
 
 
 __all__ = [

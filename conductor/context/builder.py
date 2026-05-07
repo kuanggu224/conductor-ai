@@ -50,7 +50,7 @@ class ContextBuilder:
         design_artifacts = [
             artifact for artifact in previous_artifacts if self._infer_artifact_stage(artifact.kind) == "design"
         ]
-        stage_rank = {"design": 0, "development": 1, "testing": 2}
+        stage_rank = {"requirement": 0, "design": 1, "development": 2, "testing": 3}
         current_rank = stage_rank.get(workitem.stage, 99)
         relevant = [
             artifact
@@ -71,6 +71,8 @@ class ContextBuilder:
 
     def _infer_artifact_stage(self, kind: str) -> str:
         """根据产物类型推断来源阶段。"""
+        if kind in {"requirement_spec", "frozen_requirement_spec"}:
+            return "requirement"
         if "design" in kind:
             return "design"
         if "test" in kind or "validation" in kind or kind == "acceptance_check":

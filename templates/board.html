@@ -323,6 +323,35 @@
                         </div>
                     </div>
                     <div class="stack">
+                        {% if snapshot.design_collaboration.team_plan %}
+                        <div class="review-box">
+                            <div class="section-title" style="margin:0;padding:0;border:0;">
+                                <div>
+                                    <h2>需求评审 Team Plan</h2>
+                                    <p>复杂度 {{ snapshot.design_collaboration.team_plan.get("complexity_level", "-") }} / {{ snapshot.design_collaboration.team_plan.get("complexity_score", "-") }}</p>
+                                </div>
+                                <span class="tag">{{ (snapshot.design_collaboration.team_plan.get("peer_seats", []) | length) + (snapshot.design_collaboration.team_plan.get("functional_seats", []) | length) }} seats</span>
+                            </div>
+                            {% if snapshot.design_collaboration.team_plan.get("reasons") %}
+                            <div class="chips" style="margin-top:12px;">
+                                {% for reason in snapshot.design_collaboration.team_plan.get("reasons", []) %}
+                                <span class="chip blue">{{ reason }}</span>
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+                            <div class="review-list" style="margin-top:12px;">
+                                {% for seat in snapshot.design_collaboration.team_plan.get("peer_seats", []) + snapshot.design_collaboration.team_plan.get("functional_seats", []) %}
+                                <div class="review-item">
+                                    <div class="chips">
+                                        <span class="chip blue">{{ seat.get("seat_id", seat.get("role", "-")) }}</span>
+                                        <span class="chip">{{ seat.get("phase", "-") }}</span>
+                                    </div>
+                                    <div class="review-content">{{ seat.get("focus", "") }}</div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endif %}
                         <div class="doc-box">
                             <div class="section-title" style="margin:0;padding:0;border:0;">
                                 <div>

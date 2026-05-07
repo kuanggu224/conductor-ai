@@ -17,10 +17,12 @@ from conductor.collaboration.models import (
     ReviewDecision,
 )
 from conductor.collaboration.policy import CollaborationPolicy
+from conductor.collaboration.team import ReviewSeat, plan_requirement_review_team
 from conductor.config.cli import CLISelectionConfig
 from conductor.domain.models import Artifact, WorkItem
 from conductor.harness.llm import LLMHarnessRequest, OpenAICompatibleLLMHarness
 from conductor.execution.runtime_stream import RuntimeStreamStore
+from conductor.requirement_benchmark import build_requirement_case_from_text, evaluate_requirement_document
 from conductor.state.store import InMemoryStateStore
 
 
@@ -62,6 +64,8 @@ class CollaborationRunner:
         self.llm_harness = llm_harness
         self.llm_harness_config = llm_harness_config
         self.agent_cli_executor = AgentCLIExecutor(cli_selection_config=self.cli_selection_config)
+        self._review_focus_overrides: dict[str, str] = {}
+        self._current_team_plan: dict[str, object] = {}
 
     def should_collaborate(self, project_id: str, workitem: WorkItem) -> bool:
         """Return whether the workitem should enter the collaboration loop."""
@@ -74,14 +78,7 @@ class CollaborationRunner:
         """Run one collaboration session around an existing draft artifact."""
         project_root = self.state_store.get_state(project_id).project.project_root
         lead = self.registry.get_agent_by_role(self.policy.lead_role_by_stage[workitem.stage])
-        peer_reviewers = [
-            self.registry.get_agent_by_role(role)
-            for role in self.policy.peer_reviewer_roles_by_stage.get(workitem.stage, [])
-        ]
-        functional_reviewers = [
-            self.registry.get_agent_by_role(role)
-            for role in self.policy.reviewer_roles_by_stage.get(workitem.stage, [])
-        ]
+        peer_reviewers, functional_reviewers = self._build_reviewers(project_id, workitem)
         reviewers = [*peer_reviewers, *functional_reviewers]
         collaboration_id = f"collaboration-{workitem.id}"
         draft = self.artifact_store.read_content(draft_artifact)
@@ -98,6 +95,7 @@ class CollaborationRunner:
             )
         ]
         status = CollaborationStatus.RUNNING
+        requirement_quality = None
         collaboration = Collaboration(
             id=collaboration_id,
             project_id=project_id,
@@ -109,6 +107,7 @@ class CollaborationRunner:
             current_round=1,
             contributions=[],
             draft_versions=draft_versions,
+            team_plan=dict(self._current_team_plan),
         )
 
         self.runtime_stream_store.start(
@@ -124,6 +123,7 @@ class CollaborationRunner:
         for round_index in range(1, self.policy.max_rounds + 1):
             self.state_store.add_event(project_id, f"协作 {collaboration_id} 进入第 {round_index} 轮审阅")
             round_reviews: list[ReviewContribution] = []
+            peer_revision_done = False
 
             peer_reviews = self._run_review_phase(
                 project_id=project_id,
@@ -171,6 +171,7 @@ class CollaborationRunner:
                             duration_ms=revision.duration_ms,
                         )
                     )
+                    peer_revision_done = True
 
             functional_reviews = self._run_review_phase(
                 project_id=project_id,
@@ -197,7 +198,7 @@ class CollaborationRunner:
                 status = CollaborationStatus.ACCEPTED
                 break
 
-            rework_reviews = functional_reviews or peer_reviews
+            rework_reviews = functional_reviews or ([] if peer_revision_done else peer_reviews)
             if rework_reviews:
                 revision = self._revise(
                     project_id,
@@ -233,7 +234,35 @@ class CollaborationRunner:
                 self.state_store.upsert_collaboration(project_id, collaboration)
 
         if status == CollaborationStatus.RUNNING:
-            status = CollaborationStatus.MAX_ROUNDS_REACHED
+            if workitem.kind == "requirement_spec":
+                requirement_quality = self._evaluate_requirement_quality(project_id, draft)
+                feedback_coverage = self._review_feedback_resolution_coverage(draft, contributions)
+                self.state_store.add_event(
+                    project_id,
+                    (
+                        "Requirement final arbitration: "
+                        f"score={requirement_quality.score}, passed={requirement_quality.passed}, "
+                        f"feedback_coverage={feedback_coverage}"
+                    ),
+                )
+                if requirement_quality.passed and feedback_coverage >= 70 and len(draft_versions) > 1:
+                    status = CollaborationStatus.ACCEPTED
+                else:
+                    status = CollaborationStatus.MAX_ROUNDS_REACHED
+            else:
+                status = CollaborationStatus.MAX_ROUNDS_REACHED
+        if status == CollaborationStatus.ACCEPTED and workitem.kind == "requirement_spec":
+            quality = requirement_quality or self._evaluate_requirement_quality(project_id, draft)
+            self.state_store.add_event(
+                project_id,
+                f"需求质量评分: score={quality.score}, passed={quality.passed}",
+            )
+            if not quality.passed:
+                status = CollaborationStatus.FAILED
+                self.state_store.add_event(
+                    project_id,
+                    f"需求质量门禁未通过: {'; '.join(quality.findings) or 'score below threshold'}",
+                )
 
         final_artifact = self._create_final_artifact(
             project_id=project_id,
@@ -245,6 +274,15 @@ class CollaborationRunner:
             project_root=project_root,
             draft_versions=draft_versions,
         )
+        if status == CollaborationStatus.ACCEPTED and workitem.kind == "requirement_spec":
+            self._create_frozen_requirement_artifact(
+                project_id=project_id,
+                workitem=workitem,
+                lead=lead,
+                draft=draft,
+                review_artifact=final_artifact,
+                project_root=project_root,
+            )
         collaboration = self._update_collaboration(
             collaboration=collaboration,
             status=status,
@@ -261,6 +299,128 @@ class CollaborationRunner:
             message=f"[collaboration] {status.value}",
         )
         return collaboration
+
+    def _evaluate_requirement_quality(self, project_id: str, draft: str):
+        """Evaluate whether an accepted requirement draft is good enough to freeze."""
+        state = self.state_store.get_state(project_id)
+        case = build_requirement_case_from_text(project_id, state.project.goal, name="project_requirement")
+        return evaluate_requirement_document(draft, case)
+
+    def _review_feedback_resolution_coverage(self, draft: str, contributions: list[ReviewContribution]) -> int:
+        """Return whether requested-review topics appear in the final requirement draft."""
+        requested_reviews = [
+            contribution
+            for contribution in contributions
+            if contribution.decision == ReviewDecision.REQUEST_CHANGES
+        ]
+        if not requested_reviews:
+            return 100
+        requested_topics = self._feedback_topics_for_reviews(requested_reviews)
+        if not requested_topics:
+            return 100
+        draft_text = draft.lower()
+        covered = [
+            topic
+            for topic, terms in requested_topics.items()
+            if self._contains_any_text(draft_text, terms)
+        ]
+        return int((len(covered) / len(requested_topics)) * 100)
+
+    def _feedback_topics_for_reviews(self, reviews: list[ReviewContribution]) -> dict[str, tuple[str, ...]]:
+        """Infer high-signal review topics that should be reflected in the final spec."""
+        topic_terms: dict[str, tuple[str, ...]] = {
+            "persistence": ("持久化", "刷新", "localstorage", "local storage", "本地存储", "数据库", "存储"),
+            "sync": ("同步", "一致性", "冲突", "覆盖", "重复", "去重"),
+            "network_retry": ("网络", "离线", "重试", "恢复连接", "超时", "timeout"),
+            "validation": ("校验", "验证", "必填", "无效", "错误", "格式"),
+            "security": ("安全", "隐私", "权限", "认证", "授权", "泄露"),
+            "performance": ("性能", "容量", "大量", "并发", "响应速度"),
+            "csv_export": ("csv", "导出", "文件名", "字段", "转义"),
+            "acceptance": ("验收", "测试", "用例", "期望输出", "可执行"),
+            "scope": ("范围", "边界", "非目标", "不支持", "限制"),
+            "handoff": ("下游", "约束", "交付", "后续 agent", "设计阶段", "开发团队"),
+        }
+        review_text = "\n".join(review.content for review in reviews).lower()
+        return {
+            topic: terms
+            for topic, terms in topic_terms.items()
+            if self._contains_any_text(review_text, terms)
+        }
+
+    def _contains_any_text(self, text: str, terms: tuple[str, ...]) -> bool:
+        """Return whether text contains any term."""
+        return any(term.lower() in text for term in terms)
+
+    def _build_reviewers(self, project_id: str, workitem: WorkItem) -> tuple[list[Agent], list[Agent]]:
+        """Build concrete reviewer agents, including dynamic requirement-stage seats."""
+        self._review_focus_overrides = {}
+        self._current_team_plan = {}
+        peer_roles = self.policy.peer_reviewer_roles_by_stage.get(workitem.stage, [])
+        functional_roles = self.policy.reviewer_roles_by_stage.get(workitem.stage, [])
+        if workitem.stage != "requirement" or not self.policy.dynamic_requirement_review_enabled:
+            return (
+                [self.registry.get_agent_by_role(role) for role in peer_roles],
+                [self.registry.get_agent_by_role(role) for role in functional_roles],
+            )
+
+        state = self.state_store.get_state(project_id)
+        plan = plan_requirement_review_team(
+            state.project.goal,
+            peer_roles=peer_roles,
+            functional_roles=functional_roles,
+        )
+        self._current_team_plan = self._team_plan_to_dict(plan)
+        self.state_store.add_event(
+            project_id,
+            (
+                "Requirement review team planned: "
+                f"complexity={plan.complexity_level}, score={plan.complexity_score}, "
+                f"peer_seats={len(plan.peer_seats)}, functional_seats={len(plan.functional_seats)}, "
+                f"reasons={', '.join(plan.reasons) or '-'}"
+            ),
+        )
+        return (
+            [self._agent_for_review_seat(seat) for seat in plan.peer_seats],
+            [self._agent_for_review_seat(seat) for seat in plan.functional_seats],
+        )
+
+    def _team_plan_to_dict(self, plan) -> dict[str, object]:
+        """Return a serializable requirement team plan snapshot."""
+        return {
+            "complexity_level": plan.complexity_level,
+            "complexity_score": plan.complexity_score,
+            "reasons": list(plan.reasons),
+            "peer_seats": [self._review_seat_to_dict(seat) for seat in plan.peer_seats],
+            "functional_seats": [self._review_seat_to_dict(seat) for seat in plan.functional_seats],
+        }
+
+    def _review_seat_to_dict(self, seat: ReviewSeat) -> dict[str, str]:
+        """Return a serializable review seat."""
+        return {
+            "role": seat.role,
+            "seat_id": seat.seat_id,
+            "phase": seat.phase,
+            "focus": seat.focus,
+        }
+
+    def _agent_for_review_seat(self, seat: ReviewSeat) -> Agent:
+        """Return an agent instance for a concrete review seat."""
+        base = self.registry.get_agent_by_role(seat.role)
+        if seat.seat_id == seat.role:
+            self._review_focus_overrides[base.id] = seat.focus
+            return base
+        agent = Agent(
+            id=f"{base.id}:{seat.seat_id}",
+            role=base.role,
+            profile=base.profile,
+            capabilities=list(base.capabilities),
+            backend=base.backend,
+            llm_backend=base.llm_backend,
+            execution_backend=base.execution_backend,
+            preferred_llm_backend=base.preferred_llm_backend,
+        )
+        self._review_focus_overrides[agent.id] = seat.focus
+        return agent
 
     def _run_review_phase(
         self,
@@ -304,6 +464,7 @@ class CollaborationRunner:
             contributions=[*contributions],
             draft_versions=[*(draft_versions if draft_versions is not None else collaboration.draft_versions)],
             final_artifact_id=final_artifact_id if final_artifact_id is not None else collaboration.final_artifact_id,
+            team_plan=dict(collaboration.team_plan),
         )
 
     def _review(
@@ -362,7 +523,8 @@ class CollaborationRunner:
             f"# 当前草案摘要\n{draft_excerpt}\n\n"
             f"# 本轮审阅意见\n{review_text}\n\n"
             "请直接输出修订后的完整中文 Markdown 需求设计文档，不要只输出差异。"
-            "必须保留并完善：目标、需求理解、范围边界、关键假设、方案、交付物、验收标准、风险。"
+            "需求规格类文档必须保留并完善：目标、需求理解、范围边界、非目标、验收标准、边界/异常场景、风险与假设、待确认问题、下游交付约束。"
+            "设计类文档必须保留并完善：目标、需求理解、范围边界、关键假设、方案、交付物、验收标准、风险。"
         )
         if self.agent_cli_executor.resolve_binding(lead) == "claude":
             prompt = (
@@ -371,7 +533,8 @@ class CollaborationRunner:
                 f"Review phase: {phase}\n"
                 "Revise the current design draft after reading all reviewer feedback.\n"
                 "Return a full Chinese markdown requirement design document, not a diff.\n"
-                "Keep the sections clear and practical: 目标, 需求理解, 范围边界, 关键假设, 方案, 交付物, 验收标准, 风险.\n\n"
+                "For requirement_spec, keep these sections clear and practical: 目标, 需求理解, 范围边界, 非目标, 验收标准, 边界/异常场景, 风险与假设, 待确认问题, 下游交付约束.\n"
+                "For other design docs, keep sections: 目标, 需求理解, 范围边界, 关键假设, 方案, 交付物, 验收标准, 风险.\n\n"
                 f"Current draft:\n{draft_excerpt[:2400]}\n\n"
                 f"Reviewer feedback:\n{review_text[:2400]}"
             )
@@ -447,6 +610,7 @@ class CollaborationRunner:
             "frontend_engineer": "重点检查页面结构、交互路径、状态展示、空/错/加载状态、前端实现风险。",
             "tester": "重点检查验收标准、测试覆盖、边界条件、异常路径、可验证性。",
         }.get(reviewer.role, "重点检查当前角色负责的交付风险和缺失信息。")
+        review_focus = self._review_focus_overrides.get(reviewer.id, review_focus)
         phase_instruction = (
             "这是设计同侪评审阶段。请优先判断需求本身是否合理、完整、符合用户目标；不要只从代码实现难度出发。"
             if phase == "design_peer_review"
@@ -557,7 +721,10 @@ class CollaborationRunner:
                     "Return concise Chinese Markdown only."
                 ),
                 working_directory=project_root,
-                output_path=f".conductor/llm_outputs/{workitem.id}.{phase}.{reviewer.role}.round-{round_index}.review.md",
+                output_path=(
+                    f".conductor/llm_outputs/{workitem.id}.{phase}."
+                    f"{self._safe_agent_id(reviewer.id)}.round-{round_index}.review.md"
+                ),
                 config=self.llm_harness_config,
                 max_tokens=2048,
                 temperature=0.1,
@@ -607,6 +774,7 @@ class CollaborationRunner:
                     "Output contract:\n"
                     "- Return the full revised Chinese requirement/design Markdown, not a diff.\n"
                     "- Must include executable acceptance cases with concrete input and expected output.\n"
+                    "- For requirement_spec, include non-goals, edge/error cases, open questions, and downstream handoff constraints.\n"
                     "- Incorporate all reviewer roles before approving the draft.\n"
                 ),
                 system_prompt=(
@@ -749,6 +917,44 @@ class CollaborationRunner:
         self.state_store.add_artifact(project_id, persisted)
         return persisted
 
+    def _create_frozen_requirement_artifact(
+        self,
+        project_id: str,
+        workitem: WorkItem,
+        lead: Agent,
+        draft: str,
+        review_artifact: Artifact,
+        project_root: str,
+    ) -> Artifact:
+        """Persist the accepted requirement baseline for downstream phases."""
+        artifact = Artifact(
+            id=f"artifact-frozen-requirement-{workitem.id}",
+            project_id=project_id,
+            workitem_id=workitem.id,
+            agent_id=lead.id,
+            kind="frozen_requirement_spec",
+            title=f"Frozen Requirement Spec - {workitem.id}",
+            content=(
+                f"# Frozen Requirement Spec - {workitem.id}\n\n"
+                "## Status\naccepted\n\n"
+                "## Baseline\n"
+                f"{draft}\n\n"
+                "## Downstream Contract\n"
+                "- 后续设计、开发、测试必须以本冻结需求规格作为需求基线。\n"
+                "- 如需改变范围，必须创建新的需求修订或返工 WorkItem。\n"
+            ),
+            source_backend="collaboration",
+            parent_artifact_id=review_artifact.id,
+            derived_from=self._build_derived_from(project_id, workitem.id),
+            review_of=review_artifact.review_of,
+            version=1,
+            collaboration_session_id=f"collaboration-{workitem.id}",
+        )
+        persisted = self.artifact_store.save_markdown(artifact, project_root=project_root)
+        self.state_store.add_artifact(project_id, persisted)
+        self.state_store.add_event(project_id, f"冻结需求规格 {persisted.id} 已创建，来源 WorkItem={workitem.id}")
+        return persisted
+
     def _find_previous_collaboration_artifact(self, project_id: str, workitem_id: str) -> str | None:
         """Return the previous collaboration artifact id for the same workitem."""
         state = self.state_store.get_state(project_id)
@@ -771,6 +977,10 @@ class CollaborationRunner:
         """Return the artifact lineage for the collaboration result."""
         state = self.state_store.get_state(project_id)
         return [artifact.id for artifact in state.artifacts if artifact.workitem_id == workitem_id]
+
+    def _safe_agent_id(self, agent_id: str) -> str:
+        """Return an agent id that is safe to use in output file names."""
+        return "".join(char if char.isalnum() or char in {"-", "_", "."} else "-" for char in agent_id)
 
     def _build_stream_callback(self, project_id: str):
         """Build a collaboration runtime stream callback."""

@@ -4,6 +4,10 @@
 
 本文档用于把当前 Codex 桌面端对话中的关键上下文沉淀到仓库，方便后续通过 Codex CLI、其他 Agent CLI 或人工继续开发。
 
+平台长期定位参见：`docs/platform_positioning.md`。该文档记录 Conductor 作为 Project Execution System 的北极星目标；本文档记录当前工程进度和交接上下文。
+
+需求环节产品级优化计划参见：`docs/requirement_stage_optimization_plan.md`。
+
 ## 1. 当前定位
 
 Conductor 当前不是简单调用一个 CLI 的包装器，而是一个面向多 Agent 软件交付的本地编排平台雏形。
@@ -51,7 +55,7 @@ templates/board.html       当前 Board 页面
 ### 3.1 项目与状态
 
 - 支持创建 `Project`，生成阶段、工作项、Agent 激活记录。
-- 支持 `design -> development -> testing` 主流程。
+- 支持 `requirement -> design -> development -> testing` 主流程。
 - 支持 `SharedProjectState` 内存状态与 `FileStateStore` 文件持久化。
 - 运行项目时可以指定项目根目录。
 - 测试项目统一约定放在 `C:\99_self\conductor_test\<case_name>`。
@@ -95,6 +99,30 @@ templates/board.html       当前 Board 页面
 - draft versions
 - final collaboration artifact
 - review/revision 产物文件
+
+### 3.4.1 需求阶段产品级闭环
+
+需求阶段已经从“进入设计前的一段文本”升级为正式阶段：
+
+- `requirement` 阶段生成 `requirement_spec` WorkItem。
+- 协作通过后生成 `frozen_requirement_spec`，后续设计、开发、测试必须以它为基线。
+- 需求协作或质量门禁失败时，会自动创建新的需求返工 WorkItem，不允许弱需求静默进入后续阶段。
+- Run Manifest `1.2` 会写入 `requirement_evaluations` 和 `summary.requirement_quality_score`。
+- `conductor.requirement_benchmark` 和 `python -m app.requirement_benchmark` 支持需求评分、平台产物 vs 模型直出对比。
+- 需求阶段已经加入动态评审团队规划，复杂项目可激活多个同职责评审席位，例如 `designer.interaction`、`designer.information_architecture`、`solution_designer.process`、`tester.edge_cases`。
+- 动态评审团队规划已结构化持久化到 Collaboration，并写入 Manifest 的 `collaboration_runs[].team_plan`。
+- Board Snapshot 已暴露 `design_collaboration.team_plan`，前端可直接展示动态评审团队组成原因。
+- Board 模板已渲染 Team Plan 面板，展示复杂度、触发原因、评审席位和 seat focus。
+- `python -m app.requirement_benchmark suite` 支持批量 case 对比，用于持续测评平台需求产物是否优于 direct baseline。
+- `python -m app.requirement_benchmark run-suite` 支持一键生成平台需求产物、读取或生成 direct baseline、输出 suite 对比报告。
+- `python -m app.requirement_benchmark preflight` 支持提前验证 local/cloud LLM backend；`run-suite` 默认会先执行相关 backend 的预检，并支持命令行覆盖 base URL、model、timeout、reasoning effort。
+- 评分器已对 `mock` / `mock_fallback` / 占位文档降权，避免 mock 模板被误判为真实需求质量。
+- 评分器已扩展到非目标、待确认/假设、边界/异常场景、下游交付约束等维度。
+- `run-suite` 生成报告会记录 platform/direct 运行元数据，并在 Markdown 中展开逐项质量检查。
+- 需求门禁返工已加入上限，连续返工仍失败会阻塞项目并暴露 blocker，避免无限返工链。
+- 需求阶段 LLMHarness、Agent CLI 和协作修订 prompt 已同步要求输出非目标、边界/异常场景、风险与假设、待确认问题、下游交付约束。
+- 需求协作加入 Controller 终局裁决：最后一轮存在 `request_changes` 时，只要 lead 最终修订通过需求质量门禁，并覆盖本轮修改意见的核心主题，就可以接受并冻结需求，避免小模型因“已修订但未再投票”陷入返工循环。
+- 同一轮只有 peer review 且已按 peer 意见修订时，不再对同一批意见重复修订，降低本地小模型的无效调用成本。
 
 ### 3.5 LLMHarness
 
@@ -362,15 +390,57 @@ ok
 - `lms server start`
 - `qwen3.6-35b-a3b` 以 32768 context 加载
 
+### 5.3 Qwen2.5 需求阶段真实对比
+
+本次验证使用 LM Studio 本地模型：
+
+```text
+qwen2.5-coder-14b-instruct
+base_url: http://127.0.0.1:1234/v1
+context: 32768
+```
+
+受控命令：
+
+```powershell
+python -m app.requirement_benchmark run-suite `
+  --output-dir C:\tmp\conductor_requirement_real_qwen25_suite_plain_arbitrated `
+  --platform-llm local `
+  --direct-llm local `
+  --direct-prompt-mode plain `
+  --llm-base-url http://127.0.0.1:1234/v1 `
+  --llm-model qwen2.5-coder-14b-instruct `
+  --llm-timeout 180 `
+  --max-steps 4 `
+  --collaboration-max-rounds 1 `
+  --static-requirement-review
+```
+
+结果：
+
+- `reading_list`: platform 100, direct 42, delta 58。
+- `expense_approval`: platform 87, direct 39, delta 48。
+- `csv_cleaner`: platform 88, direct 44, delta 44。
+- Summary: 3/3 passed, platform wins 3, average platform score 91.67, average direct score 41.67, average delta 50.0。
+- 运行报告：`C:\tmp\conductor_requirement_real_qwen25_suite_plain_arbitrated\requirement-comparison-results.md`
+- JSON：`C:\tmp\conductor_requirement_real_qwen25_suite_plain_arbitrated\requirement-comparison-results.json`
+
+验证结论：
+
+- 需求阶段平台链路在本地小模型上能稳定优于不接平台的 plain direct baseline。
+- 终局裁决修复了此前“最终修订已合格但 max_rounds_reached 触发返工”的问题。
+- 3 个 platform run 都在需求冻结后进入 `design`，说明需求阶段 gate 已放行。
+
 ## 6. 当前不足
 
 ### 6.1 全链路生产级还未完成
 
-平台已经能做真实设计协作和部分代码执行验证，但还没有稳定达到“任意需求从需求到代码到测试全自动成功”的生产级状态。
+平台已经能做真实需求协作、设计协作和部分代码执行验证，但还没有稳定达到“任意需求从需求到代码到测试全自动成功”的生产级状态。
 
 主要差距：
 
-- 需求设计质量还依赖模型能力和 prompt。
+- 需求阶段已有真实 benchmark 通过，但评分器的关键词覆盖仍偏硬，`expense_approval` / `csv_cleaner` 出现低 keyword coverage 提示，需要继续校准。
+- 需求设计质量仍依赖模型能力、prompt 和本地模型稳定性。
 - 开发阶段真实代码执行仍需更强的任务边界和验收闭环。
 - 测试阶段需要更明确区分生成项目测试和平台自身测试。
 
@@ -403,11 +473,12 @@ Manifest 已能记录主要运行事实，但后续可以继续补：
 优先级建议：
 
 1. 强化任务中心：定义 WorkItem claim/return 协议，支持 Agent 从任务中心领取任务并归还结构化结果。
-2. 做 Agent CLI 执行健康检查：每个 CLI 支持 probe，记录可用模型、连通性、context 风险。
-3. 完善 AspireCode 绑定：支持不同 Conductor role 绑定 AspireCode 内部 agent，例如 `需求分析Agent`、`编码Agentic`、`测试Agent`。
-4. 做一个小型真实项目闭环：静态 Web 项目优先，从需求设计、代码生成、静态验证到 manifest 归档。
-5. 强化 ContextBuilder：按 artifact lineage 选择上下文，减少无效长 prompt。
-6. 继续改进失败恢复：失败后自动建议“换模型 / 增加 context / 降低 prompt / 切换 CLI”。
+2. 校准需求评分器：改进中文关键词抽取和领域实体覆盖，减少“章节完整但 keyword coverage 偏低”的误报。
+3. 做 Agent CLI 执行健康检查：每个 CLI 支持 probe，记录可用模型、连通性、context 风险。
+4. 完善 AspireCode 绑定：支持不同 Conductor role 绑定 AspireCode 内部 agent，例如 `需求分析Agent`、`编码Agentic`、`测试Agent`。
+5. 做一个小型真实项目闭环：静态 Web 项目优先，从需求设计、代码生成、静态验证到 manifest 归档。
+6. 强化 ContextBuilder：按 artifact lineage 选择上下文，减少无效长 prompt。
+7. 继续改进失败恢复：失败后自动建议“换模型 / 增加 context / 降低 prompt / 切换 CLI”。
 
 ## 8. 当前关键命令备忘
 
@@ -434,4 +505,3 @@ aspirecode models
 # AspireCode smoke
 aspirecode run --dir C:\99_self\conductor_test\aspirecode_probe_20260506_01 --model lmstudio-local/qwen3.6-35b-a3b --format default "Return exactly: ok"
 ```
-

@@ -1,6 +1,7 @@
 """BoardSnapshot 组装测试。"""
 
 from conductor.board.service import BoardService
+from conductor.collaboration.models import Collaboration, CollaborationStatus
 from conductor.config.cli import CLISelectionConfig
 from conductor.config.llm import LLMHTTPConfig, LLMRuntimeConfig, LLMUsagePolicy
 from conductor.controller.lead_controller import LeadController
@@ -94,3 +95,42 @@ def test_board_service_extracts_code_execution_reports() -> None:
 
     assert len(snapshot.code_execution_artifacts) == 2
     assert snapshot.code_execution_artifacts[0].source_backend_label == "Codex CLI"
+
+
+def test_board_service_exposes_requirement_team_plan() -> None:
+    state = SharedProjectState(
+        project=Project(id="project-team", goal="complex requirement", current_stage="requirement", project_root="C:/demo"),
+        project_status=ProjectStatus.IN_PROGRESS,
+        current_stage="requirement",
+        collaborations=[
+            Collaboration(
+                id="collaboration-1",
+                project_id="project-team",
+                workitem_id="workitem-1",
+                lead_agent_id="agent-requirement-designer",
+                reviewer_agent_ids=["agent-designer:designer.interaction"],
+                status=CollaborationStatus.RUNNING,
+                max_rounds=2,
+                current_round=1,
+                team_plan={
+                    "complexity_level": "complex",
+                    "complexity_score": 6,
+                    "peer_seats": [
+                        {
+                            "role": "designer",
+                            "seat_id": "designer.interaction",
+                            "phase": "design_peer_review",
+                            "focus": "Review interaction paths.",
+                        }
+                    ],
+                    "functional_seats": [],
+                    "reasons": ["user interaction and visible states"],
+                },
+            )
+        ],
+    )
+
+    snapshot = BoardService().build_snapshot(state)
+
+    assert snapshot.design_collaboration.team_plan["complexity_level"] == "complex"
+    assert snapshot.design_collaboration.team_plan["peer_seats"][0]["seat_id"] == "designer.interaction"

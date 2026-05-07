@@ -206,6 +206,7 @@ class FileStateStore(InMemoryStateStore):
                 self._draft_version(item) for item in data.get("draft_versions", [])
             ],
             final_artifact_id=data.get("final_artifact_id"),
+            team_plan=dict(data.get("team_plan", {})),
         )
 
     def _review_contribution(self, data: dict[str, Any]) -> ReviewContribution:

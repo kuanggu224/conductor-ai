@@ -49,10 +49,12 @@ def test_system_config_save_and_load_round_trip(tmp_path) -> None:
     loaded = SystemConfig.load(path)
 
     assert path.exists()
-    assert loaded.workflow.stages[0]["name"] == "design"
+    assert loaded.workflow.stages[0]["name"] == "requirement"
+    assert loaded.workflow.stages[1]["name"] == "design"
     assert loaded.role_mapping.get_role_for_kind("unknown") == "backend_engineer"
+    assert loaded.role_mapping.workitem_kind_to_role["requirement_spec"] == "requirement_designer"
     assert loaded.role_mapping.workitem_kind_to_role["design_overview"] == "designer"
     assert loaded.planner.ui_keywords == ("ui", "页面")
     assert loaded.collaboration.max_rounds == 3
-    assert loaded.collaboration.enabled_kinds == {"design_overview"}
+    assert loaded.collaboration.enabled_kinds == {"requirement_spec", "design_overview"}
     assert loaded.agents.default_profiles[0]["role_name"] == "designer"

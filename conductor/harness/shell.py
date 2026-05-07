@@ -10,6 +10,7 @@ from time import perf_counter
 
 from conductor.harness.base import BaseHarness
 from conductor.harness.models import HarnessRequest, HarnessResult
+from conductor.io.encoding import utf8_subprocess_environment
 
 
 class ShellHarness(BaseHarness):
@@ -20,8 +21,7 @@ class ShellHarness(BaseHarness):
     def run(self, request: HarnessRequest) -> HarnessResult:
         """执行受控 shell 命令并返回结构化结果。"""
         started = perf_counter()
-        environment = os.environ.copy()
-        environment.update(request.environment)
+        environment = utf8_subprocess_environment(request.environment)
         before_snapshot = (
             self._snapshot_workspace(Path(request.workspace_root or request.working_directory))
             if request.track_workspace_changes

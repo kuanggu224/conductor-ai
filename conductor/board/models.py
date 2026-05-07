@@ -160,6 +160,7 @@ class BoardDesignCollaborationView:
     agents: list[BoardMeetingAgentView] = field(default_factory=list)
     reviews: list[BoardReviewView] = field(default_factory=list)
     history: list[BoardArtifactView] = field(default_factory=list)
+    team_plan: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass(slots=True)

@@ -24,7 +24,7 @@ def test_file_state_store_persists_and_reloads_project(tmp_path) -> None:
     assert restored.project.id == state.project.id
     assert restored.current_stage == state.current_stage
     assert len(restored.workitems) == len(state.workitems)
-    assert restored.executions[0].agent_id == "agent-designer"
+    assert restored.executions[0].agent_id == "agent-requirement-designer"
     assert restored.agent_capability_stats[0].completed_count == 1
     assert [activation.role for activation in restored.agent_activations] == [
         activation.role for activation in state.agent_activations

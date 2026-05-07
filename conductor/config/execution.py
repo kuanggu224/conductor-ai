@@ -73,7 +73,7 @@ class ExecutionScopeConfig:
 
     def is_workitem_kind_enabled(self, kind: str) -> bool:
         """判断指定 WorkItem kind 是否启用。"""
-        if kind == "design_overview":
+        if kind in {"requirement_spec", "design_overview"}:
             return self.requirement_design_enabled
         if kind in {"ui_design", "api_design", "test_design"}:
             return self.design_detail_enabled

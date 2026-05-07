@@ -15,7 +15,7 @@ class InMemoryStateStore:
         WorkItemStatus.PENDING: {WorkItemStatus.RUNNING},
         WorkItemStatus.RUNNING: {WorkItemStatus.DONE, WorkItemStatus.FAILED},
         WorkItemStatus.FAILED: {WorkItemStatus.PENDING},
-        WorkItemStatus.DONE: set(),
+        WorkItemStatus.DONE: {WorkItemStatus.FAILED},
     }
 
     def __init__(self) -> None:

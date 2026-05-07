@@ -13,6 +13,8 @@ from conductor.domain.models import Artifact
 
 DEFAULT_REQUIRED_SECTIONS: dict[str, list[str]] = {
     "design_overview": ["目标", "范围", "方案", "验收"],
+    "requirement_spec": ["目标", "范围", "验收", "风险"],
+    "frozen_requirement_spec": ["目标", "范围", "验收", "风险"],
     "ui_design": ["页面", "交互", "验收"],
     "api_design": ["接口", "输入", "输出", "验收"],
     "test_design": ["测试", "通过标准"],

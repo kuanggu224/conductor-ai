@@ -21,7 +21,7 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     manifest_path = engine.write_run_manifest(state.project.id, report_path)
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-    assert payload["schema_version"] == "1.1"
+    assert payload["schema_version"] == "1.2"
     assert payload["run_id"].startswith(state.project.id)
     assert payload["project_id"] == state.project.id
     assert payload["run_profile"] == "mock"
@@ -34,6 +34,11 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     assert payload["executions"]
     assert "llm_runs" in payload
     assert "collaboration_runs" in payload
+    assert "team_plan" in payload["collaboration_runs"][0]
+    assert "requirement_evaluations" in payload
+    assert payload["requirement_evaluations"]
+    assert payload["requirement_evaluations"][0]["kind"] == "requirement_spec"
+    assert "score" in payload["requirement_evaluations"][0]
     assert "artifact_ids" in payload["executions"][0]
     assert isinstance(payload["executions"][0]["artifact_ids"], list)
     assert "changed_files" in payload["executions"][0]
@@ -45,6 +50,7 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     assert payload["files"]["log"].endswith(f"{state.project.id}.jsonl")
     assert payload["files"]["report"] == str(report_path)
     assert payload["summary"]["execution_count"] == len(state.executions)
+    assert "requirement_quality_score" in payload["summary"]
     assert payload["log_path"].endswith(f"{state.project.id}.jsonl")
 
 
@@ -54,7 +60,7 @@ def test_manifest_records_codex_model_for_bound_agent(tmp_path) -> None:
         artifact_dir=tmp_path / "artifacts",
         cli_selection_config=CLISelectionConfig(
             selected_cli_names=["codex"],
-            role_cli_bindings={"designer": "codex"},
+            role_cli_bindings={"requirement_designer": "codex", "designer": "codex"},
             codex_model="gpt-5.4-mini",
             codex_reasoning_effort="medium",
         ),
@@ -65,7 +71,7 @@ def test_manifest_records_codex_model_for_bound_agent(tmp_path) -> None:
     manifest_path = engine.write_run_manifest(state.project.id, report_path)
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-    designer = next(agent for agent in payload["agents"] if agent["role"] == "designer")
+    designer = next(agent for agent in payload["agents"] if agent["role"] == "requirement_designer")
     assert designer["cli_name"] == "codex"
     assert designer["model"] == "gpt-5.4-mini/medium"
 

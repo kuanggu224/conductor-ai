@@ -3,7 +3,7 @@
 from conductor.agents.agent import Agent
 from conductor.agents.profile import build_default_agent_profiles
 from conductor.config.cli import CLISelectionConfig
-from conductor.domain.models import Capability, ExecutionStatus, WorkItem, WorkItemStatus
+from conductor.domain.models import Capability, ExecutionStatus, Project, ProjectStatus, SharedProjectState, WorkItem, WorkItemStatus
 from conductor.harness.base import BaseHarness
 from conductor.harness.models import HarnessRequest, HarnessResult
 from conductor.execution.runner import Runner
@@ -278,6 +278,37 @@ def test_opencode_document_prompt_uses_file_output(tmp_path) -> None:
 
     assert "CONDUCTOR_OUTPUT_workitem-001.md" in prompt
     assert runner._read_agent_cli_document_file(str(tmp_path), workitem, "opencode") == "# 目标\n真实产出"
+
+
+def test_requirement_document_prompts_include_quality_gate_sections() -> None:
+    state_store = InMemoryStateStore()
+    state_store.save_state(
+        SharedProjectState(
+            project=Project(id="project-prompts", goal="Build a reading list", current_stage="requirement"),
+            project_status=ProjectStatus.IN_PROGRESS,
+            current_stage="requirement",
+        )
+    )
+    runner = Runner(state_store=state_store)
+    profile = next(profile for profile in build_default_agent_profiles() if profile.role_name == "requirement_designer")
+    agent = Agent(
+        id="agent-requirement-designer",
+        role="requirement_designer",
+        profile=profile,
+        capabilities=[Capability.PLANNING],
+        execution_backend="llm",
+    )
+    workitem = WorkItem(id="workitem-req", description="Clarify requirement", stage="requirement", kind="requirement_spec")
+
+    harness_prompt = runner._build_llm_harness_document_prompt("project-prompts", workitem, agent)
+    codex_prompt = runner._build_agent_cli_document_prompt(workitem, agent, "codex")
+    opencode_prompt = runner._build_agent_cli_document_prompt(workitem, agent, "opencode")
+
+    for prompt in [harness_prompt, codex_prompt, opencode_prompt]:
+        assert "非目标" in prompt
+        assert "边界/异常场景" in prompt
+        assert "待确认问题" in prompt
+        assert "下游交付约束" in prompt
 
 
 def test_claude_binding_is_disabled_after_provider_compatibility_failure(monkeypatch) -> None:

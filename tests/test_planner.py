@@ -9,10 +9,12 @@ def test_planner_generates_keyword_specific_workitems() -> None:
     planner = Planner()
     requirement = "设计一个包含 API 接口、UI 页面并补充 pytest 测试的功能"
 
-    design_workitems = planner.plan_stage_workitems(workflow.get_first_stage(), requirement)
+    requirement_workitems = planner.plan_stage_workitems(workflow.get_first_stage(), requirement)
+    design_workitems = planner.plan_stage_workitems(workflow.get_next_stage("requirement"), requirement)
     development_workitems = planner.plan_stage_workitems(workflow.get_next_stage("design"), requirement)
     testing_workitems = planner.plan_stage_workitems(workflow.get_next_stage("development"), requirement)
 
+    assert [item.kind for item in requirement_workitems] == ["requirement_spec"]
     assert [item.kind for item in design_workitems] == [
         "design_overview",
         "ui_design",

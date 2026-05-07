@@ -51,10 +51,17 @@ enable UTF-8 for the current shell before running Conductor commands:
 . .\scripts\windows-utf8.ps1
 ```
 
-Conductor Python entrypoints also configure UTF-8 stdio automatically. The
-PowerShell script is still useful for commands such as `Get-Content`, `type`,
-and terminal log tailing. On Windows PowerShell 5, `Get-Content` otherwise
-defaults to the ANSI code page unless `-Encoding utf8` is specified.
+Conductor Python entrypoints configure UTF-8 stdio automatically, and the shell
+harness passes UTF-8 defaults to Python-based child processes:
+
+- `PYTHONUTF8=1`
+- `PYTHONIOENCODING=utf-8`
+- `LANG=C.UTF-8`
+- `LC_ALL=C.UTF-8`
+
+The PowerShell script is still useful for commands such as `Get-Content`,
+`type`, and terminal log tailing. On Windows PowerShell 5, `Get-Content`
+otherwise defaults to the ANSI code page unless `-Encoding utf8` is specified.
 
 Verified with the current workspace test suite on April 16, 2026.
 

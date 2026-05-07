@@ -97,6 +97,9 @@ class ConductorEngine:
                 peer_reviewer_roles_by_stage=self.system_config.collaboration.peer_reviewer_roles_by_stage,
                 reviewer_roles_by_stage=self.system_config.collaboration.reviewer_roles_by_stage,
                 enabled_kinds=self.system_config.collaboration.enabled_kinds,
+                dynamic_requirement_review_enabled=(
+                    self.system_config.collaboration.dynamic_requirement_review_enabled
+                ),
             ),
             cli_selection_config=CLISelectionConfig() if llm_harness_backend is not None else self.cli_selection_config,
             runtime_stream_store=self.runtime_stream_store,

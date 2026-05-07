@@ -10,6 +10,7 @@ from pathlib import Path
 from conductor.config.cli import CLISelectionConfig
 from conductor.config.execution import RunProfile
 from conductor.domain.models import SharedProjectState
+from conductor.requirement_benchmark import build_requirement_case_from_text, evaluate_requirement_document
 
 
 @dataclass(slots=True)
@@ -35,6 +36,7 @@ class RunManifest:
     cli_runs: list[dict[str, object]]
     llm_runs: list[dict[str, object]]
     collaboration_runs: list[dict[str, object]]
+    requirement_evaluations: list[dict[str, object]]
     workitems: list[dict[str, object]]
     artifacts: list[dict[str, object]]
     artifact_files: list[str]
@@ -59,8 +61,9 @@ class RunManifestWriter:
         log_path = str(self._log_path(state.project.id, state.project.project_root))
         report_path_text = str(Path(report_path))
         executions = [self._execution_record(state, execution, cli_config) for execution in state.executions]
+        requirement_evaluations = self._requirement_evaluations(state)
         manifest = RunManifest(
-            schema_version="1.1",
+            schema_version="1.2",
             run_id=f"{state.project.id}:{generated_at}",
             project_id=state.project.id,
             generated_at=generated_at,
@@ -80,6 +83,10 @@ class RunManifestWriter:
                 "artifact_count": len(state.artifacts),
                 "agent_count": len(state.agent_activations),
                 "blocked_count": len(state.blockers),
+                "requirement_quality_score": max(
+                    [int(item["score"]) for item in requirement_evaluations],
+                    default=0,
+                ),
             },
             agents=[self._agent_record(state, activation, cli_config) for activation in state.agent_activations],
             executions=executions,
@@ -90,6 +97,7 @@ class RunManifestWriter:
             ],
             llm_runs=self._llm_runs(state, executions),
             collaboration_runs=self._collaboration_runs(state),
+            requirement_evaluations=requirement_evaluations,
             workitems=[
                 {
                     "id": item.id,
@@ -126,6 +134,28 @@ class RunManifestWriter:
         )
         path.write_text(json.dumps(asdict(manifest), ensure_ascii=False, indent=2), encoding="utf-8")
         return path
+
+    def _requirement_evaluations(self, state: SharedProjectState) -> list[dict[str, object]]:
+        """Evaluate requirement-stage artifacts and embed quality scores in the manifest."""
+        case = build_requirement_case_from_text(state.project.id, state.project.goal, name="project_requirement")
+        evaluations: list[dict[str, object]] = []
+        for artifact in state.artifacts:
+            if artifact.kind not in {"frozen_requirement_spec", "requirement_spec"}:
+                continue
+            evaluation = evaluate_requirement_document(artifact.content, case)
+            evaluations.append(
+                {
+                    "artifact_id": artifact.id,
+                    "kind": artifact.kind,
+                    "path": artifact.path or "",
+                    "score": evaluation.score,
+                    "passed": evaluation.passed,
+                    "checks": evaluation.checks,
+                    "metrics": evaluation.metrics,
+                    "findings": evaluation.findings,
+                }
+            )
+        return evaluations
 
     def _manifest_path(self, project_id: str, project_root: str | Path | None) -> Path:
         root = (Path(project_root) / ".conductor" / "manifests") if project_root else Path(".conductor") / "manifests"
@@ -291,6 +321,7 @@ class RunManifestWriter:
                 "lead_agent_id": collaboration.lead_agent_id,
                 "reviewer_agent_ids": list(collaboration.reviewer_agent_ids),
                 "status": collaboration.status.value,
+                "team_plan": dict(collaboration.team_plan),
                 "max_rounds": collaboration.max_rounds,
                 "current_round": collaboration.current_round,
                 "review_count": len(collaboration.contributions),

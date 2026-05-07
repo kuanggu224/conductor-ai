@@ -42,6 +42,36 @@ def test_shell_harness_tracks_workspace_changes(tmp_path) -> None:
     assert "changed.txt" in result.changed_files
 
 
+def test_shell_harness_preserves_chinese_stdout_and_file_output(tmp_path) -> None:
+    harness = ShellHarness()
+    request = HarnessRequest(
+        command=[
+            sys.executable,
+            "-c",
+            (
+                "import os, sys; "
+                "from pathlib import Path; "
+                "print(os.environ.get('PYTHONUTF8')); "
+                "print('需求：费用报销审批'); "
+                "Path('需求.txt').write_text('状态：已保存中文', encoding='utf-8')"
+            ),
+        ],
+        working_directory=str(tmp_path),
+        timeout_seconds=10,
+        description="utf8-roundtrip",
+        track_workspace_changes=True,
+        workspace_root=str(tmp_path),
+    )
+
+    result = harness.run(request)
+
+    assert result.success is True
+    assert "1" in result.stdout.splitlines()
+    assert "需求：费用报销审批" in result.stdout
+    assert (tmp_path / "需求.txt").read_text(encoding="utf-8") == "状态：已保存中文"
+    assert "需求.txt" in result.changed_files
+
+
 def test_shell_harness_streams_output_lines(tmp_path) -> None:
     harness = ShellHarness()
     streamed: list[tuple[str, str]] = []

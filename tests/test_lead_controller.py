@@ -1,10 +1,37 @@
 """LeadController 测试。"""
 
 from conductor.controller.lead_controller import LeadController
+from conductor.collaboration.models import Collaboration, CollaborationStatus
+from conductor.collaboration.policy import CollaborationPolicy
 from conductor.domain.models import ProjectStatus, TaskAssignmentStatus, WorkItem, WorkItemStatus
 from conductor.execution.runner import Runner
 from conductor.state.store import InMemoryStateStore
 from conductor.workflow.template import WorkflowTemplate
+
+
+class FailingRequirementCollaborationRunner:
+    policy = CollaborationPolicy(
+        enabled=True,
+        lead_role_by_stage={"requirement": "requirement_designer"},
+        peer_reviewer_roles_by_stage={"requirement": ["designer"]},
+        reviewer_roles_by_stage={"requirement": ["tester"]},
+        enabled_kinds={"requirement_spec"},
+    )
+
+    def should_collaborate(self, project_id: str, workitem: WorkItem) -> bool:
+        return workitem.kind == "requirement_spec"
+
+    def run_review_loop(self, project_id: str, workitem: WorkItem, draft_artifact):
+        return Collaboration(
+            id=f"collaboration-{workitem.id}",
+            project_id=project_id,
+            workitem_id=workitem.id,
+            lead_agent_id="agent-requirement-designer",
+            reviewer_agent_ids=[],
+            status=CollaborationStatus.FAILED,
+            max_rounds=1,
+            current_round=1,
+        )
 
 
 def build_controller() -> LeadController:
@@ -14,28 +41,42 @@ def build_controller() -> LeadController:
     return LeadController(workflow_template=workflow, state_store=state_store, runner=runner)
 
 
-def test_initialize_project_creates_design_workitem() -> None:
+def build_controller_with_failing_requirement_collaboration() -> LeadController:
+    state_store = InMemoryStateStore()
+    runner = Runner(state_store=state_store)
+    workflow = WorkflowTemplate()
+    return LeadController(
+        workflow_template=workflow,
+        state_store=state_store,
+        runner=runner,
+        collaboration_runner=FailingRequirementCollaborationRunner(),
+    )
+
+
+def test_initialize_project_creates_requirement_workitem() -> None:
     controller = build_controller()
 
     state = controller.initialize_project("实现最小骨架")
 
-    assert state.project.current_stage == "design"
-    assert state.current_stage == "design"
+    assert state.project.current_stage == "requirement"
+    assert state.current_stage == "requirement"
     assert len(state.workitems) == 1
-    assert state.workitems[0].stage == "design"
-    assert state.workitems[0].kind == "design_overview"
-    assert state.planned_roles == ["designer"]
+    assert state.workitems[0].stage == "requirement"
+    assert state.workitems[0].kind == "requirement_spec"
+    assert state.planned_roles == ["requirement_designer"]
     assert len(state.agent_activations) == 1
-    assert state.agent_activations[0].agent_id == "agent-designer"
-    assert state.agent_activations[0].role == "designer"
-    assert state.agent_activations[0].stage == "design"
-    assert any("创建 Agent agent-designer" in event for event in state.recent_events)
+    assert state.agent_activations[0].agent_id == "agent-requirement-designer"
+    assert state.agent_activations[0].role == "requirement_designer"
+    assert state.agent_activations[0].stage == "requirement"
+    assert any("创建 Agent agent-requirement-designer" in event for event in state.recent_events)
 
 
 def test_initialize_project_uses_requirement_keywords_to_expand_workitems() -> None:
     controller = build_controller()
 
     state = controller.initialize_project("设计一个 API 接口和 UI 页面，并补充测试")
+    state = controller.advance(state)
+    state = controller.advance(state)
 
     design_workitems = [item for item in state.workitems if item.stage == "design"]
     assert [item.kind for item in design_workitems] == [
@@ -44,25 +85,66 @@ def test_initialize_project_uses_requirement_keywords_to_expand_workitems() -> N
         "api_design",
         "test_design",
     ]
-    assert state.planned_roles == ["designer"]
+    assert state.planned_roles == ["requirement_designer", "designer"]
+
+
+def test_requirement_gate_failure_creates_rework_workitem() -> None:
+    controller = build_controller_with_failing_requirement_collaboration()
+    state = controller.initialize_project("实现一个读书清单，支持导出 CSV")
+
+    state = controller.advance(state)
+
+    requirement_items = [item for item in state.workitems if item.stage == "requirement"]
+    original = next(item for item in requirement_items if item.id == "workitem-001")
+    rework = next(item for item in requirement_items if item.id != "workitem-001")
+    original_assignment = next(item for item in state.task_assignments if item.workitem_id == original.id)
+    rework_assignment = next(item for item in state.task_assignments if item.workitem_id == rework.id)
+
+    assert original.status == WorkItemStatus.DONE
+    assert original.blocked_reason == "需求门禁失败已转入返工 WorkItem"
+    assert rework.status == WorkItemStatus.PENDING
+    assert rework.kind == "requirement_spec"
+    assert rework.feedback_from == [original.id]
+    assert rework.input_artifact_ids
+    assert original_assignment.status == TaskAssignmentStatus.FAILED
+    assert rework_assignment.status == TaskAssignmentStatus.QUEUED
+    assert any("需求门禁返工" in event for event in state.recent_events)
+
+
+def test_requirement_gate_rework_limit_blocks_project() -> None:
+    controller = build_controller_with_failing_requirement_collaboration()
+    state = controller.initialize_project("实现一个读书清单，支持导出 CSV")
+
+    for _ in range(4):
+        state = controller.advance(state)
+
+    requirement_items = [item for item in state.workitems if item.stage == "requirement"]
+
+    assert state.project_status == ProjectStatus.BLOCKED
+    assert len(requirement_items) == 4
+    assert state.blockers
+    assert "需求门禁连续返工仍未通过" in state.blockers[-1]
+    assert any("需求门禁返工上限触发" in event for event in state.recent_events)
 
 
 def test_advance_can_run_and_finish_project() -> None:
     controller = build_controller()
     state = controller.initialize_project("实现最小骨架")
 
-    for _ in range(6):
+    for _ in range(8):
         state = controller.advance(state)
 
     assert state.project_status.value == "completed"
-    assert len(state.executions) == 3
+    assert len(state.executions) == 4
     assert state.gate_history[-1] == "testing:pass"
     assert [decision.selected_agent for decision in state.route_decisions] == [
+        "agent-requirement-designer",
         "agent-designer",
         "agent-backend",
         "agent-tester",
     ]
     assert [activation.role for activation in state.agent_activations] == [
+        "requirement_designer",
         "designer",
         "backend_engineer",
         "tester",
@@ -71,6 +153,7 @@ def test_advance_can_run_and_finish_project() -> None:
         "workitem-001",
         "workitem-002",
         "workitem-003",
+        "workitem-004",
     ]
 
 
@@ -84,6 +167,8 @@ def test_failed_workitem_can_retry_and_recover() -> None:
         kind="fail_once",
     )
     state.workitems = [fail_workitem]
+    state.current_stage = "design"
+    state.project.current_stage = "design"
     controller.state_store.save_state(state)
 
     state = controller.advance(state)
@@ -110,6 +195,8 @@ def test_failed_workitem_escalates_when_retry_exhausted() -> None:
         max_retries=0,
     )
     state.workitems = [fail_workitem]
+    state.current_stage = "design"
+    state.project.current_stage = "design"
     controller.state_store.save_state(state)
 
     state = controller.advance(state)
@@ -135,6 +222,8 @@ def test_non_retryable_failed_workitem_blocks_without_retry() -> None:
         blocked_reason="failure_type=configuration_required; retryable=false; summary=missing cli",
     )
     state.workitems = [failed_workitem]
+    state.current_stage = "design"
+    state.project.current_stage = "design"
     controller.state_store.save_state(state)
 
     state = controller.advance(state)
@@ -153,11 +242,11 @@ def test_task_center_records_claim_and_return() -> None:
     state = controller.advance(state)
 
     assert state.task_assignments[0].status == TaskAssignmentStatus.COMPLETED
-    assert state.task_assignments[0].assigned_agent_id == "agent-designer"
+    assert state.task_assignments[0].assigned_agent_id == "agent-requirement-designer"
     assert state.task_assignments[0].output_artifact_ids
-    assert state.agent_capability_stats[0].agent_id == "agent-designer"
+    assert state.agent_capability_stats[0].agent_id == "agent-requirement-designer"
     assert state.agent_capability_stats[0].completed_count == 1
-    assert "design_overview" in state.agent_capability_stats[0].workitem_kinds
+    assert "requirement_spec" in state.agent_capability_stats[0].workitem_kinds
     assert any("任务中心" in event for event in state.recent_events)
 
 
@@ -165,6 +254,8 @@ def test_next_stage_workitems_depend_on_previous_stage() -> None:
     controller = build_controller()
     state = controller.initialize_project("实现 API 和 UI 页面")
 
+    while state.current_stage == "requirement":
+        state = controller.advance(state)
     while state.current_stage == "design":
         state = controller.advance(state)
 

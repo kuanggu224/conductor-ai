@@ -69,3 +69,4 @@ class Collaboration:
     contributions: list[ReviewContribution] = field(default_factory=list)
     draft_versions: list[CollaborationDraftVersion] = field(default_factory=list)
     final_artifact_id: str | None = None
+    team_plan: dict[str, object] = field(default_factory=dict)

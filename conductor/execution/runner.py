@@ -60,7 +60,7 @@ class Runner:
     HARNESS_WORKITEM_KINDS = {"acceptance_check", "automated_test", "api_validation", "ui_validation"}
     CODE_EDIT_WORKITEM_KINDS = {"api_implementation", "data_implementation", "generic_implementation", "ui_implementation"}
     CODE_EDIT_AGENT_ROLES = {"backend_engineer", "frontend_engineer"}
-    DESIGN_DOCUMENT_WORKITEM_KINDS = {"design_overview", "ui_design", "api_design", "test_design"}
+    DESIGN_DOCUMENT_WORKITEM_KINDS = {"requirement_spec", "design_overview", "ui_design", "api_design", "test_design"}
 
     def __init__(
         self,
@@ -711,11 +711,40 @@ class Runner:
         """Build a controlled artifact prompt for direct API models."""
         state = self.state_store.get_state(project_id)
         criteria = "\n".join(f"- {item}" for item in workitem.acceptance_criteria) or "- No explicit acceptance criteria"
+        if workitem.kind == "requirement_spec":
+            required_sections = [
+                "## 目标",
+                "## 需求理解",
+                "## 范围边界",
+                "## 非目标",
+                "## 验收标准",
+                "## 边界/异常场景",
+                "## 风险与假设",
+                "## 待确认问题",
+                "## 下游交付约束",
+            ]
+            quality_instruction = (
+                "需求规格必须可冻结：明确不做什么、哪些问题是假设、哪些边界/异常需要验收，"
+                "并写清后续设计、开发、测试必须遵守的需求基线。"
+            )
+        else:
+            required_sections = [
+                "## 目标",
+                "## 需求理解",
+                "## 范围边界",
+                "## 核心流程",
+                "## 方案",
+                "## 接口与数据关注点",
+                "## 验收标准",
+                "## 风险",
+            ]
+            quality_instruction = "设计文档必须能被后续 Agent 直接执行，并保留清晰范围边界。"
         return (
             "请直接产出一份中文 Markdown 需求/设计文档。\n"
             "不要说明你准备做什么，不要输出寒暄，不要反问。\n"
             "总长度控制在 1200-1800 个中文字符，每个章节 2-4 条要点。\n"
             "必须完整输出全部指定标题，不能在中途停止，不能展开长篇背景说明。\n\n"
+            f"{quality_instruction}\n\n"
             f"项目需求:\n{state.project.goal}\n\n"
             f"当前角色: {agent.role}\n"
             f"WorkItem ID: {workitem.id}\n"
@@ -723,14 +752,8 @@ class Runner:
             f"任务描述: {workitem.description}\n\n"
             f"验收标准:\n{criteria}\n\n"
             "必须包含这些二级标题:\n"
-            "## 目标\n"
-            "## 需求理解\n"
-            "## 范围边界\n"
-            "## 核心流程\n"
-            "## 方案\n"
-            "## 接口与数据关注点\n"
-            "## 验收标准\n"
-            "## 风险\n"
+            + "\n".join(required_sections)
+            + "\n"
         )
 
     def _build_llm_code_prompt(self, project_id: str, workitem: WorkItem, agent: Agent) -> str:
@@ -896,7 +919,9 @@ class Runner:
 
     def _missing_llm_harness_sections(self, content: str, workitem: WorkItem) -> list[str]:
         """Validate the minimum sections needed by downstream agents."""
-        if workitem.kind == "design_overview":
+        if workitem.kind == "requirement_spec":
+            required = ["目标", "需求理解", "范围边界", "非目标", "验收标准", "边界/异常场景", "风险与假设", "待确认问题", "下游交付约束"]
+        elif workitem.kind == "design_overview":
             required = ["目标", "需求理解", "范围边界", "核心流程", "方案", "接口与数据关注点", "验收标准", "风险"]
         elif workitem.kind == "api_design":
             required = ["目标", "接口", "输入", "输出", "验收"]
@@ -963,8 +988,8 @@ class Runner:
             self.llm_harness is not None
             and self.llm_harness_config is not None
             and self.llm_harness_config.enabled
-            and agent.role == "designer"
-            and workitem.stage == "design"
+            and agent.role in {"designer", "requirement_designer"}
+            and workitem.stage in {"requirement", "design"}
             and workitem.kind in self.DESIGN_DOCUMENT_WORKITEM_KINDS
         )
 
@@ -1010,8 +1035,8 @@ class Runner:
         """Return whether this design work must not fall back to mock output."""
         return (
             self.require_real_design_outputs
-            and agent.role == "designer"
-            and workitem.stage == "design"
+            and agent.role in {"designer", "requirement_designer"}
+            and workitem.stage in {"requirement", "design"}
             and workitem.kind in self.DESIGN_DOCUMENT_WORKITEM_KINDS
         )
 
@@ -1050,10 +1075,18 @@ class Runner:
         """Build the document-style execution prompt."""
         criteria = "\n".join(f"- {item}" for item in workitem.acceptance_criteria) or "- 无显式验收标准"
         role_instruction = {
+            "requirement_designer": (
+                "请产出可冻结的需求规格，不要反问用户；信息不足时给出明确假设。"
+                "必须覆盖：用户目标、需求理解、范围边界、非目标、验收标准、边界/异常场景、风险与假设、待确认问题、下游交付约束。"
+            ),
+            "solution_designer": (
+                "请从流程完整性、信息结构和下游可执行性角度产出需求设计文档。"
+                "必须覆盖范围边界、非目标、核心流程、验收标准、边界/异常场景、风险与后续约束。"
+            ),
             "designer": (
                 "请产出可直接交给后端、前端、测试 Agent 使用的需求设计文档。"
                 "不要反问用户；信息不足时基于现有需求给出合理假设，并明确标注为假设。"
-                "必须覆盖：用户目标、范围边界、核心流程、页面/接口/数据/验收关注点、非目标范围、风险。"
+                "必须覆盖：用户目标、范围边界、核心流程、页面/接口/数据/验收关注点、非目标范围、边界/异常场景、风险、下游交付约束。"
             ),
             "backend_engineer": "请产出后端实现说明文档，不要写入文件、不执行命令；包含接口、数据结构、关键流程和风险。",
             "frontend_engineer": "请产出前端实现说明文档，不要写入文件、不执行命令；包含页面结构、组件拆分、状态和交互。",
@@ -1066,7 +1099,7 @@ class Runner:
             f"类型: {workitem.kind}\n"
             f"描述: {workitem.description}\n"
             f"验收标准:\n{criteria}\n\n"
-            "请使用中文输出结构化 Markdown 文档，至少包含：目标、需求理解、范围边界、关键假设、方案、交付物、验收标准、风险。"
+            "请使用中文输出结构化 Markdown 文档。需求规格类任务至少包含：目标、需求理解、范围边界、非目标、验收标准、边界/异常场景、风险与假设、待确认问题、下游交付约束。"
         )
 
     def _build_agent_cli_document_prompt(self, workitem: WorkItem, agent: Agent, cli_name: str) -> str:
@@ -1082,7 +1115,10 @@ class Runner:
     def _build_compact_codex_document_prompt(self, workitem: WorkItem, agent: Agent) -> str:
         """Build a strict non-interactive document prompt for Codex CLI."""
         criteria = "\n".join(f"- {item}" for item in workitem.acceptance_criteria) or "- No explicit acceptance criteria"
-        if agent.role == "designer":
+        if workitem.kind == "requirement_spec" or agent.role == "requirement_designer":
+            role_goal = "Produce a frozen-ready requirement specification for downstream design, development, and testing agents."
+            required_sections = "目标, 需求理解, 范围边界, 非目标, 验收标准, 边界/异常场景, 风险与假设, 待确认问题, 下游交付约束"
+        elif agent.role == "designer":
             role_goal = (
                 "Produce a complete requirement/design document that downstream backend, frontend, "
                 "and testing agents can execute from."
@@ -1109,6 +1145,7 @@ class Runner:
     def _build_compact_claude_document_prompt(self, workitem: WorkItem, agent: Agent) -> str:
         """Build a compact English prompt for Claude CLI, but keep Chinese output."""
         kind_focus = {
+            "requirement_spec": "Create a frozen-ready requirement specification with user goals, scope boundaries, non-goals, acceptance cases, edge/error cases, risks, assumptions, open questions, and downstream handoff constraints.",
             "design_overview": "Create a requirement design document with user goals, scope boundaries, main flows, implementation constraints, acceptance criteria, and risks.",
             "ui_design": "Describe UI structure, core interactions, primary views, and state changes.",
             "api_design": "Describe API boundaries, payloads, main endpoints, and failure handling.",
@@ -1124,13 +1161,16 @@ class Runner:
             f"Acceptance checklist:\n{criteria}\n\n"
             "Return concise Chinese markdown.\n"
             "Do not ask follow-up questions.\n"
-            "Use these sections: 目标, 需求理解, 范围边界, 关键假设, 方案, 交付物, 验收标准, 风险.\n"
+            "For requirement_spec use sections: 目标, 需求理解, 范围边界, 非目标, 验收标准, 边界/异常场景, 风险与假设, 待确认问题, 下游交付约束.\n"
+            "For other document tasks use sections: 目标, 需求理解, 范围边界, 关键假设, 方案, 交付物, 验收标准, 风险.\n"
         )
 
     def _build_compact_opencode_document_prompt(self, workitem: WorkItem, agent: Agent) -> str:
         """Build a file-output document prompt for OpenCode/local models."""
         output_path = f"CONDUCTOR_OUTPUT_{workitem.id}.md"
-        if agent.role == "designer":
+        if workitem.kind == "requirement_spec" or agent.role == "requirement_designer":
+            sections = "目标, 需求理解, 范围边界, 非目标, 验收标准, 边界/异常场景, 风险与假设, 待确认问题, 下游交付约束"
+        elif agent.role == "designer":
             sections = "目标, 需求理解, 范围边界, 核心流程, 接口与数据关注点, 验收标准, 风险"
         else:
             sections = "目标, 需求理解, 方案, 交付物, 验收标准, 风险"

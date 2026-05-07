@@ -7,8 +7,9 @@ from conductor.workflow.template import GateDecision, WorkflowGateEvaluator, Wor
 def test_default_workflow_sequence() -> None:
     workflow = WorkflowTemplate()
 
-    assert [stage.name for stage in workflow.stages] == ["design", "development", "testing"]
-    assert workflow.get_first_stage().name == "design"
+    assert [stage.name for stage in workflow.stages] == ["requirement", "design", "development", "testing"]
+    assert workflow.get_first_stage().name == "requirement"
+    assert workflow.get_next_stage("requirement").name == "design"
     assert workflow.get_next_stage("design").name == "development"
     assert workflow.get_next_stage("testing") is None
     assert GateDecision.PASS.value == "pass"

@@ -50,6 +50,8 @@ class Planner:
         normalized_requirement: str,
         original_requirement: str,
     ) -> list[WorkItemDraft]:
+        if stage_name == "requirement":
+            return self._plan_requirement_drafts(normalized_requirement, original_requirement)
         if stage_name == "design":
             return self._plan_design_drafts(normalized_requirement, original_requirement)
         if stage_name == "development":
@@ -64,12 +66,26 @@ class Planner:
             )
         ]
 
+    def _plan_requirement_drafts(self, normalized_requirement: str, original_requirement: str) -> list[WorkItemDraft]:
+        """Plan the formal requirement clarification and freeze WorkItem."""
+        return [
+            WorkItemDraft(
+                kind="requirement_spec",
+                description=f"澄清需求、收敛范围并形成冻结需求规格：{original_requirement}",
+                acceptance_criteria=[
+                    "明确用户目标、核心功能和非目标范围",
+                    "列出可执行验收标准、风险假设和待确认问题",
+                    "通过多职责视角评审后生成冻结需求规格",
+                ],
+            )
+        ]
+
     def _plan_design_drafts(self, normalized_requirement: str, original_requirement: str) -> list[WorkItemDraft]:
         drafts = [
             WorkItemDraft(
                 kind="design_overview",
-                description=f"梳理需求并形成总体设计：{original_requirement}",
-                acceptance_criteria=["输出设计要点", "明确下一阶段实现边界"],
+                description=f"基于冻结需求规格形成总体设计：{original_requirement}",
+                acceptance_criteria=["输出设计要点", "明确下一阶段实现边界", "不得改变冻结需求范围"],
             )
         ]
         if self._contains_any(normalized_requirement, self.UI_KEYWORDS):

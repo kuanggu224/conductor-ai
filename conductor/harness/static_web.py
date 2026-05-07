@@ -15,6 +15,7 @@ from urllib.request import urlopen
 
 from conductor.harness.base import BaseHarness
 from conductor.harness.models import HarnessRequest, HarnessResult
+from conductor.io.encoding import utf8_subprocess_environment
 
 
 @dataclass(slots=True)
@@ -158,6 +159,7 @@ class StaticWebHarness(BaseHarness):
                 text=True,
                 encoding="utf-8",
                 errors="replace",
+                env=utf8_subprocess_environment(),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 check=False,

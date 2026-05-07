@@ -3,6 +3,7 @@
 from conductor.agents.registry import AgentRegistry
 from conductor.artifacts.store import ArtifactStore
 from conductor.collaboration.models import CollaborationStatus, ReviewDecision
+from conductor.collaboration.policy import CollaborationPolicy
 from conductor.collaboration.runner import CollaborationRunner
 from conductor.config.cli import CLISelectionConfig
 from conductor.agents.llm import LLMHTTPConfig
@@ -63,6 +64,86 @@ class FakeCollaborationLLMHarness:
                 "# 修订版需求设计文档\n\n"
                 "## 目标\n完成真实修订。\n\n"
                 "## 可执行验收用例\n- 输入 12 元 Food，期望总额显示 12。\n"
+            )
+        return LLMHarnessResult(
+            success=True,
+            content=content,
+            duration_ms=10,
+            model_name=request.config.model_name,
+            output_path=request.output_path,
+        )
+
+
+class FakeApprovalLLMHarness:
+    name = "llm"
+
+    def run(self, request):
+        return LLMHarnessResult(
+            success=True,
+            content="Decision: approve\n\n### 主要问题\n- 无\n\n### 建议\n- 可以进入下一步\n",
+            duration_ms=10,
+            model_name=request.config.model_name,
+            output_path=request.output_path,
+        )
+
+
+class FakeRequirementRevisionLLMHarness:
+    name = "llm"
+
+    def __init__(self) -> None:
+        self.requests = []
+
+    def run(self, request):
+        self.requests.append(request)
+        if request.metadata.get("mode") == "collaboration_review":
+            content = (
+                "Decision: request_changes\n\n"
+                "## 主要问题\n"
+                "- 需要明确刷新后的持久化策略、CSV 导出字段和可执行验收用例。\n\n"
+                "## 建议\n"
+                "- 补充 localStorage、字段校验、空数据导出和下游测试约束。\n\n"
+                "## 风险\n"
+                "- 数据丢失和导出格式不一致。\n\n"
+                "## 可执行验收关注点\n"
+                "- 添加书籍后刷新页面，数据仍存在；空清单导出 CSV 时给出反馈。"
+            )
+        else:
+            content = (
+                "# 个人读书清单 Web 应用需求规格\n\n"
+                "## 目标\n"
+                "为个人用户提供读书清单 Web 应用，支持添加书名、作者、阅读状态、评分、备注，"
+                "按状态筛选，导出 CSV，并在刷新后保留数据。\n\n"
+                "## 需求理解\n"
+                "- 用户可以新增、编辑、删除书籍记录。\n"
+                "- 阅读状态包括未读、在读、已读，可用于列表筛选。\n"
+                "- CSV 导出包含书名、作者、阅读状态、评分、备注和更新时间字段。\n"
+                "- 使用 localStorage 持久化单用户数据，刷新页面后恢复完整清单。\n\n"
+                "## 范围边界\n"
+                "- 仅交付单用户 Web 应用和浏览器本地持久化。\n"
+                "- 不包含账号系统、云同步、推荐系统和社交分享。\n\n"
+                "## 非目标\n"
+                "- 不做多端同步。\n"
+                "- 不做书籍封面上传。\n"
+                "- 不做第三方登录。\n\n"
+                "## 验收标准\n"
+                "- 输入书名《三体》、作者刘慈欣、状态已读、评分 5、备注科幻后提交，列表出现该记录。\n"
+                "- 将状态筛选为已读时，只显示已读书籍。\n"
+                "- 导出 CSV 时，文件包含书名、作者、阅读状态、评分、备注和更新时间列。\n"
+                "- 添加至少 2 条记录后刷新页面，所有记录仍存在。\n\n"
+                "## 边界/异常场景\n"
+                "- 书名或作者为空时阻止提交并显示错误。\n"
+                "- 评分必须在 1 到 5 之间。\n"
+                "- 空清单导出 CSV 时显示无数据反馈。\n"
+                "- localStorage 写入失败时显示保存失败提示。\n\n"
+                "## 风险与假设\n"
+                "- 假设只服务单浏览器单用户场景。\n"
+                "- 风险是用户清理浏览器数据会导致记录丢失。\n\n"
+                "## 待确认问题\n"
+                "- CSV 文件名是否需要包含日期？\n"
+                "- 阅读状态枚举是否允许用户自定义？\n\n"
+                "## 下游交付约束\n"
+                "- 前端实现必须覆盖空状态、错误状态和筛选状态。\n"
+                "- 测试必须覆盖刷新持久化、CSV 导出字段和字段校验。"
             )
         return LLMHarnessResult(
             success=True,
@@ -277,3 +358,203 @@ def test_collaboration_runner_uses_llm_harness_for_reviews_and_revision(tmp_path
     assert collaboration.status == CollaborationStatus.MAX_ROUNDS_REACHED
     collaboration_artifact = next(artifact for artifact in latest.artifacts if artifact.kind == "collaboration_review")
     assert "可执行验收用例" in collaboration_artifact.content
+
+
+def test_requirement_quality_gate_can_fail_approved_but_weak_draft(tmp_path) -> None:
+    state_store = InMemoryStateStore()
+    registry = AgentRegistry()
+    artifact_store = ArtifactStore(tmp_path)
+    runner = CollaborationRunner(
+        state_store=state_store,
+        registry=registry,
+        artifact_store=artifact_store,
+        policy=CollaborationPolicy(
+            enabled=True,
+            max_rounds=1,
+            lead_role_by_stage={"requirement": "requirement_designer"},
+            peer_reviewer_roles_by_stage={"requirement": ["designer"]},
+            reviewer_roles_by_stage={"requirement": []},
+            enabled_kinds={"requirement_spec"},
+        ),
+        require_real_outputs=True,
+        use_llm=False,
+        llm_harness=FakeApprovalLLMHarness(),
+        llm_harness_config=LLMHTTPConfig(
+            base_url="http://127.0.0.1:1234/v1",
+            model_name="reviewer-model",
+            enabled=True,
+        ),
+    )
+    workitem = WorkItem(
+        id="workitem-req",
+        description="澄清读书清单需求",
+        stage="requirement",
+        kind="requirement_spec",
+    )
+    draft = artifact_store.save_markdown(
+        Artifact(
+            id="artifact-workitem-req",
+            project_id="project-quality-gate",
+            workitem_id=workitem.id,
+            agent_id="agent-requirement-designer",
+            kind="requirement_spec",
+            title="需求草案",
+            content="可以做。",
+            source_backend="llm_harness/reviewer-model",
+        )
+    )
+    state_store.save_state(
+        SharedProjectState(
+            project=Project(
+                id="project-quality-gate",
+                goal="个人读书清单 Web 应用：添加书名、作者、阅读状态、评分、备注；按状态筛选；导出 CSV；刷新后保留数据。",
+                current_stage="requirement",
+                project_root=str(tmp_path),
+            ),
+            project_status=ProjectStatus.IN_PROGRESS,
+            current_stage="requirement",
+            workitems=[workitem],
+            artifacts=[draft],
+        )
+    )
+
+    collaboration = runner.run_review_loop("project-quality-gate", workitem, draft)
+    latest = state_store.get_state("project-quality-gate")
+
+    assert collaboration.status == CollaborationStatus.FAILED
+    assert not any(artifact.kind == "frozen_requirement_spec" for artifact in latest.artifacts)
+    assert any("需求质量门禁未通过" in event for event in latest.recent_events)
+
+
+def test_requirement_final_arbitration_accepts_resolved_last_revision(tmp_path) -> None:
+    state_store = InMemoryStateStore()
+    registry = AgentRegistry()
+    artifact_store = ArtifactStore(tmp_path)
+    llm_harness = FakeRequirementRevisionLLMHarness()
+    runner = CollaborationRunner(
+        state_store=state_store,
+        registry=registry,
+        artifact_store=artifact_store,
+        policy=CollaborationPolicy(
+            enabled=True,
+            max_rounds=1,
+            lead_role_by_stage={"requirement": "requirement_designer"},
+            peer_reviewer_roles_by_stage={"requirement": ["designer"]},
+            reviewer_roles_by_stage={"requirement": []},
+            enabled_kinds={"requirement_spec"},
+            dynamic_requirement_review_enabled=False,
+        ),
+        require_real_outputs=True,
+        use_llm=False,
+        llm_harness=llm_harness,
+        llm_harness_config=LLMHTTPConfig(
+            base_url="http://127.0.0.1:1234/v1",
+            model_name="reviewer-model",
+            enabled=True,
+        ),
+    )
+    workitem = WorkItem(
+        id="workitem-final-arbitration",
+        description="澄清读书清单需求",
+        stage="requirement",
+        kind="requirement_spec",
+    )
+    draft = artifact_store.save_markdown(
+        Artifact(
+            id="artifact-final-arbitration",
+            project_id="project-final-arbitration",
+            workitem_id=workitem.id,
+            agent_id="agent-requirement-designer",
+            kind="requirement_spec",
+            title="需求草案",
+            content="# 初稿\n\n支持读书清单。",
+            source_backend="llm_harness/reviewer-model",
+        )
+    )
+    state_store.save_state(
+        SharedProjectState(
+            project=Project(
+                id="project-final-arbitration",
+                goal="个人读书清单 Web 应用：添加书名、作者、阅读状态、评分、备注；按状态筛选；导出 CSV；刷新后保留数据。",
+                current_stage="requirement",
+                project_root=str(tmp_path),
+            ),
+            project_status=ProjectStatus.IN_PROGRESS,
+            current_stage="requirement",
+            workitems=[workitem],
+            artifacts=[draft],
+        )
+    )
+
+    collaboration = runner.run_review_loop("project-final-arbitration", workitem, draft)
+    latest = state_store.get_state("project-final-arbitration")
+
+    assert collaboration.status == CollaborationStatus.ACCEPTED
+    assert [request.metadata.get("mode") for request in llm_harness.requests] == [
+        "collaboration_review",
+        "collaboration_revision",
+    ]
+    assert any(artifact.kind == "frozen_requirement_spec" for artifact in latest.artifacts)
+    assert any("Requirement final arbitration" in event for event in latest.recent_events)
+
+
+def test_requirement_collaboration_uses_dynamic_reviewer_seats(tmp_path) -> None:
+    state_store = InMemoryStateStore()
+    registry = AgentRegistry()
+    artifact_store = ArtifactStore(tmp_path)
+    runner = CollaborationRunner(
+        state_store=state_store,
+        registry=registry,
+        artifact_store=artifact_store,
+        policy=CollaborationPolicy(max_rounds=1),
+    )
+    workitem = WorkItem(
+        id="workitem-dynamic-req",
+        description="Clarify a complex requirement",
+        stage="requirement",
+        kind="requirement_spec",
+    )
+    draft = artifact_store.save_markdown(
+        Artifact(
+            id="artifact-dynamic-req",
+            project_id="project-dynamic-team",
+            workitem_id=workitem.id,
+            agent_id="agent-requirement-designer",
+            kind="requirement_spec",
+            title="Requirement Draft",
+            content="Initial draft",
+            source_backend="mock",
+        )
+    )
+    state_store.save_state(
+        SharedProjectState(
+            project=Project(
+                id="project-dynamic-team",
+                goal=(
+                    "Build an expense approval web UI with employee and manager roles, REST API, "
+                    "status workflow, validation errors, persisted data, CSV export, and audit permissions."
+                ),
+                current_stage="requirement",
+                project_root=str(tmp_path),
+            ),
+            project_status=ProjectStatus.IN_PROGRESS,
+            current_stage="requirement",
+            workitems=[workitem],
+            artifacts=[draft],
+        )
+    )
+
+    collaboration = runner.run_review_loop("project-dynamic-team", workitem, draft)
+    latest = state_store.get_state("project-dynamic-team")
+
+    assert "agent-designer:designer.interaction" in collaboration.reviewer_agent_ids
+    assert "agent-designer:designer.information_architecture" in collaboration.reviewer_agent_ids
+    assert "agent-solution-designer:solution_designer.process" in collaboration.reviewer_agent_ids
+    assert "agent-tester:tester.edge_cases" in collaboration.reviewer_agent_ids
+    assert len([item for item in collaboration.contributions if item.role == "designer"]) >= 3
+    assert collaboration.team_plan["complexity_level"] == "complex"
+    assert any(
+        seat["seat_id"] == "designer.interaction"
+        for seat in collaboration.team_plan["peer_seats"]
+    )
+    assert any("Requirement review team planned" in event for event in latest.recent_events)
