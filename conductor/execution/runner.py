@@ -706,13 +706,37 @@ class Runner:
                 f"{'通过' if validation_passed else '失败'}"
             ),
         )
+        raw_output = result.content
+        if not validation_passed:
+            repair_result = self._run_llm_code_repair(
+                project_id=project_id,
+                workitem=workitem,
+                agent=agent,
+                project_root=project_root,
+                changed_files=changed_files,
+                validation_result=validation_result,
+                validation_command=validation_command,
+            )
+            if repair_result is not None:
+                repair_changed_files, repair_raw_output, repair_validation_result = repair_result
+                changed_files = self._merge_changed_files(changed_files, repair_changed_files)
+                raw_output = f"{result.content}\n\n--- repair output ---\n{repair_raw_output}"
+                validation_result = repair_validation_result
+                validation_passed = validation_result.success or self._is_no_tests_discovered(validation_result)
+                self.state_store.add_event(
+                    project_id,
+                    (
+                        f"WorkItem {workitem.id} LLMHarness 修复后自动验证"
+                        f"{'通过' if validation_passed else '失败'}"
+                    ),
+                )
         return WorkItemRunResult(
             content=self._build_llm_code_report(
                 workitem=workitem,
                 agent=agent,
                 model=self.llm_harness_config.model_name,
                 changed_files=changed_files,
-                raw_output=result.content,
+                raw_output=raw_output,
                 validation_result=validation_result,
                 validation_command=validation_command,
                 success=validation_passed,
@@ -727,9 +751,133 @@ class Runner:
             validation_command=validation_command,
             validation_exit_code=validation_result.exit_code,
             validation_success=validation_passed,
-            cli_stdout_tail=self._tail(result.content),
+            cli_stdout_tail=self._tail(raw_output),
             cli_stderr_tail=self._tail(validation_result.stderr),
         )
+
+    def _run_llm_code_repair(
+        self,
+        project_id: str,
+        workitem: WorkItem,
+        agent: Agent,
+        project_root: str,
+        changed_files: list[str],
+        validation_result: HarnessResult,
+        validation_command: list[str],
+    ) -> tuple[list[str], str, HarnessResult] | None:
+        """Ask the same LLM harness to repair files after validation fails."""
+        if self.llm_harness is None or self.llm_harness_config is None:
+            return None
+        result = self.llm_harness.run(
+            LLMHarnessRequest(
+                prompt=self._build_llm_code_repair_prompt(
+                    project_id=project_id,
+                    workitem=workitem,
+                    agent=agent,
+                    project_root=project_root,
+                    changed_files=changed_files,
+                    validation_result=validation_result,
+                    validation_command=validation_command,
+                ),
+                system_prompt=(
+                    "You are a non-interactive coding repair agent. Return only file blocks matching the requested format. "
+                    "Do not include markdown fences or explanation."
+                ),
+                working_directory=project_root,
+                output_path=f".conductor/llm_outputs/{workitem.id}.code.repair-1.txt",
+                config=self.llm_harness_config,
+                max_tokens=4096,
+                temperature=0.0,
+                stream_callback=self._build_stream_callback(project_id),
+                metadata={
+                    "project_id": project_id,
+                    "workitem_id": workitem.id,
+                    "agent_role": agent.role,
+                    "mode": "code_repair",
+                    "attempt": 1,
+                },
+            )
+        )
+        if not result.success or not result.content.strip():
+            self.state_store.add_event(project_id, f"WorkItem {workitem.id} LLMHarness 修复未返回可用内容")
+            return None
+        try:
+            repair_files = self._extract_generated_files(result.content)
+            repair_changed_files = self._write_llm_generated_files(project_root, repair_files)
+        except Exception as error:
+            self.state_store.add_event(project_id, f"WorkItem {workitem.id} LLMHarness 修复产物解析失败: {error}")
+            return None
+        if not repair_changed_files:
+            self.state_store.add_event(project_id, f"WorkItem {workitem.id} LLMHarness 修复未产生文件变化")
+            return None
+        repair_validation_result = self._run_post_edit_validation(workitem, project_root)
+        return repair_changed_files, result.content, repair_validation_result
+
+    def _build_llm_code_repair_prompt(
+        self,
+        project_id: str,
+        workitem: WorkItem,
+        agent: Agent,
+        project_root: str,
+        changed_files: list[str],
+        validation_result: HarnessResult,
+        validation_command: list[str],
+    ) -> str:
+        """Build a focused prompt for repairing validation failures."""
+        current_files = self._read_changed_files_for_repair(project_root, changed_files)
+        stdout = self._tail(validation_result.stdout or "", limit=2400)
+        stderr = self._tail(validation_result.stderr or "", limit=2400)
+        return (
+            "Repair the existing project files so the validation command passes.\n"
+            "Return only the changed complete files, using this exact format for every file:\n"
+            "<<FILE:relative/path.ext>>\n"
+            "complete file content\n"
+            "<<END_FILE>>\n"
+            "Rules:\n"
+            "- Do not rewrite unrelated files.\n"
+            "- Do not write into .conductor, .git, __pycache__, .pytest_cache, node_modules, or virtualenv folders.\n"
+            "- Prefer the smallest fix that addresses the validation failure.\n"
+            "- Keep generated source concise and runnable.\n"
+            "- Never output mojibake, replacement characters, or garbled Chinese text in generated files.\n\n"
+            f"Project requirement:\n{self.state_store.get_state(project_id).project.goal}\n\n"
+            f"Agent role: {agent.role}\n"
+            f"WorkItem ID: {workitem.id}\n"
+            f"WorkItem kind: {workitem.kind}\n"
+            f"Task:\n{workitem.description}\n\n"
+            f"Validation command: {' '.join(validation_command)}\n"
+            f"Exit code: {validation_result.exit_code}\n\n"
+            f"Validation stdout:\n{stdout or '(empty)'}\n\n"
+            f"Validation stderr:\n{stderr or '(empty)'}\n\n"
+            f"Current files:\n{current_files or '(none)'}\n"
+        )
+
+    def _read_changed_files_for_repair(self, project_root: str, changed_files: list[str]) -> str:
+        """Read current generated files for a repair prompt."""
+        root = Path(project_root).expanduser().resolve()
+        sections: list[str] = []
+        total_budget = 12000
+        for relative_path in changed_files:
+            if total_budget <= 0:
+                break
+            try:
+                target = self._safe_generated_path(root, relative_path)
+            except RuntimeError:
+                continue
+            if not target.exists() or not target.is_file():
+                continue
+            content = target.read_text(encoding="utf-8", errors="replace")
+            excerpt = content[:total_budget]
+            total_budget -= len(excerpt)
+            sections.append(f"<<CURRENT_FILE:{relative_path}>>\n{excerpt}\n<<END_CURRENT_FILE>>")
+        return "\n\n".join(sections)
+
+    def _merge_changed_files(self, first: list[str], second: list[str]) -> list[str]:
+        """Merge changed file lists while preserving order."""
+        merged: list[str] = []
+        for path in [*first, *second]:
+            if path not in merged:
+                merged.append(path)
+        return merged
 
     def _build_llm_harness_document_prompt(self, project_id: str, workitem: WorkItem, agent: Agent) -> str:
         """Build a controlled artifact prompt for direct API models."""

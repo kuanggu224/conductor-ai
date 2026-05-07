@@ -7,6 +7,7 @@ from conductor.agents.llm import LLMHTTPConfig
 from conductor.agents.profile import build_default_agent_profiles
 from conductor.domain.models import Artifact, Capability, Project, ProjectStatus, SharedProjectState, WorkItem, WorkItemStatus
 from conductor.execution.runner import Runner
+from conductor.harness.models import HarnessResult
 from conductor.harness.llm import LLMHarnessResult
 from conductor.state.store import InMemoryStateStore
 
@@ -46,6 +47,18 @@ class SequenceCodeLLMHarness:
             model_name=request.config.model_name,
             output_path=None,
         )
+
+
+class SequenceValidationHarness:
+    name = "shell"
+
+    def __init__(self, results: list[HarnessResult]) -> None:
+        self.results = results
+        self.requests = []
+
+    def run(self, request):
+        self.requests.append(request)
+        return self.results[min(len(self.requests) - 1, len(self.results) - 1)]
 
 
 def test_llm_code_harness_reads_design_context_and_writes_files(tmp_path) -> None:
@@ -169,6 +182,80 @@ def test_llm_code_harness_retries_empty_code_response(tmp_path) -> None:
     assert harness.requests[1].max_tokens == 4096
     assert execution.status.value == "success"
     assert (tmp_path / "index.html").read_text(encoding="utf-8") == "<main>Retry worked</main>"
+
+
+def test_llm_code_harness_repairs_validation_failure(tmp_path) -> None:
+    state_store = InMemoryStateStore()
+    project_id = "project-code-repair"
+    workitem = WorkItem(
+        id="workitem-001",
+        description="Implement UI",
+        stage="development",
+        kind="ui_implementation",
+    )
+    state_store.save_state(
+        SharedProjectState(
+            project=Project(id=project_id, goal="Build UI", current_stage="development", project_root=str(tmp_path)),
+            project_status=ProjectStatus.IN_PROGRESS,
+            current_stage="development",
+            workitems=[workitem],
+        )
+    )
+    llm_harness = SequenceCodeLLMHarness(
+        [
+            "<<FILE:index.html>>\n<main>Broken</main>\n<<END_FILE>>",
+            "<<FILE:index.html>>\n<main>Fixed sample</main>\n<<END_FILE>>",
+        ]
+    )
+    validation_harness = SequenceValidationHarness(
+        [
+            HarnessResult(
+                success=False,
+                exit_code=1,
+                stdout="Static Web Validation: FAIL\nErrors:\n- Browser form submit did not change visible page state\n",
+                stderr="",
+                duration_ms=10,
+                failure_reason="static_web_validation_failed",
+            ),
+            HarnessResult(
+                success=True,
+                exit_code=0,
+                stdout="Static Web Validation: PASS\n",
+                stderr="",
+                duration_ms=10,
+            ),
+        ]
+    )
+    runner = Runner(
+        state_store=state_store,
+        shell_harness=validation_harness,
+        require_real_code_outputs=True,
+        llm_harness=llm_harness,
+        llm_harness_config=LLMHTTPConfig(
+            base_url="http://127.0.0.1:1234/v1",
+            model_name="qwen2.5-coder-14b-instruct",
+            enabled=True,
+        ),
+    )
+    profile = next(profile for profile in build_default_agent_profiles() if profile.role_name == "frontend_engineer")
+    agent = Agent(
+        id="agent-frontend",
+        role="frontend_engineer",
+        profile=profile,
+        capabilities=[Capability.CODING],
+        execution_backend="cli",
+    )
+
+    execution = runner.run(project_id, workitem, agent)
+
+    assert execution.status.value == "success"
+    assert execution.validation_success is True
+    assert (tmp_path / "index.html").read_text(encoding="utf-8") == "<main>Fixed sample</main>"
+    assert len(llm_harness.requests) == 2
+    assert llm_harness.requests[1].metadata["mode"] == "code_repair"
+    assert "Browser form submit did not change visible page state" in llm_harness.requests[1].prompt
+    assert len(validation_harness.requests) == 2
+    assert "--- repair output ---" in execution.cli_stdout_tail
 
 
 def test_llm_code_harness_accepts_delimited_file_blocks(tmp_path) -> None:
