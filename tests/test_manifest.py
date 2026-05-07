@@ -54,6 +54,8 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     assert payload["task_assignments"]
     assert payload["task_assignments"][0]["workitem_id"] == payload["workitems"][0]["id"]
     assert "assigned_agent_id" in payload["task_assignments"][0]
+    assert "claimed_at" in payload["task_assignments"][0]
+    assert "returned_at" in payload["task_assignments"][0]
     assert "claimable" in payload["task_assignments"][0]
     assert "unmet_dependency_ids" in payload["task_assignments"][0]
     assert isinstance(payload["task_assignments"][0]["unmet_dependency_ids"], list)

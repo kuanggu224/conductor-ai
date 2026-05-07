@@ -115,6 +115,8 @@ class TaskAssignment:
     output_artifact_ids: list[str] = field(default_factory=list)
     result_summary: str = ""
     blocked_reason: str | None = None
+    claimed_at: str = ""
+    returned_at: str = ""
 
 
 @dataclass(slots=True)

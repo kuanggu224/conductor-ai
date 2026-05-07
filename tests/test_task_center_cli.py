@@ -52,6 +52,8 @@ def test_task_center_cli_lists_claims_and_completes_persisted_assignment(tmp_pat
     assert claim_payload["summary"]["claimable"] == 0
     assert claim_payload["task"]["status"] == "claimed"
     assert claim_payload["task"]["assigned_agent_id"] == "agent-external"
+    assert claim_payload["task"]["claimed_at"]
+    assert claim_payload["task"]["returned_at"] == ""
     assert claim_payload["task"]["workitem"]["status"] == "running"
     assert claim_payload["task"]["workitem"]["owner_agent"] == "agent-external"
 
@@ -74,6 +76,7 @@ def test_task_center_cli_lists_claims_and_completes_persisted_assignment(tmp_pat
     assert complete_payload["summary"]["claimable"] == 0
     assert complete_payload["task"]["status"] == "completed"
     assert complete_payload["task"]["output_artifact_ids"] == ["artifact-external"]
+    assert complete_payload["task"]["returned_at"]
     assert complete_payload["task"]["workitem"]["status"] == "done"
 
     reloaded = FileStateStore(project_root / ".conductor" / "state").get_state(state.project.id)

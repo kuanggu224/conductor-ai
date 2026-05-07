@@ -211,7 +211,8 @@ class ProjectLogStore:
                 f"status={assignment.status.value} | agent={assignment.assigned_agent_id or '-'} | "
                 f"claimable={str(task_center.claimable(state, assignment)).lower()} | unmet_dependencies={unmet_text} | "
                 f"input_artifacts={self._join_or_dash(assignment.input_artifact_ids)} | "
-                f"output_artifacts={self._join_or_dash(assignment.output_artifact_ids)}"
+                f"output_artifacts={self._join_or_dash(assignment.output_artifact_ids)} | "
+                f"claimed_at={assignment.claimed_at or '-'} | returned_at={assignment.returned_at or '-'}"
             )
         return lines
 

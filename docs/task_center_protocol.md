@@ -162,6 +162,8 @@ Task payloads include:
 - `output_artifact_ids`
 - `result_summary`
 - `blocked_reason`
+- `claimed_at`
+- `returned_at`
 
 `input_artifact_ids` is not limited to direct WorkItem dependencies. For
 controller-created assignments it also includes the ContextBuilder-selected
@@ -187,6 +189,8 @@ Run Manifest schema `1.10` records:
 
 - `task_assignments[].claimable`
 - `task_assignments[].unmet_dependency_ids`
+- `task_assignments[].claimed_at`
+- `task_assignments[].returned_at`
 - `summary.task_center_summary`
 - `platform_diagnostics`
 - `executions[].input_artifact_ids`

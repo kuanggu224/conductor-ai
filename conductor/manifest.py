@@ -147,6 +147,8 @@ class RunManifestWriter:
                     "output_artifact_ids": list(assignment.output_artifact_ids),
                     "result_summary": assignment.result_summary,
                     "blocked_reason": assignment.blocked_reason or "",
+                    "claimed_at": assignment.claimed_at,
+                    "returned_at": assignment.returned_at,
                 }
                 for assignment in state.task_assignments
             ],

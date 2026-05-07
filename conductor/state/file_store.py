@@ -132,6 +132,8 @@ class FileStateStore(InMemoryStateStore):
             output_artifact_ids=list(data.get("output_artifact_ids", [])),
             result_summary=data.get("result_summary", ""),
             blocked_reason=data.get("blocked_reason"),
+            claimed_at=data.get("claimed_at", ""),
+            returned_at=data.get("returned_at", ""),
         )
 
     def _execution(self, data: dict[str, Any]) -> Execution:

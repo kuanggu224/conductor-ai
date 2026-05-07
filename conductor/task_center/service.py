@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from dataclasses import dataclass, replace
 
 from conductor.domain.models import SharedProjectState, TaskAssignment, TaskAssignmentStatus, WorkItemStatus
@@ -174,6 +175,8 @@ class TaskCenterService:
             assigned_agent_id=agent_id,
             claim_reason=claim_reason or assignment.claim_reason,
             blocked_reason=None,
+            claimed_at=_utc_now(),
+            returned_at="",
         )
         self._sync_workitem_claim(project_id, assignment, agent_id)
         self.state_store.upsert_task_assignment(project_id, updated)
@@ -200,6 +203,7 @@ class TaskCenterService:
             result_summary=result_summary,
             output_artifact_ids=artifact_ids,
             blocked_reason=blocked_reason or None,
+            returned_at=_utc_now(),
         )
         self._sync_workitem_return(
             project_id,
@@ -265,3 +269,7 @@ __all__ = [
     "TaskCenterService",
     "TaskCenterTransition",
 ]
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()

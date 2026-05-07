@@ -744,6 +744,8 @@ def _task_assignment_payload(
         "output_artifact_ids": list(assignment.output_artifact_ids),
         "result_summary": assignment.result_summary,
         "blocked_reason": assignment.blocked_reason or "",
+        "claimed_at": assignment.claimed_at,
+        "returned_at": assignment.returned_at,
         "workitem": _task_workitem_payload(workitem),
         "artifacts": artifacts,
     }

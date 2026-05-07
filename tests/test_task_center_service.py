@@ -57,6 +57,8 @@ def test_task_center_service_claim_next_skips_unsatisfied_dependencies() -> None
 
     assert transition.assignment.id == "assignment-open"
     assert transition.assignment.status == TaskAssignmentStatus.CLAIMED
+    assert transition.assignment.claimed_at
+    assert transition.assignment.returned_at == ""
     assert transition.state.workitems[2].status == WorkItemStatus.RUNNING
     assert transition.state.workitems[2].owner_agent == "agent-backend"
 
@@ -125,6 +127,8 @@ def test_task_center_service_complete_syncs_workitem_and_assignment() -> None:
 
     assert transition.assignment.status == TaskAssignmentStatus.COMPLETED
     assert transition.assignment.output_artifact_ids == ["artifact-1"]
+    assert transition.assignment.claimed_at
+    assert transition.assignment.returned_at
     assert transition.state.workitems[0].status == WorkItemStatus.DONE
     assert transition.state.workitems[0].result == "implemented"
     assert transition.state.workitems[0].output_artifact_ids == ["artifact-1"]
