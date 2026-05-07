@@ -43,7 +43,7 @@ from conductor.config.llm import (
     save_llm_runtime_config,
 )
 from conductor.controller.engine import ConductorEngine
-from conductor.domain.models import SharedProjectState, TaskAssignment, TaskAssignmentStatus
+from conductor.domain.models import SharedProjectState, TaskAssignment, TaskAssignmentStatus, WorkItemStatus
 from conductor.io.encoding import configure_utf8_stdio
 from conductor.io.requirements import RequirementInputError, load_requirement_text
 from conductor.todo.service import (
@@ -508,7 +508,8 @@ async def claim_project_task_api(project_id: str, assignment_id: str, payload: T
         claim_reason=payload.claim_reason,
         blocked_reason=None,
     )
-    state = engine.state_store.upsert_task_assignment(project_id, updated)
+    _sync_task_workitem_claim(project_id, assignment, payload.agent_id)
+    engine.state_store.upsert_task_assignment(project_id, updated)
     engine.state_store.add_event(project_id, f"TaskCenter: {payload.agent_id} claimed {assignment.workitem_id}")
     state = _require_project_state(project_id)
     return JSONResponse(
@@ -536,7 +537,8 @@ async def complete_project_task_api(project_id: str, assignment_id: str, payload
         result_summary=payload.result_summary,
         blocked_reason=None,
     )
-    state = engine.state_store.upsert_task_assignment(project_id, updated)
+    _sync_task_workitem_return(project_id, assignment, WorkItemStatus.DONE, payload)
+    engine.state_store.upsert_task_assignment(project_id, updated)
     engine.state_store.add_event(project_id, f"TaskCenter: {assignment.workitem_id} returned completed")
     state = _require_project_state(project_id)
     return JSONResponse(
@@ -564,7 +566,8 @@ async def fail_project_task_api(project_id: str, assignment_id: str, payload: Ta
         result_summary=payload.result_summary,
         blocked_reason=payload.blocked_reason or None,
     )
-    state = engine.state_store.upsert_task_assignment(project_id, updated)
+    _sync_task_workitem_return(project_id, assignment, WorkItemStatus.FAILED, payload)
+    engine.state_store.upsert_task_assignment(project_id, updated)
     engine.state_store.add_event(project_id, f"TaskCenter: {assignment.workitem_id} returned failed")
     state = _require_project_state(project_id)
     return JSONResponse(
@@ -656,6 +659,46 @@ def _require_task_assignment(state: SharedProjectState, assignment_id: str) -> T
         if assignment.id == assignment_id:
             return assignment
     raise HTTPException(status_code=404, detail=f"Task assignment not found: {assignment_id}")
+
+
+def _sync_task_workitem_claim(project_id: str, assignment: TaskAssignment, agent_id: str) -> None:
+    """Keep WorkItem lifecycle aligned with manual task-center claims."""
+    try:
+        engine.state_store.update_workitem(
+            project_id,
+            assignment.workitem_id,
+            WorkItemStatus.RUNNING,
+            owner_agent=agent_id,
+        )
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=f"WorkItem not found: {assignment.workitem_id}") from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+def _sync_task_workitem_return(
+    project_id: str,
+    assignment: TaskAssignment,
+    status: WorkItemStatus,
+    payload: TaskReturnRequest,
+) -> None:
+    """Keep WorkItem lifecycle aligned with manual task-center returns."""
+    try:
+        engine.state_store.update_workitem(
+            project_id,
+            assignment.workitem_id,
+            status,
+            owner_agent=assignment.assigned_agent_id,
+            result=payload.result_summary,
+            output_artifact_ids=list(payload.output_artifact_ids),
+            blocked_reason=payload.blocked_reason or None,
+            failure_type="task_center" if status == WorkItemStatus.FAILED else "",
+            failure_summary=(payload.blocked_reason or payload.result_summary) if status == WorkItemStatus.FAILED else "",
+        )
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=f"WorkItem not found: {assignment.workitem_id}") from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
 
 
 def _task_workitem_payload(workitem) -> dict[str, object]:

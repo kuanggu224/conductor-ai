@@ -123,6 +123,8 @@ def test_project_task_claim_and_complete_protocol() -> None:
     assert claimed_task["status"] == "claimed"
     assert claimed_task["assigned_agent_id"] == "agent-manual"
     assert claimed_task["claim_reason"] == "manual smoke"
+    assert claimed_task["workitem"]["status"] == "running"
+    assert claimed_task["workitem"]["owner_agent"] == "agent-manual"
 
     claimed_list = client.get(f"/api/projects/{state.project.id}/tasks?status=claimed")
     assert claimed_list.status_code == 200
@@ -138,6 +140,7 @@ def test_project_task_claim_and_complete_protocol() -> None:
     assert completed_task["status"] == "completed"
     assert completed_task["result_summary"] == "finished task"
     assert completed_task["output_artifact_ids"] == ["artifact-manual"]
+    assert completed_task["workitem"]["status"] == "done"
 
     completed_list = client.get(f"/api/projects/{state.project.id}/tasks?status=completed")
     assert completed_list.status_code == 200

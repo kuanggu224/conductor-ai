@@ -4,7 +4,7 @@ import json
 
 from app.task_center import main
 from conductor.controller.engine import ConductorEngine
-from conductor.domain.models import TaskAssignmentStatus
+from conductor.domain.models import TaskAssignmentStatus, WorkItemStatus
 from conductor.state.file_store import FileStateStore
 
 
@@ -44,6 +44,8 @@ def test_task_center_cli_lists_claims_and_completes_persisted_assignment(tmp_pat
     assert claim_code == 0
     assert claim_payload["task"]["status"] == "claimed"
     assert claim_payload["task"]["assigned_agent_id"] == "agent-external"
+    assert claim_payload["task"]["workitem"]["status"] == "running"
+    assert claim_payload["task"]["workitem"]["owner_agent"] == "agent-external"
 
     complete_code = main(
         [
@@ -62,12 +64,15 @@ def test_task_center_cli_lists_claims_and_completes_persisted_assignment(tmp_pat
     assert complete_code == 0
     assert complete_payload["task"]["status"] == "completed"
     assert complete_payload["task"]["output_artifact_ids"] == ["artifact-external"]
+    assert complete_payload["task"]["workitem"]["status"] == "done"
 
     reloaded = FileStateStore(project_root / ".conductor" / "state").get_state(state.project.id)
     assignment = reloaded.task_assignments[0]
     assert assignment.status == TaskAssignmentStatus.COMPLETED
     assert assignment.assigned_agent_id == "agent-external"
     assert assignment.result_summary == "completed by external worker"
+    assert reloaded.workitems[0].status == WorkItemStatus.DONE
+    assert reloaded.workitems[0].owner_agent == "agent-external"
     assert any("TaskCenterCLI" in event for event in reloaded.recent_events)
 
 
@@ -126,6 +131,7 @@ def test_task_center_cli_claim_next_selects_available_role_task(tmp_path, capsys
     assert payload["task"]["role"] == role
     assert payload["task"]["status"] == "claimed"
     assert payload["task"]["assigned_agent_id"] == "agent-role-worker"
+    assert payload["task"]["workitem"]["status"] == "running"
 
 
 def test_task_center_cli_claim_next_returns_error_when_no_role_task(tmp_path, capsys) -> None:

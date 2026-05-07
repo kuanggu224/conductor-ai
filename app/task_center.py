@@ -166,6 +166,7 @@ def _claim_assignment(
         claim_reason=claim_reason or assignment.claim_reason,
         blocked_reason=None,
     )
+    _sync_workitem_claim(store, state, assignment, agent_id)
     store.upsert_task_assignment(state.project.id, updated)
     store.add_event(state.project.id, f"TaskCenterCLI: {agent_id} claimed {assignment.workitem_id}")
     return store.get_state(state.project.id), updated
@@ -212,9 +213,61 @@ def _return_assignment(
         output_artifact_ids=list(output_artifact_ids or []),
         blocked_reason=blocked_reason or None,
     )
+    _sync_workitem_return(
+        store,
+        state,
+        assignment,
+        status=status,
+        result_summary=result_summary,
+        output_artifact_ids=list(output_artifact_ids or []),
+        blocked_reason=blocked_reason,
+    )
     store.upsert_task_assignment(state.project.id, updated)
     store.add_event(state.project.id, f"TaskCenterCLI: {assignment.workitem_id} returned {status.value}")
     return store.get_state(state.project.id), updated
+
+
+def _sync_workitem_claim(
+    store: FileStateStore,
+    state: SharedProjectState,
+    assignment: TaskAssignment,
+    agent_id: str,
+) -> None:
+    try:
+        store.update_workitem(
+            state.project.id,
+            assignment.workitem_id,
+            WorkItemStatus.RUNNING,
+            owner_agent=agent_id,
+        )
+    except (KeyError, ValueError) as error:
+        raise TaskCenterCommandError(str(error)) from error
+
+
+def _sync_workitem_return(
+    store: FileStateStore,
+    state: SharedProjectState,
+    assignment: TaskAssignment,
+    status: TaskAssignmentStatus,
+    result_summary: str,
+    output_artifact_ids: list[str],
+    blocked_reason: str = "",
+) -> None:
+    workitem_status = WorkItemStatus.DONE if status == TaskAssignmentStatus.COMPLETED else WorkItemStatus.FAILED
+    try:
+        store.update_workitem(
+            state.project.id,
+            assignment.workitem_id,
+            workitem_status,
+            owner_agent=assignment.assigned_agent_id,
+            result=result_summary,
+            output_artifact_ids=output_artifact_ids,
+            blocked_reason=blocked_reason or None,
+            failure_type="task_center" if workitem_status == WorkItemStatus.FAILED else "",
+            failure_summary=(blocked_reason or result_summary) if workitem_status == WorkItemStatus.FAILED else "",
+        )
+    except (KeyError, ValueError) as error:
+        raise TaskCenterCommandError(str(error)) from error
 
 
 def _require_assignment(state: SharedProjectState, assignment_id: str) -> TaskAssignment:
