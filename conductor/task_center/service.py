@@ -143,6 +143,11 @@ class TaskCenterService:
     ) -> TaskCenterTransition:
         if assignment.status != TaskAssignmentStatus.QUEUED:
             raise TaskCenterError(f"Task assignment is not queued: {assignment.status.value}")
+        unmet_dependency_ids = self.unmet_dependency_ids(state, assignment)
+        if unmet_dependency_ids:
+            raise TaskCenterError(
+                f"Task assignment dependencies are not satisfied: {', '.join(unmet_dependency_ids)}"
+            )
         updated = replace(
             assignment,
             status=TaskAssignmentStatus.CLAIMED,

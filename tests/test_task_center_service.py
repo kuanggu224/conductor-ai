@@ -58,6 +58,42 @@ def test_task_center_service_claim_next_skips_unsatisfied_dependencies() -> None
     assert transition.state.workitems[2].owner_agent == "agent-backend"
 
 
+def test_task_center_service_rejects_claim_with_unsatisfied_dependencies() -> None:
+    store = InMemoryStateStore()
+    state = SharedProjectState(
+        project=Project(id="project-service", goal="Build a local tool"),
+        project_status=ProjectStatus.INITIALIZED,
+        current_stage="development",
+        workitems=[
+            WorkItem(id="workitem-dependency", description="Dependency", stage="development"),
+            WorkItem(
+                id="workitem-blocked",
+                description="Blocked task",
+                stage="development",
+                dependencies=["workitem-dependency"],
+            ),
+        ],
+        task_assignments=[
+            TaskAssignment(
+                id="assignment-blocked",
+                workitem_id="workitem-blocked",
+                role="backend_engineer",
+                dependencies=["workitem-dependency"],
+            ),
+        ],
+    )
+    store.save_state(state)
+    service = TaskCenterService(store)
+
+    try:
+        service.claim("project-service", "assignment-blocked", agent_id="agent-backend")
+    except TaskCenterError as error:
+        assert str(error) == "Task assignment dependencies are not satisfied: workitem-dependency"
+        assert error.status_code == 409
+    else:
+        raise AssertionError("Expected TaskCenterError")
+
+
 def test_task_center_service_complete_syncs_workitem_and_assignment() -> None:
     store = InMemoryStateStore()
     state = SharedProjectState(
