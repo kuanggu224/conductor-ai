@@ -120,6 +120,12 @@ class TaskClaimRequest(BaseModel):
     claim_reason: TodoContent = ""
 
 
+class TaskClaimNextRequest(TaskClaimRequest):
+    """Payload for claiming the next available task-center assignment."""
+
+    role: OptionalTodoTitle = None
+
+
 class TaskReturnRequest(BaseModel):
     """Payload for returning a task-center assignment."""
 
@@ -491,26 +497,27 @@ def project_tasks_api(project_id: str, status: str | None = None) -> JSONRespons
     return JSONResponse(_task_center_payload(state, status=status))
 
 
+@app.post("/api/projects/{project_id}/tasks/claim-next")
+async def claim_next_project_task_api(project_id: str, payload: TaskClaimNextRequest) -> JSONResponse:
+    """Claim the next queued task-center assignment, optionally filtered by role."""
+    state = _require_project_state(project_id)
+    assignment = _select_next_task_assignment(state, role=payload.role)
+    updated = _claim_task_assignment(project_id, assignment, payload.agent_id, payload.claim_reason)
+    state = _require_project_state(project_id)
+    return JSONResponse(
+        {
+            "project_id": project_id,
+            "task": _task_assignment_payload(updated, state),
+        }
+    )
+
+
 @app.post("/api/projects/{project_id}/tasks/{assignment_id}/claim")
 async def claim_project_task_api(project_id: str, assignment_id: str, payload: TaskClaimRequest) -> JSONResponse:
     """Claim one queued task-center assignment."""
     state = _require_project_state(project_id)
     assignment = _require_task_assignment(state, assignment_id)
-    if assignment.status != TaskAssignmentStatus.QUEUED:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Task assignment is not queued: {assignment.status.value}",
-        )
-    updated = replace(
-        assignment,
-        status=TaskAssignmentStatus.CLAIMED,
-        assigned_agent_id=payload.agent_id,
-        claim_reason=payload.claim_reason,
-        blocked_reason=None,
-    )
-    _sync_task_workitem_claim(project_id, assignment, payload.agent_id)
-    engine.state_store.upsert_task_assignment(project_id, updated)
-    engine.state_store.add_event(project_id, f"TaskCenter: {payload.agent_id} claimed {assignment.workitem_id}")
+    updated = _claim_task_assignment(project_id, assignment, payload.agent_id, payload.claim_reason)
     state = _require_project_state(project_id)
     return JSONResponse(
         {
@@ -659,6 +666,53 @@ def _require_task_assignment(state: SharedProjectState, assignment_id: str) -> T
         if assignment.id == assignment_id:
             return assignment
     raise HTTPException(status_code=404, detail=f"Task assignment not found: {assignment_id}")
+
+
+def _claim_task_assignment(
+    project_id: str,
+    assignment: TaskAssignment,
+    agent_id: str,
+    claim_reason: str = "",
+) -> TaskAssignment:
+    """Claim one queued task-center assignment and sync its WorkItem."""
+    if assignment.status != TaskAssignmentStatus.QUEUED:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Task assignment is not queued: {assignment.status.value}",
+        )
+    updated = replace(
+        assignment,
+        status=TaskAssignmentStatus.CLAIMED,
+        assigned_agent_id=agent_id,
+        claim_reason=claim_reason,
+        blocked_reason=None,
+    )
+    _sync_task_workitem_claim(project_id, assignment, agent_id)
+    engine.state_store.upsert_task_assignment(project_id, updated)
+    engine.state_store.add_event(project_id, f"TaskCenter: {agent_id} claimed {assignment.workitem_id}")
+    return updated
+
+
+def _select_next_task_assignment(state: SharedProjectState, role: str | None = None) -> TaskAssignment:
+    """Return the first queued assignment whose dependencies are satisfied."""
+    for assignment in state.task_assignments:
+        if assignment.status != TaskAssignmentStatus.QUEUED:
+            continue
+        if role and assignment.role != role:
+            continue
+        if not _task_assignment_dependencies_satisfied(state, assignment):
+            continue
+        return assignment
+    suffix = f" for role {role}" if role else ""
+    raise HTTPException(status_code=404, detail=f"No queued task assignment available{suffix}.")
+
+
+def _task_assignment_dependencies_satisfied(state: SharedProjectState, assignment: TaskAssignment) -> bool:
+    """Return whether all WorkItem dependencies for an assignment are done."""
+    if not assignment.dependencies:
+        return True
+    status_by_workitem = {item.id: item.status for item in state.workitems}
+    return all(status_by_workitem.get(dependency_id) == WorkItemStatus.DONE for dependency_id in assignment.dependencies)
 
 
 def _sync_task_workitem_claim(project_id: str, assignment: TaskAssignment, agent_id: str) -> None:

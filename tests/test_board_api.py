@@ -165,6 +165,38 @@ def test_project_task_claim_rejects_non_queued_assignment() -> None:
     assert second_claim.status_code == 409
 
 
+def test_project_task_claim_next_selects_available_role_task() -> None:
+    client = TestClient(board.app)
+    state = board.engine.create_project(requirement="Build a local reading list", project_root="")
+    role = state.task_assignments[0].role
+
+    response = client.post(
+        f"/api/projects/{state.project.id}/tasks/claim-next",
+        json={"agent_id": "agent-api-worker", "role": role, "claim_reason": "api worker"},
+    )
+
+    assert response.status_code == 200
+    task = response.json()["task"]
+    assert task["role"] == role
+    assert task["status"] == "claimed"
+    assert task["assigned_agent_id"] == "agent-api-worker"
+    assert task["claim_reason"] == "api worker"
+    assert task["workitem"]["status"] == "running"
+
+
+def test_project_task_claim_next_returns_404_when_no_role_task() -> None:
+    client = TestClient(board.app)
+    state = board.engine.create_project(requirement="Build a local reading list", project_root="")
+
+    response = client.post(
+        f"/api/projects/{state.project.id}/tasks/claim-next",
+        json={"agent_id": "agent-api-worker", "role": "missing_role"},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "No queued task assignment available for role missing_role."
+
+
 def test_project_task_return_missing_assignment_404() -> None:
     client = TestClient(board.app)
     state = board.engine.create_project(requirement="Build a local reading list", project_root="")
