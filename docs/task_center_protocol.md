@@ -71,6 +71,7 @@ Endpoints:
 - `GET /api/projects/{project_id}/tasks?status=queued`
 - `GET /api/projects/{project_id}/tasks/summary`
 - `GET /api/projects/{project_id}/tasks/{assignment_id}/context`
+- `GET /api/projects/{project_id}/tasks/{assignment_id}/context?format=markdown`
 - `POST /api/projects/{project_id}/tasks/claim-next`
 - `POST /api/projects/{project_id}/tasks/{assignment_id}/claim`
 - `POST /api/projects/{project_id}/tasks/{assignment_id}/complete`
@@ -152,6 +153,7 @@ summarizes the project, assignment, acceptance criteria, input artifacts, and
 return protocol.
 CLI `context --format markdown` renders the same payload as a human-readable
 task prompt for coding agents.
+API `/context?format=markdown` returns the same prompt as `text/markdown`.
 
 Mutation responses from `claim`, `claim-next`, `complete`, and `fail` include:
 

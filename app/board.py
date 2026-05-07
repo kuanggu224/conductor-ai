@@ -16,7 +16,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field, StrictBool, StringConstraints
@@ -565,11 +565,15 @@ def project_task_context_api(
     assignment_id: str,
     include_content: bool = True,
     max_content_chars: int = 12000,
-) -> JSONResponse:
+    format: str = "json",
+):
     """Return one assignment with input artifact content for external workers."""
+    if format not in {"json", "markdown"}:
+        raise HTTPException(status_code=422, detail="format must be 'json' or 'markdown'")
     state = _require_project_state(project_id)
+    context_builder = TaskContextBuilder(engine.artifact_store)
     try:
-        payload = TaskContextBuilder(engine.artifact_store).build(
+        payload = context_builder.build(
             state,
             assignment_id,
             service=_task_center_service(),
@@ -578,6 +582,8 @@ def project_task_context_api(
         )
     except TaskCenterError as error:
         raise HTTPException(status_code=error.status_code, detail=str(error)) from error
+    if format == "markdown":
+        return PlainTextResponse(context_builder.render_markdown(payload), media_type="text/markdown")
     return JSONResponse(payload)
 
 

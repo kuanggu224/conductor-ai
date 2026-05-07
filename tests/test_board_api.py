@@ -314,6 +314,39 @@ def test_project_task_context_api_returns_input_artifact_content() -> None:
     assert "content" in payload["input_artifacts"][0]
 
 
+def test_project_task_context_api_can_return_markdown_prompt() -> None:
+    client = TestClient(board.app)
+    state = board.engine.create_project(
+        requirement="Build a local reading list with CSV export",
+        project_root="",
+    )
+    artifact = board.engine.artifact_store.save_markdown(
+        Artifact(
+            id="artifact-context-markdown",
+            project_id=state.project.id,
+            workitem_id="workitem-upstream",
+            agent_id="agent-designer",
+            kind="frozen_requirement_spec",
+            title="Frozen Requirement",
+            content="Acceptance: add book, persist refresh, export CSV.",
+        ),
+        project_root=state.project.project_root,
+    )
+    state = board.engine.state_store.add_artifact(state.project.id, artifact)
+    assignment = replace(state.task_assignments[0], input_artifact_ids=[artifact.id])
+    board.engine.state_store.upsert_task_assignment(state.project.id, assignment)
+
+    response = client.get(f"/api/projects/{state.project.id}/tasks/{assignment.id}/context?format=markdown")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/markdown")
+    assert response.text.startswith("# Task Assignment Context")
+    assert "artifact-context-markdown" in response.text
+    assert "Acceptance: add book, persist refresh, export CSV." in response.text
+    assert "## CLI Return Commands" in response.text
+    assert f'python -m app.task_center complete "{assignment.id}"' in response.text
+
+
 def test_project_task_claim_api_can_include_context() -> None:
     client = TestClient(board.app)
     state = board.engine.create_project(requirement="Build a local reading list with CSV export", project_root="")
