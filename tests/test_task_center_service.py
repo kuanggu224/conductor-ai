@@ -307,6 +307,62 @@ def test_task_center_service_rejects_heartbeat_for_wrong_agent() -> None:
         raise AssertionError("Expected TaskCenterError")
 
 
+def test_task_center_service_rejects_return_for_wrong_agent() -> None:
+    store = InMemoryStateStore()
+    state = SharedProjectState(
+        project=Project(id="project-service", goal="Build a local tool"),
+        project_status=ProjectStatus.INITIALIZED,
+        current_stage="development",
+        workitems=[WorkItem(id="workitem-open", description="Open task", stage="development")],
+        task_assignments=[
+            TaskAssignment(
+                id="assignment-open",
+                workitem_id="workitem-open",
+                role="backend_engineer",
+            ),
+        ],
+    )
+    store.save_state(state)
+    service = TaskCenterService(store)
+    service.claim("project-service", "assignment-open", agent_id="agent-owner")
+
+    try:
+        service.complete("project-service", "assignment-open", result_summary="done", agent_id="agent-other")
+    except TaskCenterError as error:
+        assert str(error) == "Task assignment is claimed by another agent: agent-owner"
+        assert error.status_code == 403
+    else:
+        raise AssertionError("Expected TaskCenterError")
+
+
+def test_task_center_service_rejects_release_for_wrong_agent() -> None:
+    store = InMemoryStateStore()
+    state = SharedProjectState(
+        project=Project(id="project-service", goal="Build a local tool"),
+        project_status=ProjectStatus.INITIALIZED,
+        current_stage="development",
+        workitems=[WorkItem(id="workitem-open", description="Open task", stage="development")],
+        task_assignments=[
+            TaskAssignment(
+                id="assignment-open",
+                workitem_id="workitem-open",
+                role="backend_engineer",
+            ),
+        ],
+    )
+    store.save_state(state)
+    service = TaskCenterService(store)
+    service.claim("project-service", "assignment-open", agent_id="agent-owner")
+
+    try:
+        service.release("project-service", "assignment-open", release_reason="interrupt", agent_id="agent-other")
+    except TaskCenterError as error:
+        assert str(error) == "Task assignment is claimed by another agent: agent-owner"
+        assert error.status_code == 403
+    else:
+        raise AssertionError("Expected TaskCenterError")
+
+
 def test_task_center_service_release_stale_requeues_only_stale_claimed() -> None:
     store = InMemoryStateStore()
     state = SharedProjectState(

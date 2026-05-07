@@ -246,22 +246,26 @@ def _return_command_lines(payload: dict[str, object], assignment: dict[str, obje
     complete_command = (
         f'python -m app.task_center complete "{assignment_id}" '
         f'--project-root "{project_root}" '
+        '--agent-id "<agent-id>" '
         '--result-summary "completed" '
         '--output-file result.md'
     )
     fail_command = (
         f'python -m app.task_center fail "{assignment_id}" '
         f'--project-root "{project_root}" '
+        '--agent-id "<agent-id>" '
         '--result-summary "failed" '
         '--blocked-reason "explain blocker"'
     )
     heartbeat_command = (
         f'python -m app.task_center heartbeat "{assignment_id}" '
-        f'--project-root "{project_root}"'
+        f'--project-root "{project_root}" '
+        '--agent-id "<agent-id>"'
     )
     release_command = (
         f'python -m app.task_center release "{assignment_id}" '
         f'--project-root "{project_root}" '
+        '--agent-id "<agent-id>" '
         '--release-reason "worker interrupted"'
     )
     return [

@@ -242,7 +242,7 @@ def test_project_task_claim_and_complete_protocol() -> None:
 
     completed = client.post(
         f"/api/projects/{state.project.id}/tasks/{assignment_id}/complete",
-        json={"result_summary": "finished task", "output_artifact_ids": ["artifact-manual"]},
+        json={"agent_id": "agent-manual", "result_summary": "finished task", "output_artifact_ids": ["artifact-manual"]},
     )
 
     assert completed.status_code == 200
@@ -259,6 +259,25 @@ def test_project_task_claim_and_complete_protocol() -> None:
     completed_list = client.get(f"/api/projects/{state.project.id}/tasks?status=completed")
     assert completed_list.status_code == 200
     assert completed_list.json()["total"] == 1
+
+
+def test_project_task_complete_api_rejects_wrong_agent_guard() -> None:
+    client = TestClient(board.app)
+    state = board.engine.create_project(requirement="Build a local reading list", project_root="")
+    assignment_id = state.task_assignments[0].id
+    claim = client.post(
+        f"/api/projects/{state.project.id}/tasks/{assignment_id}/claim",
+        json={"agent_id": "agent-owner"},
+    )
+    assert claim.status_code == 200
+
+    completed = client.post(
+        f"/api/projects/{state.project.id}/tasks/{assignment_id}/complete",
+        json={"agent_id": "agent-other", "result_summary": "finished task"},
+    )
+
+    assert completed.status_code == 403
+    assert "claimed by another agent" in completed.json()["detail"]
 
 
 def test_project_task_complete_api_can_create_output_artifact() -> None:

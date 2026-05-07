@@ -109,6 +109,7 @@ Endpoints:
 
 ```json
 {
+  "agent_id": "agent-backend",
   "result_summary": "implemented",
   "output_artifact_ids": ["artifact-1"],
   "output_artifact_content": "# Result\n\nImplemented details.",
@@ -121,6 +122,7 @@ Endpoints:
 
 ```json
 {
+  "agent_id": "agent-backend",
   "result_summary": "validation failed",
   "blocked_reason": "missing dependency",
   "output_artifact_ids": []
@@ -141,9 +143,14 @@ Endpoints:
 
 ```json
 {
+  "agent_id": "agent-backend",
   "release_reason": "worker interrupted"
 }
 ```
+
+`agent_id` is optional for `complete`, `fail`, `heartbeat`, and `release`. When
+provided, it must match the current claimant. This is the recommended guard for
+external workers so one Agent cannot accidentally return another Agent's task.
 
 `release` returns a claimed or failed assignment to `queued`, clears the current
 agent, clears return timestamps and stale prompt metadata, and synchronizes the
