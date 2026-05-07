@@ -159,3 +159,66 @@ def test_task_center_service_rejects_return_before_claim() -> None:
         assert error.status_code == 409
     else:
         raise AssertionError("Expected TaskCenterError")
+
+
+def test_task_center_service_release_requeues_claimed_assignment() -> None:
+    store = InMemoryStateStore()
+    state = SharedProjectState(
+        project=Project(id="project-service", goal="Build a local tool"),
+        project_status=ProjectStatus.INITIALIZED,
+        current_stage="development",
+        workitems=[WorkItem(id="workitem-open", description="Open task", stage="development")],
+        task_assignments=[
+            TaskAssignment(
+                id="assignment-open",
+                workitem_id="workitem-open",
+                role="backend_engineer",
+                prompt_file="C:/demo/.conductor/task_center/prompts/task.md",
+            ),
+        ],
+    )
+    store.save_state(state)
+    service = TaskCenterService(store)
+
+    service.claim("project-service", "assignment-open", agent_id="agent-backend")
+    transition = service.release("project-service", "assignment-open", release_reason="worker interrupted")
+
+    assert transition.assignment.status == TaskAssignmentStatus.QUEUED
+    assert transition.assignment.assigned_agent_id is None
+    assert transition.assignment.claim_reason == "worker interrupted"
+    assert transition.assignment.claimed_at == ""
+    assert transition.assignment.returned_at == ""
+    assert transition.assignment.prompt_file == ""
+    assert transition.state.workitems[0].status == WorkItemStatus.PENDING
+    assert transition.state.workitems[0].owner_agent == ""
+    assert service.summary(transition.state)["claimable"] == 1
+
+
+def test_task_center_service_rejects_release_after_completion() -> None:
+    store = InMemoryStateStore()
+    state = SharedProjectState(
+        project=Project(id="project-service", goal="Build a local tool"),
+        project_status=ProjectStatus.INITIALIZED,
+        current_stage="development",
+        workitems=[WorkItem(id="workitem-open", description="Open task", stage="development")],
+        task_assignments=[
+            TaskAssignment(
+                id="assignment-open",
+                workitem_id="workitem-open",
+                role="backend_engineer",
+            ),
+        ],
+    )
+    store.save_state(state)
+    service = TaskCenterService(store)
+
+    service.claim("project-service", "assignment-open", agent_id="agent-backend")
+    service.complete("project-service", "assignment-open", result_summary="done")
+
+    try:
+        service.release("project-service", "assignment-open")
+    except TaskCenterError as error:
+        assert str(error) == "Task assignment cannot be released: completed"
+        assert error.status_code == 409
+    else:
+        raise AssertionError("Expected TaskCenterError")

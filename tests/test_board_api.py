@@ -280,6 +280,35 @@ def test_project_task_complete_api_rejects_empty_output_artifact() -> None:
     assert "cannot be empty" in response.json()["detail"]
 
 
+def test_project_task_release_api_requeues_claimed_assignment() -> None:
+    client = TestClient(board.app)
+    state = board.engine.create_project(requirement="Build a local reading list", project_root="")
+    assignment_id = state.task_assignments[0].id
+    claim = client.post(
+        f"/api/projects/{state.project.id}/tasks/{assignment_id}/claim",
+        json={"agent_id": "agent-api-worker"},
+    )
+    assert claim.status_code == 200
+
+    release = client.post(
+        f"/api/projects/{state.project.id}/tasks/{assignment_id}/release",
+        json={"release_reason": "worker interrupted"},
+    )
+
+    assert release.status_code == 200
+    payload = release.json()
+    assert payload["summary"]["queued"] == 1
+    assert payload["summary"]["claimable"] == 1
+    assert payload["task"]["status"] == "queued"
+    assert payload["task"]["assigned_agent_id"] == ""
+    assert payload["task"]["claim_reason"] == "worker interrupted"
+    assert payload["task"]["workitem"]["status"] == "pending"
+
+    reloaded = board.engine.get_project(state.project.id)
+    assert reloaded.task_assignments[0].status.value == "queued"
+    assert reloaded.workitems[0].status.value == "pending"
+
+
 def test_project_task_context_api_returns_input_artifact_content() -> None:
     client = TestClient(board.app)
     state = board.engine.create_project(

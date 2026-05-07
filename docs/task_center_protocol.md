@@ -17,6 +17,7 @@ Task assignment statuses:
 - `completed`: returned successfully and synchronized to `WorkItem.done`.
 - `failed`: returned unsuccessfully and synchronized to `WorkItem.failed`.
 - `blocked`: reserved for dependency or policy blocking.
+- `release`: claimed/failed assignments can be released back to `queued`.
 
 Claim rules:
 
@@ -44,6 +45,7 @@ python -m app.task_center claim <assignment-id> --project-root <project-root> --
 python -m app.task_center complete <assignment-id> --project-root <project-root> --result-summary "done"
 python -m app.task_center complete <assignment-id> --project-root <project-root> --output-file result.md
 python -m app.task_center fail <assignment-id> --project-root <project-root> --blocked-reason "reason"
+python -m app.task_center release <assignment-id> --project-root <project-root> --release-reason "worker interrupted"
 ```
 
 Use `--state-dir` when the state directory is not under
@@ -76,6 +78,7 @@ Endpoints:
 - `POST /api/projects/{project_id}/tasks/{assignment_id}/claim`
 - `POST /api/projects/{project_id}/tasks/{assignment_id}/complete`
 - `POST /api/projects/{project_id}/tasks/{assignment_id}/fail`
+- `POST /api/projects/{project_id}/tasks/{assignment_id}/release`
 
 `claim-next` request body:
 
@@ -113,6 +116,18 @@ Endpoints:
   "output_artifact_ids": []
 }
 ```
+
+`release` request body:
+
+```json
+{
+  "release_reason": "worker interrupted"
+}
+```
+
+`release` returns a claimed or failed assignment to `queued`, clears the current
+agent, clears return timestamps and stale prompt metadata, and synchronizes the
+WorkItem back to `pending`. Completed assignments cannot be released.
 
 When `output_artifact_content` is present, the platform creates and persists a
 new artifact with source backend `task_center/external`, appends its id to

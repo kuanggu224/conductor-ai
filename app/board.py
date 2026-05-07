@@ -147,6 +147,12 @@ class TaskReturnRequest(BaseModel):
     blocked_reason: TodoContent = ""
 
 
+class TaskReleaseRequest(BaseModel):
+    """Payload for releasing a claimed/failed task-center assignment."""
+
+    release_reason: TodoContent = ""
+
+
 @dataclass(slots=True)
 class ProjectTaskStatus:
     """Board 后台任务状态。"""
@@ -623,6 +629,24 @@ async def fail_project_task_api(project_id: str, assignment_id: str, payload: Ta
         result_summary=payload.result_summary,
         output_artifact_ids=output_artifact_ids,
         blocked_reason=payload.blocked_reason,
+    )
+    return JSONResponse(
+        {
+            "project_id": project_id,
+            "summary": _task_center_service().summary(transition.state),
+            "task": _task_assignment_payload(transition.assignment, transition.state),
+        }
+    )
+
+
+@app.post("/api/projects/{project_id}/tasks/{assignment_id}/release")
+async def release_project_task_api(project_id: str, assignment_id: str, payload: TaskReleaseRequest) -> JSONResponse:
+    """Release a claimed/failed task-center assignment back to queued."""
+    transition = _run_task_center_transition(
+        _task_center_service().release,
+        project_id,
+        assignment_id=assignment_id,
+        release_reason=payload.release_reason,
     )
     return JSONResponse(
         {

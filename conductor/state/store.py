@@ -13,7 +13,7 @@ class InMemoryStateStore:
 
     ALLOWED_TRANSITIONS: dict[WorkItemStatus, set[WorkItemStatus]] = {
         WorkItemStatus.PENDING: {WorkItemStatus.RUNNING},
-        WorkItemStatus.RUNNING: {WorkItemStatus.DONE, WorkItemStatus.FAILED},
+        WorkItemStatus.RUNNING: {WorkItemStatus.PENDING, WorkItemStatus.DONE, WorkItemStatus.FAILED},
         WorkItemStatus.FAILED: {WorkItemStatus.PENDING},
         WorkItemStatus.DONE: {WorkItemStatus.FAILED},
     }

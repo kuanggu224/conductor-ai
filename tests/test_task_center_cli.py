@@ -399,6 +399,54 @@ def test_task_center_cli_rejects_return_before_claim(tmp_path, capsys) -> None:
     assert "not claimed" in captured.err
 
 
+def test_task_center_cli_release_requeues_claimed_assignment(tmp_path, capsys) -> None:
+    project_root = tmp_path / "project"
+    state_store = FileStateStore(project_root / ".conductor" / "state")
+    engine = ConductorEngine(
+        log_dir=project_root / ".conductor" / "logs",
+        artifact_dir=project_root / ".conductor" / "artifacts",
+        state_store=state_store,
+    )
+    state = engine.create_project(requirement="Build a local reading list", project_root=str(project_root))
+    assignment_id = state.task_assignments[0].id
+
+    claim_code = main(
+        [
+            "claim",
+            assignment_id,
+            "--project-root",
+            str(project_root),
+            "--agent-id",
+            "agent-external",
+        ]
+    )
+    capsys.readouterr()
+    release_code = main(
+        [
+            "release",
+            assignment_id,
+            "--project-root",
+            str(project_root),
+            "--release-reason",
+            "worker interrupted",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert claim_code == 0
+    assert release_code == 0
+    assert payload["summary"]["queued"] == 1
+    assert payload["summary"]["claimable"] == 1
+    assert payload["task"]["status"] == "queued"
+    assert payload["task"]["assigned_agent_id"] == ""
+    assert payload["task"]["claim_reason"] == "worker interrupted"
+    assert payload["task"]["workitem"]["status"] == "pending"
+
+    reloaded = FileStateStore(project_root / ".conductor" / "state").get_state(state.project.id)
+    assert reloaded.task_assignments[0].status == TaskAssignmentStatus.QUEUED
+    assert reloaded.workitems[0].status == WorkItemStatus.PENDING
+
+
 def test_task_center_cli_claim_next_selects_available_role_task(tmp_path, capsys) -> None:
     project_root = tmp_path / "project"
     state_store = FileStateStore(project_root / ".conductor" / "state")

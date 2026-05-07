@@ -79,6 +79,10 @@ def build_parser() -> argparse.ArgumentParser:
     fail_parser.add_argument("--output-file", help="Create an output artifact from a UTF-8 file.")
     fail_parser.add_argument("--output-artifact-kind", default="external_result")
     fail_parser.add_argument("--output-artifact-title", default="")
+
+    release_parser = subparsers.add_parser("release", parents=[common], help="Release a claimed/failed assignment back to queued.")
+    release_parser.add_argument("assignment_id")
+    release_parser.add_argument("--release-reason", default="")
     return parser
 
 
@@ -154,6 +158,13 @@ def main(argv: list[str] | None = None) -> int:
                 result_summary=args.result_summary,
                 output_artifact_ids=output_artifact_ids,
                 blocked_reason=args.blocked_reason,
+            )
+            payload = _assignment_payload(result.state, result.assignment, service)
+        elif args.command == "release":
+            result = service.release(
+                state.project.id,
+                assignment_id=args.assignment_id,
+                release_reason=args.release_reason,
             )
             payload = _assignment_payload(result.state, result.assignment, service)
         else:
@@ -306,6 +317,8 @@ def _assignment_payload(
         "task": {
             **asdict(assignment),
             "status": assignment.status.value,
+            "assigned_agent_id": assignment.assigned_agent_id or "",
+            "blocked_reason": assignment.blocked_reason or "",
             "claimable": service.claimable(state, assignment),
             "unmet_dependency_ids": service.unmet_dependency_ids(state, assignment),
             "workitem": asdict(workitem) if workitem else {},

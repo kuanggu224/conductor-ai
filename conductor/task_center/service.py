@@ -119,6 +119,34 @@ class TaskCenterService:
             blocked_reason=blocked_reason,
         )
 
+    def release(
+        self,
+        project_id: str,
+        assignment_id: str,
+        release_reason: str = "",
+    ) -> TaskCenterTransition:
+        """Release a claimed/failed assignment back to queued for another worker."""
+        state = self._state(project_id)
+        assignment = self.require_assignment(state, assignment_id)
+        if assignment.status not in {TaskAssignmentStatus.CLAIMED, TaskAssignmentStatus.FAILED}:
+            raise TaskCenterError(f"Task assignment cannot be released: {assignment.status.value}")
+        updated = replace(
+            assignment,
+            status=TaskAssignmentStatus.QUEUED,
+            assigned_agent_id=None,
+            claim_reason=release_reason or assignment.claim_reason,
+            output_artifact_ids=[],
+            result_summary="",
+            blocked_reason=None,
+            claimed_at="",
+            returned_at="",
+            prompt_file="",
+        )
+        self._sync_workitem_release(project_id, assignment)
+        self.state_store.upsert_task_assignment(project_id, updated)
+        self.state_store.add_event(project_id, f"{self.event_prefix}: {assignment.workitem_id} released")
+        return TaskCenterTransition(state=self._state(project_id), assignment=updated)
+
     def require_assignment(self, state: SharedProjectState, assignment_id: str) -> TaskAssignment:
         """Return an assignment or raise a Task Center not-found error."""
         for assignment in state.task_assignments:
@@ -224,6 +252,23 @@ class TaskCenterService:
                 assignment.workitem_id,
                 WorkItemStatus.RUNNING,
                 owner_agent=agent_id,
+            )
+        except KeyError as error:
+            raise TaskCenterError(f"WorkItem not found: {assignment.workitem_id}", status_code=404) from error
+        except ValueError as error:
+            raise TaskCenterError(str(error)) from error
+
+    def _sync_workitem_release(self, project_id: str, assignment: TaskAssignment) -> None:
+        try:
+            self.state_store.update_workitem(
+                project_id,
+                assignment.workitem_id,
+                WorkItemStatus.PENDING,
+                owner_agent="",
+                result="",
+                blocked_reason="",
+                failure_type="",
+                failure_summary="",
             )
         except KeyError as error:
             raise TaskCenterError(f"WorkItem not found: {assignment.workitem_id}", status_code=404) from error
