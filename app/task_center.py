@@ -8,8 +8,10 @@ import sys
 from dataclasses import asdict
 from pathlib import Path
 
+from conductor.artifacts.store import ArtifactStore
 from conductor.domain.models import SharedProjectState, TaskAssignment, TaskAssignmentStatus
 from conductor.io.encoding import configure_utf8_stdio
+from conductor.task_center.artifacts import create_task_return_artifact
 from conductor.task_center.context import TaskContextBuilder
 from conductor.state.file_store import FileStateStore
 from conductor.task_center.service import TaskCenterError, TaskCenterService
@@ -51,12 +53,18 @@ def build_parser() -> argparse.ArgumentParser:
     complete_parser.add_argument("assignment_id")
     complete_parser.add_argument("--result-summary", default="")
     complete_parser.add_argument("--output-artifact-id", action="append", default=[])
+    complete_parser.add_argument("--output-file", help="Create an output artifact from a UTF-8 file.")
+    complete_parser.add_argument("--output-artifact-kind", default="external_result")
+    complete_parser.add_argument("--output-artifact-title", default="")
 
     fail_parser = subparsers.add_parser("fail", parents=[common], help="Return one claimed assignment as failed.")
     fail_parser.add_argument("assignment_id")
     fail_parser.add_argument("--result-summary", default="")
     fail_parser.add_argument("--blocked-reason", default="")
     fail_parser.add_argument("--output-artifact-id", action="append", default=[])
+    fail_parser.add_argument("--output-file", help="Create an output artifact from a UTF-8 file.")
+    fail_parser.add_argument("--output-artifact-kind", default="external_result")
+    fail_parser.add_argument("--output-artifact-title", default="")
     return parser
 
 
@@ -102,19 +110,21 @@ def main(argv: list[str] | None = None) -> int:
             )
             payload = _assignment_payload(result.state, result.assignment, service)
         elif args.command == "complete":
+            output_artifact_ids = _return_output_artifact_ids(args, store, state, service)
             result = service.complete(
                 state.project.id,
                 assignment_id=args.assignment_id,
                 result_summary=args.result_summary,
-                output_artifact_ids=args.output_artifact_id,
+                output_artifact_ids=output_artifact_ids,
             )
             payload = _assignment_payload(result.state, result.assignment, service)
         elif args.command == "fail":
+            output_artifact_ids = _return_output_artifact_ids(args, store, state, service)
             result = service.fail(
                 state.project.id,
                 assignment_id=args.assignment_id,
                 result_summary=args.result_summary,
-                output_artifact_ids=args.output_artifact_id,
+                output_artifact_ids=output_artifact_ids,
                 blocked_reason=args.blocked_reason,
             )
             payload = _assignment_payload(result.state, result.assignment, service)
@@ -170,6 +180,30 @@ def _summary_payload(state: SharedProjectState, service: TaskCenterService) -> d
         "project_id": state.project.id,
         "summary": service.summary(state),
     }
+
+
+def _return_output_artifact_ids(
+    args,
+    store: FileStateStore,
+    state: SharedProjectState,
+    service: TaskCenterService,
+) -> list[str]:
+    output_artifact_ids = list(args.output_artifact_id)
+    if not args.output_file:
+        return output_artifact_ids
+    assignment = service.require_assignment(state, args.assignment_id)
+    content = Path(args.output_file).expanduser().read_text(encoding="utf-8")
+    artifact = create_task_return_artifact(
+        state_store=store,
+        artifact_store=ArtifactStore(),
+        state=state,
+        assignment=assignment,
+        content=content,
+        kind=args.output_artifact_kind,
+        title=args.output_artifact_title,
+    )
+    output_artifact_ids.append(artifact.id)
+    return output_artifact_ids
 
 
 def _assignment_payload(

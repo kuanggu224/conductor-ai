@@ -37,6 +37,7 @@ python -m app.task_center context <assignment-id> --project-root <project-root>
 python -m app.task_center claim-next --project-root <project-root> --agent-id <agent-id> --role backend_engineer
 python -m app.task_center claim <assignment-id> --project-root <project-root> --agent-id <agent-id>
 python -m app.task_center complete <assignment-id> --project-root <project-root> --result-summary "done"
+python -m app.task_center complete <assignment-id> --project-root <project-root> --output-file result.md
 python -m app.task_center fail <assignment-id> --project-root <project-root> --blocked-reason "reason"
 ```
 
@@ -71,7 +72,10 @@ Endpoints:
 ```json
 {
   "result_summary": "implemented",
-  "output_artifact_ids": ["artifact-1"]
+  "output_artifact_ids": ["artifact-1"],
+  "output_artifact_content": "# Result\n\nImplemented details.",
+  "output_artifact_kind": "implementation_report",
+  "output_artifact_title": "Backend implementation report"
 }
 ```
 
@@ -84,6 +88,10 @@ Endpoints:
   "output_artifact_ids": []
 }
 ```
+
+When `output_artifact_content` is present, the platform creates and persists a
+new artifact with source backend `task_center/external`, appends its id to
+`output_artifact_ids`, and synchronizes the assignment and WorkItem return.
 
 ## Payload Shape
 

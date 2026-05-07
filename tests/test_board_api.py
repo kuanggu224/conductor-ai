@@ -228,6 +228,36 @@ def test_project_task_claim_and_complete_protocol() -> None:
     assert completed_list.json()["total"] == 1
 
 
+def test_project_task_complete_api_can_create_output_artifact() -> None:
+    client = TestClient(board.app)
+    state = board.engine.create_project(requirement="Build a local reading list", project_root="")
+    assignment_id = state.task_assignments[0].id
+    claim = client.post(
+        f"/api/projects/{state.project.id}/tasks/{assignment_id}/claim",
+        json={"agent_id": "agent-api-worker"},
+    )
+    assert claim.status_code == 200
+
+    completed = client.post(
+        f"/api/projects/{state.project.id}/tasks/{assignment_id}/complete",
+        json={
+            "result_summary": "done",
+            "output_artifact_content": "# Worker Result\n\nImplemented through API.",
+            "output_artifact_kind": "implementation_report",
+            "output_artifact_title": "API Worker Result",
+        },
+    )
+
+    assert completed.status_code == 200
+    artifact_id = completed.json()["task"]["output_artifact_ids"][0]
+    reloaded = board.engine.get_project(state.project.id)
+    artifact = next(item for item in reloaded.artifacts if item.id == artifact_id)
+    assert artifact.kind == "implementation_report"
+    assert artifact.title == "API Worker Result"
+    assert artifact.source_backend == "task_center/external"
+    assert "Implemented through API" in artifact.content
+
+
 def test_project_task_context_api_returns_input_artifact_content() -> None:
     client = TestClient(board.app)
     state = board.engine.create_project(

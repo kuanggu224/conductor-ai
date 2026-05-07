@@ -47,6 +47,7 @@ from conductor.diagnostics import build_platform_diagnostics, build_requirement_
 from conductor.domain.models import SharedProjectState, TaskAssignment
 from conductor.io.encoding import configure_utf8_stdio
 from conductor.io.requirements import RequirementInputError, load_requirement_text
+from conductor.task_center.artifacts import create_task_return_artifact
 from conductor.task_center.context import TaskContextBuilder
 from conductor.task_center.service import TaskCenterError, TaskCenterService
 from conductor.todo.service import (
@@ -134,6 +135,9 @@ class TaskReturnRequest(BaseModel):
 
     result_summary: TodoContent = ""
     output_artifact_ids: list[str] = Field(default_factory=list)
+    output_artifact_content: str = ""
+    output_artifact_kind: str = "external_result"
+    output_artifact_title: str = ""
     blocked_reason: TodoContent = ""
 
 
@@ -575,12 +579,13 @@ def project_task_context_api(
 @app.post("/api/projects/{project_id}/tasks/{assignment_id}/complete")
 async def complete_project_task_api(project_id: str, assignment_id: str, payload: TaskReturnRequest) -> JSONResponse:
     """Return a claimed task-center assignment as completed."""
+    output_artifact_ids = _task_return_output_artifact_ids(project_id, assignment_id, payload)
     transition = _run_task_center_transition(
         _task_center_service().complete,
         project_id,
         assignment_id=assignment_id,
         result_summary=payload.result_summary,
-        output_artifact_ids=list(payload.output_artifact_ids),
+        output_artifact_ids=output_artifact_ids,
     )
     return JSONResponse(
         {
@@ -594,12 +599,13 @@ async def complete_project_task_api(project_id: str, assignment_id: str, payload
 @app.post("/api/projects/{project_id}/tasks/{assignment_id}/fail")
 async def fail_project_task_api(project_id: str, assignment_id: str, payload: TaskReturnRequest) -> JSONResponse:
     """Return a claimed task-center assignment as failed."""
+    output_artifact_ids = _task_return_output_artifact_ids(project_id, assignment_id, payload)
     transition = _run_task_center_transition(
         _task_center_service().fail,
         project_id,
         assignment_id=assignment_id,
         result_summary=payload.result_summary,
-        output_artifact_ids=list(payload.output_artifact_ids),
+        output_artifact_ids=output_artifact_ids,
         blocked_reason=payload.blocked_reason,
     )
     return JSONResponse(
@@ -609,6 +615,29 @@ async def fail_project_task_api(project_id: str, assignment_id: str, payload: Ta
             "task": _task_assignment_payload(transition.assignment, transition.state),
         }
     )
+
+
+def _task_return_output_artifact_ids(
+    project_id: str,
+    assignment_id: str,
+    payload: TaskReturnRequest,
+) -> list[str]:
+    output_artifact_ids = list(payload.output_artifact_ids)
+    if not payload.output_artifact_content:
+        return output_artifact_ids
+    state = _require_project_state(project_id)
+    assignment = _task_center_service().require_assignment(state, assignment_id)
+    artifact = create_task_return_artifact(
+        state_store=engine.state_store,
+        artifact_store=engine.artifact_store,
+        state=state,
+        assignment=assignment,
+        content=payload.output_artifact_content,
+        kind=payload.output_artifact_kind,
+        title=payload.output_artifact_title,
+    )
+    output_artifact_ids.append(artifact.id)
+    return output_artifact_ids
 
 
 def _task_center_payload(state: SharedProjectState, status: str | None = None) -> dict[str, object]:
