@@ -541,6 +541,11 @@ GET /projects/{project_id}/runtime/stream
 - `POST /api/projects/{project_id}/tasks/{assignment_id}/heartbeat`
 - `POST /api/projects/{project_id}/tasks/{assignment_id}/release`
 - `POST /api/projects/{project_id}/tasks/release-stale`
+
+Task payloads and Board snapshots expose `claimed_age_seconds`,
+`last_heartbeat_at`, `heartbeat_age_seconds`, and `stale_claimed`. Frontends
+should use heartbeat age rather than claim age to decide whether a long-running
+external worker is stale.
 - `GET /api/settings/execution`
 - `POST /api/settings/execution`
 - `GET /api/settings/cli`

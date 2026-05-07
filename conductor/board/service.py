@@ -268,6 +268,8 @@ class BoardService:
                     claim_reason=assignment.claim_reason,
                     blocked_reason=assignment.blocked_reason or "",
                     claimed_age_seconds=task_center.claimed_age_seconds(assignment),
+                    last_heartbeat_at=assignment.last_heartbeat_at,
+                    heartbeat_age_seconds=task_center.heartbeat_age_seconds(assignment),
                     stale_claimed=task_center.stale_claimed(assignment),
                     prompt_file=assignment.prompt_file,
                 )

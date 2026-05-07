@@ -77,6 +77,9 @@ def test_board_service_builds_snapshot_from_state() -> None:
     assert snapshot.task_assignments[0].claimed_age_seconds is None or isinstance(
         snapshot.task_assignments[0].claimed_age_seconds, int
     )
+    assert snapshot.task_assignments[0].heartbeat_age_seconds is None or isinstance(
+        snapshot.task_assignments[0].heartbeat_age_seconds, int
+    )
     assert snapshot.task_assignments[0].stale_claimed in {True, False}
     assert isinstance(snapshot.workitems[0].remediation_suggestions, list)
     assert isinstance(snapshot.executions[0].remediation_suggestions, list)
@@ -220,7 +223,41 @@ def test_board_service_exposes_stale_task_assignment_state() -> None:
     assert snapshot.task_center_summary["stale_claimed"] == 1
     assert snapshot.task_assignments[0].claimed_age_seconds is not None
     assert snapshot.task_assignments[0].claimed_age_seconds >= 7200
+    assert snapshot.task_assignments[0].heartbeat_age_seconds is not None
+    assert snapshot.task_assignments[0].heartbeat_age_seconds >= 7200
     assert snapshot.task_assignments[0].stale_claimed is True
+
+
+def test_board_service_uses_heartbeat_for_stale_task_assignment_state() -> None:
+    state = SharedProjectState(
+        project=Project(id="project-heartbeat-task", goal="heartbeat task center readiness", current_stage="development"),
+        project_status=ProjectStatus.IN_PROGRESS,
+        current_stage="development",
+        workitems=[
+            WorkItem(id="workitem-heartbeat", description="Heartbeat claimed task", stage="development"),
+        ],
+        task_assignments=[
+            TaskAssignment(
+                id="assignment-heartbeat",
+                workitem_id="workitem-heartbeat",
+                role="backend_engineer",
+                status=TaskAssignmentStatus.CLAIMED,
+                assigned_agent_id="agent-backend",
+                claimed_at=(datetime.now(timezone.utc) - timedelta(hours=2)).isoformat(),
+                last_heartbeat_at=datetime.now(timezone.utc).isoformat(),
+            )
+        ],
+    )
+
+    snapshot = BoardService().build_snapshot(state)
+
+    assert snapshot.task_center_summary["stale_claimed"] == 0
+    assert snapshot.task_assignments[0].claimed_age_seconds is not None
+    assert snapshot.task_assignments[0].claimed_age_seconds >= 7200
+    assert snapshot.task_assignments[0].last_heartbeat_at
+    assert snapshot.task_assignments[0].heartbeat_age_seconds is not None
+    assert snapshot.task_assignments[0].heartbeat_age_seconds < 60
+    assert snapshot.task_assignments[0].stale_claimed is False
 
 
 def test_board_service_exposes_failure_remediation_suggestions() -> None:

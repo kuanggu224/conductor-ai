@@ -323,5 +323,7 @@ line per assignment.
 Board snapshots expose readiness through `BoardTaskAssignmentView.claimable`,
 `BoardTaskAssignmentView.unmet_dependency_ids`,
 `BoardTaskAssignmentView.claimed_age_seconds`,
+`BoardTaskAssignmentView.last_heartbeat_at`,
+`BoardTaskAssignmentView.heartbeat_age_seconds`,
 `BoardTaskAssignmentView.stale_claimed`, and
 `BoardTaskAssignmentView.prompt_file`.

@@ -130,6 +130,8 @@ class BoardTaskAssignmentView:
     claim_reason: str = ""
     blocked_reason: str = ""
     claimed_age_seconds: int | None = None
+    last_heartbeat_at: str = ""
+    heartbeat_age_seconds: int | None = None
     stale_claimed: bool = False
     prompt_file: str = ""
 
