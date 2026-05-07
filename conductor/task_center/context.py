@@ -112,6 +112,9 @@ class TaskContextBuilder:
         lines.extend(
             [
                 "",
+                "## CLI Return Commands",
+                *_return_command_lines(payload, assignment),
+                "",
                 "## Return Protocol",
                 "- Return a concise result summary.",
                 "- Attach substantive output with `--output-file` or `output_artifact_content`.",
@@ -229,6 +232,32 @@ def _join_or_none(items: list[object]) -> str:
 
 def _fenced(content: str) -> str:
     return f"````text\n{content.rstrip()}\n````"
+
+
+def _return_command_lines(payload: dict[str, object], assignment: dict[str, object]) -> list[str]:
+    project_root = str(payload.get("project_root", "") or ".")
+    assignment_id = str(assignment.get("id", "") or "<assignment-id>")
+    complete_command = (
+        f'python -m app.task_center complete "{assignment_id}" '
+        f'--project-root "{project_root}" '
+        '--result-summary "completed" '
+        '--output-file result.md'
+    )
+    fail_command = (
+        f'python -m app.task_center fail "{assignment_id}" '
+        f'--project-root "{project_root}" '
+        '--result-summary "failed" '
+        '--blocked-reason "explain blocker"'
+    )
+    return [
+        "Use one of these commands after finishing the task:",
+        "",
+        "Complete successfully:",
+        _fenced(complete_command),
+        "",
+        "Return failure/blocker:",
+        _fenced(fail_command),
+    ]
 
 
 __all__ = ["TaskContextBuilder"]
