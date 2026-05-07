@@ -468,6 +468,74 @@ def project_detail_api(project_id: str) -> JSONResponse:
     )
 
 
+@app.get("/api/projects/{project_id}/tasks")
+def project_tasks_api(project_id: str, status: str | None = None) -> JSONResponse:
+    """Return task center assignments for one project, optionally filtered by status."""
+    state = _require_project_state(project_id)
+    workitems_by_id = {item.id: item for item in state.workitems}
+    artifacts_by_workitem: dict[str, list[dict[str, object]]] = {}
+    for artifact in state.artifacts:
+        artifacts_by_workitem.setdefault(artifact.workitem_id, []).append(
+            {
+                "id": artifact.id,
+                "kind": artifact.kind,
+                "title": artifact.title,
+                "path": artifact.path or "",
+                "source_backend": artifact.source_backend,
+                "version": artifact.version,
+            }
+        )
+    assignments = [
+        assignment
+        for assignment in state.task_assignments
+        if status is None or assignment.status.value == status
+    ]
+    return JSONResponse(
+        {
+            "project_id": project_id,
+            "status_filter": status or "",
+            "total": len(assignments),
+            "tasks": [
+                {
+                    "id": assignment.id,
+                    "workitem_id": assignment.workitem_id,
+                    "role": assignment.role,
+                    "status": assignment.status.value,
+                    "assigned_agent_id": assignment.assigned_agent_id or "",
+                    "claim_reason": assignment.claim_reason,
+                    "dependencies": list(assignment.dependencies),
+                    "input_artifact_ids": list(assignment.input_artifact_ids),
+                    "output_artifact_ids": list(assignment.output_artifact_ids),
+                    "result_summary": assignment.result_summary,
+                    "blocked_reason": assignment.blocked_reason or "",
+                    "workitem": _task_workitem_payload(workitems_by_id.get(assignment.workitem_id)),
+                    "artifacts": artifacts_by_workitem.get(assignment.workitem_id, []),
+                }
+                for assignment in assignments
+            ],
+        }
+    )
+
+
+def _task_workitem_payload(workitem) -> dict[str, object]:
+    """Build the WorkItem subset needed by task center clients."""
+    if workitem is None:
+        return {}
+    return {
+        "id": workitem.id,
+        "stage": workitem.stage,
+        "kind": workitem.kind,
+        "status": workitem.status.value,
+        "owner_agent": workitem.owner_agent or "",
+        "description": workitem.description,
+        "acceptance_criteria": list(workitem.acceptance_criteria),
+        "retry_count": workitem.retry_count,
+        "max_retries": workitem.max_retries,
+        "failure_type": workitem.failure_type,
+        "failure_summary": workitem.failure_summary,
+    }
+
+
 @app.post("/api/projects/{project_id}/step")
 def step_project_api(project_id: str) -> JSONResponse:
     """Start one background step for a project."""

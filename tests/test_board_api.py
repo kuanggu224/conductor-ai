@@ -73,3 +73,36 @@ def test_project_detail_api_returns_404_for_missing_project() -> None:
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Project not found: project-missing"
+
+
+def test_project_tasks_api_returns_task_center_assignments() -> None:
+    client = TestClient(board.app)
+    state = board.engine.create_project(
+        requirement="Build a local reading list with CSV export",
+        project_root="",
+    )
+
+    response = client.get(f"/api/projects/{state.project.id}/tasks")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["project_id"] == state.project.id
+    assert payload["total"] == 1
+    task = payload["tasks"][0]
+    assert task["workitem_id"] == state.workitems[0].id
+    assert task["status"] == "queued"
+    assert task["workitem"]["acceptance_criteria"] == state.workitems[0].acceptance_criteria
+    assert "artifacts" in task
+
+
+def test_project_tasks_api_filters_by_status() -> None:
+    client = TestClient(board.app)
+    state = board.engine.create_project(requirement="Build a local reading list", project_root="")
+
+    queued = client.get(f"/api/projects/{state.project.id}/tasks?status=queued")
+    completed = client.get(f"/api/projects/{state.project.id}/tasks?status=completed")
+
+    assert queued.status_code == 200
+    assert queued.json()["total"] == 1
+    assert completed.status_code == 200
+    assert completed.json()["total"] == 0
