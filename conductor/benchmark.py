@@ -137,6 +137,7 @@ def evaluate_run_manifest(
     executions = list(manifest.get("executions", []))
     cli_runs = list(manifest.get("cli_runs", []))
     workitems = list(manifest.get("workitems", []))
+    requirement_coverage_results = list(manifest.get("requirement_coverage_results", []))
     files = dict(manifest.get("files", {}))
     final_status = str(manifest.get("final_status", manifest.get("status", "")))
 
@@ -155,6 +156,12 @@ def evaluate_run_manifest(
     )
     retry_or_failure = any(item.get("failure_type") for item in workitems)
     keyword_coverage = _keyword_coverage(case.expected_keywords if case else [], artifacts)
+    missing_requirement_coverage = [
+        item
+        for item in requirement_coverage_results
+        if item.get("passed") is False or item.get("status") == "missing_coverage"
+    ]
+    requirement_coverage_passed = not missing_requirement_coverage
 
     checks = {
         "completed": final_status == "completed",
@@ -168,6 +175,7 @@ def evaluate_run_manifest(
         "tests_passed": tests_passed,
         "no_blockers": not has_blockers,
         "keyword_coverage": keyword_coverage >= 60 if case and case.expected_keywords else True,
+        "requirement_coverage": requirement_coverage_passed,
     }
     score = 0
     score += 15 if checks["completed"] else 0
@@ -178,6 +186,8 @@ def evaluate_run_manifest(
     score += 10 if checks["has_code_files"] or not require_code else 0
     score += 10 if checks["tests_passed"] or not require_code else 0
     score += 10 if checks["keyword_coverage"] else 0
+    if not checks["requirement_coverage"]:
+        score -= 10
     score = min(score, 100)
 
     findings: list[str] = []
@@ -193,6 +203,18 @@ def evaluate_run_manifest(
         findings.append("Run ended with blockers.")
     if retry_or_failure:
         findings.append("Some WorkItems recorded failure or retry metadata.")
+    if missing_requirement_coverage:
+        missing = sorted(
+            {
+                str(label)
+                for result in missing_requirement_coverage
+                for label in result.get("missing_labels", [])
+            }
+        )
+        findings.append(
+            "Requirement coverage is missing validation evidence"
+            + (f": {', '.join(missing)}." if missing else ".")
+        )
 
     return RunEvaluation(
         project_id=str(manifest.get("project_id", "")),
@@ -207,6 +229,8 @@ def evaluate_run_manifest(
             "cli_runs": len(cli_runs),
             "code_files": len(code_files),
             "keyword_coverage": keyword_coverage,
+            "requirement_coverage_results": len(requirement_coverage_results),
+            "missing_requirement_coverage": len(missing_requirement_coverage),
         },
         findings=findings,
         manifest_path=str(path),
@@ -328,8 +352,8 @@ class BenchmarkRunner:
             f"- Passed: {summary['passed']}",
             f"- Average Score: {summary['average_score']}",
             "",
-            "| Case | Profile | Score | Passed | CLI Runs | Mock Free | Completed | Manifest |",
-            "|---|---|---:|---|---:|---|---|---|",
+            "| Case | Profile | Score | Passed | CLI Runs | Mock Free | Completed | Req Coverage | Manifest |",
+            "|---|---|---:|---|---:|---|---|---|---|",
         ]
         for result in results:
             checks = result.evaluation.checks
@@ -340,6 +364,7 @@ class BenchmarkRunner:
                 f"{result.evaluation.metrics['cli_runs']} | "
                 f"{'yes' if checks['no_mock_artifacts'] else 'no'} | "
                 f"{'yes' if checks['completed'] else 'no'} | "
+                f"{'yes' if checks.get('requirement_coverage', True) else 'no'} | "
                 f"{result.manifest_path} |"
             )
         lines.append("")
