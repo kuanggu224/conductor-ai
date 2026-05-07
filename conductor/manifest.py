@@ -32,7 +32,7 @@ class RunManifest:
     working_directory: str
     selected_cli_names: list[str]
     role_cli_bindings: dict[str, str | None]
-    summary: dict[str, int | str]
+    summary: dict[str, object]
     agents: list[dict[str, object]]
     executions: list[dict[str, object]]
     cli_runs: list[dict[str, object]]
@@ -69,7 +69,7 @@ class RunManifestWriter:
         requirement_coverage_results = self._requirement_coverage_results(state)
         task_center = TaskCenterService(_ManifestStateStore(state))
         manifest = RunManifest(
-            schema_version="1.7",
+            schema_version="1.8",
             run_id=f"{state.project.id}:{generated_at}",
             project_id=state.project.id,
             generated_at=generated_at,
@@ -94,6 +94,7 @@ class RunManifestWriter:
                     default=0,
                 ),
                 "requirement_coverage_status": self._requirement_coverage_status(requirement_coverage_results),
+                "task_center_summary": task_center.summary(state),
             },
             agents=[self._agent_record(state, activation, cli_config) for activation in state.agent_activations],
             executions=executions,
