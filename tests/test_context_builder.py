@@ -237,3 +237,75 @@ def test_context_builder_always_carries_frozen_requirement_into_later_stages() -
     assert "artifact-frozen" in context.artifact_ids
     assert "需求基线" in rendered
     assert "静态 Web 应用" in rendered
+
+
+def test_context_builder_expands_explicit_artifact_lineage() -> None:
+    design = WorkItem(id="workitem-design", description="design", stage="design", kind="design_overview")
+    review = WorkItem(id="workitem-review", description="review", stage="design", kind="collaboration_review")
+    backend = WorkItem(
+        id="workitem-backend",
+        description="backend",
+        stage="development",
+        kind="api_implementation",
+        input_artifact_ids=["artifact-review"],
+    )
+    artifacts = [
+        Artifact(
+            id="artifact-design",
+            project_id="project-1",
+            workitem_id="workitem-design",
+            agent_id="agent-designer",
+            kind="design_overview",
+            title="Design",
+            content="original design contract",
+        ),
+        Artifact(
+            id="artifact-review",
+            project_id="project-1",
+            workitem_id="workitem-review",
+            agent_id="agent-reviewer",
+            kind="collaboration_review",
+            title="Review",
+            content="review asks for stricter API contract",
+            parent_artifact_id="artifact-design",
+            review_of="artifact-design",
+            derived_from=["artifact-design"],
+        ),
+        Artifact(
+            id="artifact-revision",
+            project_id="project-1",
+            workitem_id="workitem-review",
+            agent_id="agent-designer",
+            kind="design_overview",
+            title="Revision",
+            content="revised API contract after review",
+            parent_artifact_id="artifact-review",
+            derived_from=["artifact-review"],
+        ),
+        *[
+            Artifact(
+                id=f"artifact-recent-{index}",
+                project_id="project-1",
+                workitem_id=f"workitem-recent-{index}",
+                agent_id="agent",
+                kind="api_implementation",
+                title=f"Recent {index}",
+                content=f"recent {index}",
+            )
+            for index in range(8)
+        ],
+    ]
+    state = SharedProjectState(
+        project=Project(id="project-1", goal="Build API", current_stage="development"),
+        project_status=ProjectStatus.IN_PROGRESS,
+        current_stage="development",
+        workitems=[design, review, backend],
+        artifacts=artifacts,
+    )
+
+    context = ContextBuilder(max_artifacts=4).build(state, backend)
+    rendered = "\n".join(context.artifacts)
+
+    assert context.artifact_ids[:3] == ["artifact-review", "artifact-design", "artifact-revision"]
+    assert "original design contract" in rendered
+    assert "revised API contract after review" in rendered

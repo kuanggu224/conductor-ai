@@ -45,12 +45,22 @@ class ContextBuilder:
             if artifact.workitem_id != workitem.id
         ]
         dependency_ids = set(workitem.dependencies)
+        explicit_artifact_ids = set(workitem.input_artifact_ids)
+        explicit_artifacts = [
+            artifact for artifact in previous_artifacts if artifact.id in explicit_artifact_ids
+        ]
         dependency_artifacts = [
             artifact for artifact in previous_artifacts if artifact.workitem_id in dependency_ids
         ]
         frozen_requirement_artifacts = [
             artifact for artifact in previous_artifacts if artifact.kind == "frozen_requirement_spec"
         ]
+        lineage_seed_ids = {
+            *explicit_artifact_ids,
+            *[artifact.id for artifact in dependency_artifacts],
+            *[artifact.id for artifact in frozen_requirement_artifacts],
+        }
+        lineage_artifacts = self._lineage_artifacts(previous_artifacts, lineage_seed_ids)
         design_artifacts = [
             artifact for artifact in previous_artifacts if self._infer_artifact_stage(artifact.kind) == "design"
         ]
@@ -61,7 +71,13 @@ class ContextBuilder:
             for artifact in previous_artifacts
             if stage_rank.get(self._infer_artifact_stage(artifact.kind), 99) <= current_rank
         ]
-        priority = [*frozen_requirement_artifacts, *dependency_artifacts, *design_artifacts]
+        priority = [
+            *frozen_requirement_artifacts,
+            *explicit_artifacts,
+            *dependency_artifacts,
+            *lineage_artifacts,
+            *design_artifacts,
+        ]
         recents = relevant[-self.max_artifacts :]
         ordered = [*priority, *recents]
         deduped: list[Artifact] = []
@@ -72,6 +88,40 @@ class ContextBuilder:
             seen.add(artifact.id)
             deduped.append(artifact)
         return deduped[: self.max_artifacts]
+
+    def _lineage_artifacts(self, artifacts: list[Artifact], seed_ids: set[str]) -> list[Artifact]:
+        """Return artifacts connected to explicit inputs through lineage fields."""
+        if not seed_ids:
+            return []
+        by_id = {artifact.id: artifact for artifact in artifacts}
+        selected_ids: set[str] = set()
+        queue = [artifact_id for artifact_id in seed_ids if artifact_id in by_id]
+        while queue:
+            artifact_id = queue.pop(0)
+            if artifact_id in selected_ids:
+                continue
+            artifact = by_id.get(artifact_id)
+            if artifact is None:
+                continue
+            selected_ids.add(artifact_id)
+            related_ids = [
+                artifact.parent_artifact_id or "",
+                artifact.review_of or "",
+                *artifact.derived_from,
+            ]
+            for related_id in related_ids:
+                if related_id and related_id in by_id and related_id not in selected_ids:
+                    queue.append(related_id)
+            for candidate in artifacts:
+                if candidate.id in selected_ids:
+                    continue
+                if (
+                    candidate.parent_artifact_id == artifact_id
+                    or candidate.review_of == artifact_id
+                    or artifact_id in candidate.derived_from
+                ):
+                    queue.append(candidate.id)
+        return [artifact for artifact in artifacts if artifact.id in selected_ids]
 
     def _infer_artifact_stage(self, kind: str) -> str:
         """根据产物类型推断来源阶段。"""
