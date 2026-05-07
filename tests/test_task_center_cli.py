@@ -47,6 +47,8 @@ def test_task_center_cli_lists_claims_and_completes_persisted_assignment(tmp_pat
     claim_payload = json.loads(capsys.readouterr().out)
 
     assert claim_code == 0
+    assert claim_payload["summary"]["claimed"] == 1
+    assert claim_payload["summary"]["claimable"] == 0
     assert claim_payload["task"]["status"] == "claimed"
     assert claim_payload["task"]["assigned_agent_id"] == "agent-external"
     assert claim_payload["task"]["workitem"]["status"] == "running"
@@ -67,6 +69,8 @@ def test_task_center_cli_lists_claims_and_completes_persisted_assignment(tmp_pat
     complete_payload = json.loads(capsys.readouterr().out)
 
     assert complete_code == 0
+    assert complete_payload["summary"]["completed"] == 1
+    assert complete_payload["summary"]["claimable"] == 0
     assert complete_payload["task"]["status"] == "completed"
     assert complete_payload["task"]["output_artifact_ids"] == ["artifact-external"]
     assert complete_payload["task"]["workitem"]["status"] == "done"
@@ -153,6 +157,8 @@ def test_task_center_cli_claim_next_selects_available_role_task(tmp_path, capsys
     payload = json.loads(capsys.readouterr().out)
 
     assert code == 0
+    assert payload["summary"]["claimed"] == 1
+    assert payload["summary"]["claimable"] == 0
     assert payload["task"]["role"] == role
     assert payload["task"]["status"] == "claimed"
     assert payload["task"]["assigned_agent_id"] == "agent-role-worker"

@@ -167,6 +167,7 @@ def _assignment_payload(
     return {
         "ok": True,
         "project_id": state.project.id,
+        "summary": service.summary(state),
         "task": {
             **asdict(assignment),
             "status": assignment.status.value,

@@ -139,7 +139,10 @@ def test_project_task_claim_and_complete_protocol() -> None:
     )
 
     assert claimed.status_code == 200
-    claimed_task = claimed.json()["task"]
+    claimed_payload = claimed.json()
+    assert claimed_payload["summary"]["claimed"] == 1
+    assert claimed_payload["summary"]["claimable"] == 0
+    claimed_task = claimed_payload["task"]
     assert claimed_task["status"] == "claimed"
     assert claimed_task["assigned_agent_id"] == "agent-manual"
     assert claimed_task["claim_reason"] == "manual smoke"
@@ -156,7 +159,10 @@ def test_project_task_claim_and_complete_protocol() -> None:
     )
 
     assert completed.status_code == 200
-    completed_task = completed.json()["task"]
+    completed_payload = completed.json()
+    assert completed_payload["summary"]["completed"] == 1
+    assert completed_payload["summary"]["claimable"] == 0
+    completed_task = completed_payload["task"]
     assert completed_task["status"] == "completed"
     assert completed_task["result_summary"] == "finished task"
     assert completed_task["output_artifact_ids"] == ["artifact-manual"]
@@ -196,7 +202,10 @@ def test_project_task_claim_next_selects_available_role_task() -> None:
     )
 
     assert response.status_code == 200
-    task = response.json()["task"]
+    payload = response.json()
+    assert payload["summary"]["claimed"] == 1
+    assert payload["summary"]["claimable"] == 0
+    task = payload["task"]
     assert task["role"] == role
     assert task["status"] == "claimed"
     assert task["assigned_agent_id"] == "agent-api-worker"

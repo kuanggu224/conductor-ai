@@ -523,6 +523,7 @@ async def claim_next_project_task_api(project_id: str, payload: TaskClaimNextReq
     return JSONResponse(
         {
             "project_id": project_id,
+            "summary": _task_center_service().summary(transition.state),
             "task": _task_assignment_payload(transition.assignment, transition.state),
         }
     )
@@ -541,6 +542,7 @@ async def claim_project_task_api(project_id: str, assignment_id: str, payload: T
     return JSONResponse(
         {
             "project_id": project_id,
+            "summary": _task_center_service().summary(transition.state),
             "task": _task_assignment_payload(transition.assignment, transition.state),
         }
     )
@@ -559,6 +561,7 @@ async def complete_project_task_api(project_id: str, assignment_id: str, payload
     return JSONResponse(
         {
             "project_id": project_id,
+            "summary": _task_center_service().summary(transition.state),
             "task": _task_assignment_payload(transition.assignment, transition.state),
         }
     )
@@ -578,6 +581,7 @@ async def fail_project_task_api(project_id: str, assignment_id: str, payload: Ta
     return JSONResponse(
         {
             "project_id": project_id,
+            "summary": _task_center_service().summary(transition.state),
             "task": _task_assignment_payload(transition.assignment, transition.state),
         }
     )
