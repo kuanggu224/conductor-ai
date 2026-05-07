@@ -61,7 +61,12 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.command == "list":
-            payload = _list_payload(state, service.list_assignments(state.project.id, status=args.status), status=args.status)
+            payload = _list_payload(
+                state,
+                service.list_assignments(state.project.id, status=args.status),
+                service,
+                status=args.status,
+            )
         elif args.command == "claim":
             result = service.claim(
                 state.project.id,
@@ -69,7 +74,7 @@ def main(argv: list[str] | None = None) -> int:
                 agent_id=args.agent_id,
                 claim_reason=args.claim_reason,
             )
-            payload = _assignment_payload(result.state, result.assignment)
+            payload = _assignment_payload(result.state, result.assignment, service)
         elif args.command == "claim-next":
             result = service.claim_next(
                 state.project.id,
@@ -77,7 +82,7 @@ def main(argv: list[str] | None = None) -> int:
                 role=args.role,
                 claim_reason=args.claim_reason,
             )
-            payload = _assignment_payload(result.state, result.assignment)
+            payload = _assignment_payload(result.state, result.assignment, service)
         elif args.command == "complete":
             result = service.complete(
                 state.project.id,
@@ -85,7 +90,7 @@ def main(argv: list[str] | None = None) -> int:
                 result_summary=args.result_summary,
                 output_artifact_ids=args.output_artifact_id,
             )
-            payload = _assignment_payload(result.state, result.assignment)
+            payload = _assignment_payload(result.state, result.assignment, service)
         elif args.command == "fail":
             result = service.fail(
                 state.project.id,
@@ -94,7 +99,7 @@ def main(argv: list[str] | None = None) -> int:
                 output_artifact_ids=args.output_artifact_id,
                 blocked_reason=args.blocked_reason,
             )
-            payload = _assignment_payload(result.state, result.assignment)
+            payload = _assignment_payload(result.state, result.assignment, service)
         else:
             raise AssertionError(f"Unsupported command: {args.command}")
     except TaskCenterError as error:
@@ -128,6 +133,7 @@ def _resolve_state(store: FileStateStore, project_id: str | None) -> SharedProje
 def _list_payload(
     state: SharedProjectState,
     assignments: list[TaskAssignment],
+    service: TaskCenterService,
     status: str | None = None,
 ) -> dict[str, object]:
     return {
@@ -135,11 +141,15 @@ def _list_payload(
         "project_id": state.project.id,
         "status_filter": status or "",
         "total": len(assignments),
-        "tasks": [_assignment_payload(state, assignment)["task"] for assignment in assignments],
+        "tasks": [_assignment_payload(state, assignment, service)["task"] for assignment in assignments],
     }
 
 
-def _assignment_payload(state: SharedProjectState, assignment: TaskAssignment) -> dict[str, object]:
+def _assignment_payload(
+    state: SharedProjectState,
+    assignment: TaskAssignment,
+    service: TaskCenterService,
+) -> dict[str, object]:
     workitem = next((item for item in state.workitems if item.id == assignment.workitem_id), None)
     return {
         "ok": True,
@@ -147,6 +157,8 @@ def _assignment_payload(state: SharedProjectState, assignment: TaskAssignment) -
         "task": {
             **asdict(assignment),
             "status": assignment.status.value,
+            "claimable": service.claimable(state, assignment),
+            "unmet_dependency_ids": service.unmet_dependency_ids(state, assignment),
             "workitem": asdict(workitem) if workitem else {},
         },
     }

@@ -91,6 +91,8 @@ def test_project_tasks_api_returns_task_center_assignments() -> None:
     task = payload["tasks"][0]
     assert task["workitem_id"] == state.workitems[0].id
     assert task["status"] == "queued"
+    assert task["claimable"] is True
+    assert task["unmet_dependency_ids"] == []
     assert task["workitem"]["acceptance_criteria"] == state.workitems[0].acceptance_criteria
     assert "artifacts" in task
 

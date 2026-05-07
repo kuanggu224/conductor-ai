@@ -108,25 +108,30 @@ class TaskCenterService:
     def select_next_assignment(self, state: SharedProjectState, role: str | None = None) -> TaskAssignment:
         """Return the first queued assignment whose dependencies are satisfied."""
         for assignment in state.task_assignments:
-            if assignment.status != TaskAssignmentStatus.QUEUED:
-                continue
             if role and assignment.role != role:
                 continue
-            if not self.dependencies_satisfied(state, assignment):
+            if not self.claimable(state, assignment):
                 continue
             return assignment
         suffix = f" for role {role}" if role else ""
         raise TaskCenterError(f"No queued task assignment available{suffix}.", status_code=404)
 
+    def claimable(self, state: SharedProjectState, assignment: TaskAssignment) -> bool:
+        """Return whether an assignment is queued and all dependencies are done."""
+        return assignment.status == TaskAssignmentStatus.QUEUED and self.dependencies_satisfied(state, assignment)
+
     def dependencies_satisfied(self, state: SharedProjectState, assignment: TaskAssignment) -> bool:
         """Return whether all WorkItem dependencies for an assignment are done."""
-        if not assignment.dependencies:
-            return True
+        return not self.unmet_dependency_ids(state, assignment)
+
+    def unmet_dependency_ids(self, state: SharedProjectState, assignment: TaskAssignment) -> list[str]:
+        """Return dependency WorkItem ids that are not completed."""
         status_by_workitem = {item.id: item.status for item in state.workitems}
-        return all(
-            status_by_workitem.get(dependency_id) == WorkItemStatus.DONE
+        return [
+            dependency_id
             for dependency_id in assignment.dependencies
-        )
+            if status_by_workitem.get(dependency_id) != WorkItemStatus.DONE
+        ]
 
     def _claim_assignment(
         self,

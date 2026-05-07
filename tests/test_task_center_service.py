@@ -45,6 +45,10 @@ def test_task_center_service_claim_next_skips_unsatisfied_dependencies() -> None
     )
     store.save_state(state)
     service = TaskCenterService(store)
+    blocked_assignment = state.task_assignments[0]
+
+    assert service.claimable(state, blocked_assignment) is False
+    assert service.unmet_dependency_ids(state, blocked_assignment) == ["workitem-dependency"]
 
     transition = service.claim_next("project-service", agent_id="agent-backend", role="backend_engineer")
 

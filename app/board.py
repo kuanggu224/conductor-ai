@@ -573,6 +573,7 @@ async def fail_project_task_api(project_id: str, assignment_id: str, payload: Ta
 
 def _task_center_payload(state: SharedProjectState, status: str | None = None) -> dict[str, object]:
     """Build the task-center response payload."""
+    task_center = _task_center_service()
     workitems_by_id = {item.id: item for item in state.workitems}
     artifacts_by_workitem: dict[str, list[dict[str, object]]] = {}
     for artifact in state.artifacts:
@@ -599,6 +600,7 @@ def _task_center_payload(state: SharedProjectState, status: str | None = None) -
             _task_assignment_payload(
                 assignment,
                 state,
+                service=task_center,
                 workitem=workitems_by_id.get(assignment.workitem_id),
                 artifacts=artifacts_by_workitem.get(assignment.workitem_id, []),
             )
@@ -610,10 +612,12 @@ def _task_center_payload(state: SharedProjectState, status: str | None = None) -
 def _task_assignment_payload(
     assignment: TaskAssignment,
     state: SharedProjectState,
+    service: TaskCenterService | None = None,
     workitem=None,
     artifacts: list[dict[str, object]] | None = None,
 ) -> dict[str, object]:
     """Build one task-center assignment payload."""
+    task_center = service or _task_center_service()
     if workitem is None:
         workitem = next((item for item in state.workitems if item.id == assignment.workitem_id), None)
     if artifacts is None:
@@ -636,6 +640,8 @@ def _task_assignment_payload(
         "status": assignment.status.value,
         "assigned_agent_id": assignment.assigned_agent_id or "",
         "claim_reason": assignment.claim_reason,
+        "claimable": task_center.claimable(state, assignment),
+        "unmet_dependency_ids": task_center.unmet_dependency_ids(state, assignment),
         "dependencies": list(assignment.dependencies),
         "input_artifact_ids": list(assignment.input_artifact_ids),
         "output_artifact_ids": list(assignment.output_artifact_ids),
