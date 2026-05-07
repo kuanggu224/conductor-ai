@@ -122,6 +122,7 @@ class BoardTaskAssignmentView:
     status_label: str
     assigned_agent_id: str
     assigned_agent_label: str
+    claim_token: str = ""
     claimable: bool = False
     unmet_dependency_ids: list[str] = field(default_factory=list)
     dependencies: list[str] = field(default_factory=list)

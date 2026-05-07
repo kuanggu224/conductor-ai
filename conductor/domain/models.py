@@ -109,6 +109,7 @@ class TaskAssignment:
     role: str
     status: TaskAssignmentStatus = TaskAssignmentStatus.QUEUED
     assigned_agent_id: str | None = None
+    claim_token: str = ""
     claim_reason: str = ""
     dependencies: list[str] = field(default_factory=list)
     input_artifact_ids: list[str] = field(default_factory=list)

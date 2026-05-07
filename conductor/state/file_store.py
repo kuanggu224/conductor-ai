@@ -126,6 +126,7 @@ class FileStateStore(InMemoryStateStore):
             role=data["role"],
             status=TaskAssignmentStatus(data.get("status", TaskAssignmentStatus.QUEUED)),
             assigned_agent_id=data.get("assigned_agent_id"),
+            claim_token=data.get("claim_token", ""),
             claim_reason=data.get("claim_reason", ""),
             dependencies=list(data.get("dependencies", [])),
             input_artifact_ids=list(data.get("input_artifact_ids", [])),

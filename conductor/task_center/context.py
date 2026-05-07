@@ -79,6 +79,7 @@ class TaskContextBuilder:
             f"- Status: {assignment.get('status', '')}",
             f"- Role: {assignment.get('role', '')}",
             f"- Assigned Agent: {assignment.get('assigned_agent_id', '') or 'unassigned'}",
+            f"- Claim Token: {assignment.get('claim_token', '') or 'not claimed'}",
             f"- Claimable: {assignment.get('claimable', '')}",
             f"- Dependencies: {_join_or_none(_list_payload(assignment.get('dependencies')))}",
             f"- Unmet Dependencies: {_join_or_none(_list_payload(assignment.get('unmet_dependency_ids')))}",
@@ -243,10 +244,12 @@ def _fenced(content: str) -> str:
 def _return_command_lines(payload: dict[str, object], assignment: dict[str, object]) -> list[str]:
     project_root = str(payload.get("project_root", "") or ".")
     assignment_id = str(assignment.get("id", "") or "<assignment-id>")
+    claim_token = str(assignment.get("claim_token", "") or "<claim-token>")
     complete_command = (
         f'python -m app.task_center complete "{assignment_id}" '
         f'--project-root "{project_root}" '
         '--agent-id "<agent-id>" '
+        f'--claim-token "{claim_token}" '
         '--result-summary "completed" '
         '--output-file result.md'
     )
@@ -254,18 +257,21 @@ def _return_command_lines(payload: dict[str, object], assignment: dict[str, obje
         f'python -m app.task_center fail "{assignment_id}" '
         f'--project-root "{project_root}" '
         '--agent-id "<agent-id>" '
+        f'--claim-token "{claim_token}" '
         '--result-summary "failed" '
         '--blocked-reason "explain blocker"'
     )
     heartbeat_command = (
         f'python -m app.task_center heartbeat "{assignment_id}" '
         f'--project-root "{project_root}" '
-        '--agent-id "<agent-id>"'
+        '--agent-id "<agent-id>" '
+        f'--claim-token "{claim_token}"'
     )
     release_command = (
         f'python -m app.task_center release "{assignment_id}" '
         f'--project-root "{project_root}" '
         '--agent-id "<agent-id>" '
+        f'--claim-token "{claim_token}" '
         '--release-reason "worker interrupted"'
     )
     return [

@@ -73,6 +73,7 @@ def test_board_service_builds_snapshot_from_state() -> None:
     assert snapshot.task_center_summary["total"] == len(state.task_assignments)
     assert "claimable" in snapshot.task_center_summary
     assert snapshot.task_assignments[0].claimable in {True, False}
+    assert isinstance(snapshot.task_assignments[0].claim_token, str)
     assert isinstance(snapshot.task_assignments[0].unmet_dependency_ids, list)
     assert snapshot.task_assignments[0].claimed_age_seconds is None or isinstance(
         snapshot.task_assignments[0].claimed_age_seconds, int

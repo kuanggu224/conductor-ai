@@ -53,6 +53,7 @@ def test_task_center_cli_lists_claims_and_completes_persisted_assignment(tmp_pat
     assert claim_payload["summary"]["claimable"] == 0
     assert claim_payload["task"]["status"] == "claimed"
     assert claim_payload["task"]["assigned_agent_id"] == "agent-external"
+    assert claim_payload["task"]["claim_token"]
     assert claim_payload["task"]["claimed_at"]
     assert claim_payload["task"]["last_heartbeat_at"]
     assert claim_payload["task"]["returned_at"] == ""
@@ -67,6 +68,8 @@ def test_task_center_cli_lists_claims_and_completes_persisted_assignment(tmp_pat
             str(project_root),
             "--agent-id",
             "agent-external",
+            "--claim-token",
+            claim_payload["task"]["claim_token"],
         ]
     )
     heartbeat_payload = json.loads(capsys.readouterr().out)
@@ -84,6 +87,8 @@ def test_task_center_cli_lists_claims_and_completes_persisted_assignment(tmp_pat
             str(project_root),
             "--agent-id",
             "agent-external",
+            "--claim-token",
+            heartbeat_payload["task"]["claim_token"],
             "--result-summary",
             "completed by external worker",
             "--output-artifact-id",
@@ -108,6 +113,40 @@ def test_task_center_cli_lists_claims_and_completes_persisted_assignment(tmp_pat
     assert reloaded.workitems[0].status == WorkItemStatus.DONE
     assert reloaded.workitems[0].owner_agent == "agent-external"
     assert any("TaskCenterCLI" in event for event in reloaded.recent_events)
+
+
+def test_task_center_cli_rejects_complete_for_stale_claim_token(tmp_path, capsys) -> None:
+    project_root = tmp_path / "project"
+    state_store = FileStateStore(project_root / ".conductor" / "state")
+    engine = ConductorEngine(
+        log_dir=project_root / ".conductor" / "logs",
+        artifact_dir=project_root / ".conductor" / "artifacts",
+        state_store=state_store,
+    )
+    state = engine.create_project(requirement="Build a local reading list", project_root=str(project_root))
+    assignment_id = state.task_assignments[0].id
+    claim_code = main(["claim", assignment_id, "--project-root", str(project_root), "--agent-id", "agent-owner"])
+    claim_payload = json.loads(capsys.readouterr().out)
+    assert claim_code == 0
+
+    code = main(
+        [
+            "complete",
+            assignment_id,
+            "--project-root",
+            str(project_root),
+            "--agent-id",
+            "agent-owner",
+            "--claim-token",
+            f"stale-{claim_payload['task']['claim_token']}",
+            "--result-summary",
+            "done",
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert code == 2
+    assert "claim token does not match" in captured.err
 
 
 def test_task_center_cli_rejects_complete_for_wrong_agent(tmp_path, capsys) -> None:
@@ -241,6 +280,7 @@ def test_task_center_cli_prints_assignment_context_as_markdown(tmp_path, capsys)
     assert "- Derived From:" in output
     assert "## CLI Return Commands" in output
     assert f'python -m app.task_center complete "{assignment.id}"' in output
+    assert "--claim-token" in output
     assert f'python -m app.task_center heartbeat "{assignment.id}"' in output
     assert f'python -m app.task_center release "{assignment.id}"' in output
     assert f'--project-root "{project_root}"' in output
@@ -335,6 +375,7 @@ def test_task_center_cli_claim_next_can_print_context_markdown(tmp_path, capsys)
     assert output.startswith("# Task Assignment Context")
     assert "- Status: claimed" in output
     assert "- Assigned Agent: agent-markdown-worker" in output
+    assert "- Claim Token:" in output
     assert "artifact-context" in output
     assert "Acceptance: add book, persist refresh, export CSV." in output
 

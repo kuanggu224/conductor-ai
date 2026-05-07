@@ -27,6 +27,7 @@ def test_file_state_store_persists_and_reloads_project(tmp_path) -> None:
     assert restored.executions[0].agent_id == "agent-requirement-designer"
     assert isinstance(restored.executions[0].input_artifact_ids, list)
     assert isinstance(restored.executions[0].execution_command, list)
+    assert isinstance(restored.task_assignments[0].claim_token, str)
     assert isinstance(restored.task_assignments[0].last_heartbeat_at, str)
     assert restored.agent_capability_stats[0].completed_count == 1
     assert [activation.role for activation in restored.agent_activations] == [

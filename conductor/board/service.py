@@ -260,6 +260,7 @@ class BoardService:
                     status_label=TASK_ASSIGNMENT_STATUS_LABELS.get(assignment.status.value, assignment.status.value),
                     assigned_agent_id=assignment.assigned_agent_id or "-",
                     assigned_agent_label=AGENT_LABELS.get(assignment.assigned_agent_id or "-", assignment.assigned_agent_id or "-"),
+                    claim_token=assignment.claim_token,
                     claimable=task_center.claimable(state, assignment),
                     unmet_dependency_ids=task_center.unmet_dependency_ids(state, assignment),
                     dependencies=assignment.dependencies,

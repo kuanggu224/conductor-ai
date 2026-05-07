@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from dataclasses import dataclass, replace
+from uuid import uuid4
 
 from conductor.domain.models import SharedProjectState, TaskAssignment, TaskAssignmentStatus, WorkItemStatus
 from conductor.state.store import InMemoryStateStore
@@ -111,6 +112,7 @@ class TaskCenterService:
         result_summary: str = "",
         output_artifact_ids: list[str] | None = None,
         agent_id: str = "",
+        claim_token: str = "",
     ) -> TaskCenterTransition:
         """Return one claimed assignment as completed and mark its WorkItem done."""
         return self._return_assignment(
@@ -120,6 +122,7 @@ class TaskCenterService:
             result_summary=result_summary,
             output_artifact_ids=output_artifact_ids,
             agent_id=agent_id,
+            claim_token=claim_token,
         )
 
     def fail(
@@ -130,6 +133,7 @@ class TaskCenterService:
         output_artifact_ids: list[str] | None = None,
         blocked_reason: str = "",
         agent_id: str = "",
+        claim_token: str = "",
     ) -> TaskCenterTransition:
         """Return one claimed assignment as failed and mark its WorkItem failed."""
         return self._return_assignment(
@@ -140,6 +144,7 @@ class TaskCenterService:
             output_artifact_ids=output_artifact_ids,
             blocked_reason=blocked_reason,
             agent_id=agent_id,
+            claim_token=claim_token,
         )
 
     def release(
@@ -148,17 +153,19 @@ class TaskCenterService:
         assignment_id: str,
         release_reason: str = "",
         agent_id: str = "",
+        claim_token: str = "",
     ) -> TaskCenterTransition:
         """Release a claimed/failed assignment back to queued for another worker."""
         state = self._state(project_id)
         assignment = self.require_assignment(state, assignment_id)
         if assignment.status not in {TaskAssignmentStatus.CLAIMED, TaskAssignmentStatus.FAILED}:
             raise TaskCenterError(f"Task assignment cannot be released: {assignment.status.value}")
-        self._validate_agent_guard(assignment, agent_id)
+        self._validate_claim_guard(assignment, agent_id=agent_id, claim_token=claim_token)
         updated = replace(
             assignment,
             status=TaskAssignmentStatus.QUEUED,
             assigned_agent_id=None,
+            claim_token="",
             claim_reason=release_reason or assignment.claim_reason,
             output_artifact_ids=[],
             result_summary="",
@@ -199,6 +206,7 @@ class TaskCenterService:
         project_id: str,
         assignment_id: str,
         agent_id: str = "",
+        claim_token: str = "",
         now: datetime | None = None,
     ) -> TaskCenterTransition:
         """Refresh one claimed assignment's worker heartbeat timestamp."""
@@ -206,7 +214,7 @@ class TaskCenterService:
         assignment = self.require_assignment(state, assignment_id)
         if assignment.status != TaskAssignmentStatus.CLAIMED:
             raise TaskCenterError(f"Task assignment is not claimed: {assignment.status.value}")
-        self._validate_agent_guard(assignment, agent_id)
+        self._validate_claim_guard(assignment, agent_id=agent_id, claim_token=claim_token)
         updated = replace(assignment, last_heartbeat_at=_utc_now(now))
         self.state_store.upsert_task_assignment(project_id, updated)
         self.state_store.add_event(project_id, f"{self.event_prefix}: heartbeat {assignment.workitem_id}")
@@ -311,6 +319,7 @@ class TaskCenterService:
             assignment,
             status=TaskAssignmentStatus.CLAIMED,
             assigned_agent_id=agent_id,
+            claim_token=uuid4().hex,
             claim_reason=claim_reason or assignment.claim_reason,
             blocked_reason=None,
             claimed_at=now,
@@ -331,12 +340,13 @@ class TaskCenterService:
         output_artifact_ids: list[str] | None = None,
         blocked_reason: str = "",
         agent_id: str = "",
+        claim_token: str = "",
     ) -> TaskCenterTransition:
         state = self._state(project_id)
         assignment = self.require_assignment(state, assignment_id)
         if assignment.status != TaskAssignmentStatus.CLAIMED:
             raise TaskCenterError(f"Task assignment is not claimed: {assignment.status.value}")
-        self._validate_agent_guard(assignment, agent_id)
+        self._validate_claim_guard(assignment, agent_id=agent_id, claim_token=claim_token)
         artifact_ids = list(output_artifact_ids or [])
         updated = replace(
             assignment,
@@ -358,13 +368,15 @@ class TaskCenterService:
         self.state_store.add_event(project_id, f"{self.event_prefix}: {assignment.workitem_id} returned {status.value}")
         return TaskCenterTransition(state=self._state(project_id), assignment=updated)
 
-    def _validate_agent_guard(self, assignment: TaskAssignment, agent_id: str = "") -> None:
-        """Reject guarded mutations from agents that do not own the assignment."""
+    def _validate_claim_guard(self, assignment: TaskAssignment, *, agent_id: str = "", claim_token: str = "") -> None:
+        """Reject guarded mutations from stale or non-owner workers."""
         if agent_id and assignment.assigned_agent_id and assignment.assigned_agent_id != agent_id:
             raise TaskCenterError(
                 f"Task assignment is claimed by another agent: {assignment.assigned_agent_id}",
                 status_code=403,
             )
+        if claim_token and assignment.claim_token and assignment.claim_token != claim_token:
+            raise TaskCenterError("Task assignment claim token does not match.", status_code=403)
 
     def _sync_workitem_claim(self, project_id: str, assignment: TaskAssignment, agent_id: str) -> None:
         try:

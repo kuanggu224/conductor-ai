@@ -47,11 +47,11 @@ python -m app.task_center claim-next --project-root <project-root> --agent-id <a
 python -m app.task_center claim-next --project-root <project-root> --agent-id <agent-id> --with-context --context-format markdown
 python -m app.task_center claim-next --project-root <project-root> --agent-id <agent-id> --prompt-file .conductor/task_center/prompts/next-task.md
 python -m app.task_center claim <assignment-id> --project-root <project-root> --agent-id <agent-id> --with-context
-python -m app.task_center complete <assignment-id> --project-root <project-root> --result-summary "done"
-python -m app.task_center complete <assignment-id> --project-root <project-root> --output-file result.md
-python -m app.task_center fail <assignment-id> --project-root <project-root> --blocked-reason "reason"
-python -m app.task_center heartbeat <assignment-id> --project-root <project-root> --agent-id <agent-id>
-python -m app.task_center release <assignment-id> --project-root <project-root> --release-reason "worker interrupted"
+python -m app.task_center complete <assignment-id> --project-root <project-root> --agent-id <agent-id> --claim-token <claim-token> --result-summary "done"
+python -m app.task_center complete <assignment-id> --project-root <project-root> --agent-id <agent-id> --claim-token <claim-token> --output-file result.md
+python -m app.task_center fail <assignment-id> --project-root <project-root> --agent-id <agent-id> --claim-token <claim-token> --blocked-reason "reason"
+python -m app.task_center heartbeat <assignment-id> --project-root <project-root> --agent-id <agent-id> --claim-token <claim-token>
+python -m app.task_center release <assignment-id> --project-root <project-root> --agent-id <agent-id> --claim-token <claim-token> --release-reason "worker interrupted"
 python -m app.task_center release-stale --project-root <project-root> --stale-after-seconds 3600 --release-reason "stale cleanup"
 ```
 
@@ -110,6 +110,7 @@ Endpoints:
 ```json
 {
   "agent_id": "agent-backend",
+  "claim_token": "token-from-claim-response",
   "result_summary": "implemented",
   "output_artifact_ids": ["artifact-1"],
   "output_artifact_content": "# Result\n\nImplemented details.",
@@ -123,6 +124,7 @@ Endpoints:
 ```json
 {
   "agent_id": "agent-backend",
+  "claim_token": "token-from-claim-response",
   "result_summary": "validation failed",
   "blocked_reason": "missing dependency",
   "output_artifact_ids": []
@@ -133,24 +135,29 @@ Endpoints:
 
 ```json
 {
-  "agent_id": "agent-backend"
+  "agent_id": "agent-backend",
+  "claim_token": "token-from-claim-response"
 }
 ```
 
-`agent_id` is optional. When provided, it must match the current claimant.
+`agent_id` and `claim_token` are optional. When provided, `agent_id` must match
+the current claimant and `claim_token` must match the current claim token.
 
 `release` request body:
 
 ```json
 {
   "agent_id": "agent-backend",
+  "claim_token": "token-from-claim-response",
   "release_reason": "worker interrupted"
 }
 ```
 
-`agent_id` is optional for `complete`, `fail`, `heartbeat`, and `release`. When
-provided, it must match the current claimant. This is the recommended guard for
-external workers so one Agent cannot accidentally return another Agent's task.
+`agent_id` and `claim_token` are optional for `complete`, `fail`, `heartbeat`,
+and `release`. When provided, they must match the current claimant and current
+claim token. This is the recommended guard for external workers so one Agent
+cannot accidentally return another Agent's task or return a stale prompt after a
+task has been released and re-claimed.
 
 `release` returns a claimed or failed assignment to `queued`, clears the current
 agent, clears return timestamps and stale prompt metadata, and synchronizes the
@@ -244,6 +251,7 @@ Task payloads include:
 - `role`
 - `status`
 - `assigned_agent_id`
+- `claim_token`
 - `claim_reason`
 - `claimable`
 - `unmet_dependency_ids`
@@ -281,11 +289,12 @@ Summary payloads include:
 
 ## Audit Outputs
 
-Run Manifest schema `1.19` records:
+Run Manifest schema `1.20` records:
 
 - `task_assignments[].claimable`
 - `task_assignments[].unmet_dependency_ids`
 - `task_assignments[].claimed_at`
+- `task_assignments[].claim_token`
 - `task_assignments[].claimed_age_seconds`
 - `task_assignments[].last_heartbeat_at`
 - `task_assignments[].heartbeat_age_seconds`

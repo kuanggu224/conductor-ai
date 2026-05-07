@@ -69,6 +69,7 @@ def build_parser() -> argparse.ArgumentParser:
     complete_parser = subparsers.add_parser("complete", parents=[common], help="Return one claimed assignment as completed.")
     complete_parser.add_argument("assignment_id")
     complete_parser.add_argument("--agent-id", default="", help="Optional agent id guard for the current claimant.")
+    complete_parser.add_argument("--claim-token", default="", help="Optional claim token guard from the claim response.")
     complete_parser.add_argument("--result-summary", default="")
     complete_parser.add_argument("--output-artifact-id", action="append", default=[])
     complete_parser.add_argument("--output-file", help="Create an output artifact from a UTF-8 file.")
@@ -78,6 +79,7 @@ def build_parser() -> argparse.ArgumentParser:
     fail_parser = subparsers.add_parser("fail", parents=[common], help="Return one claimed assignment as failed.")
     fail_parser.add_argument("assignment_id")
     fail_parser.add_argument("--agent-id", default="", help="Optional agent id guard for the current claimant.")
+    fail_parser.add_argument("--claim-token", default="", help="Optional claim token guard from the claim response.")
     fail_parser.add_argument("--result-summary", default="")
     fail_parser.add_argument("--blocked-reason", default="")
     fail_parser.add_argument("--output-artifact-id", action="append", default=[])
@@ -88,10 +90,12 @@ def build_parser() -> argparse.ArgumentParser:
     heartbeat_parser = subparsers.add_parser("heartbeat", parents=[common], help="Refresh one claimed assignment heartbeat.")
     heartbeat_parser.add_argument("assignment_id")
     heartbeat_parser.add_argument("--agent-id", default="", help="Optional agent id guard for the current claimant.")
+    heartbeat_parser.add_argument("--claim-token", default="", help="Optional claim token guard from the claim response.")
 
     release_parser = subparsers.add_parser("release", parents=[common], help="Release a claimed/failed assignment back to queued.")
     release_parser.add_argument("assignment_id")
     release_parser.add_argument("--agent-id", default="", help="Optional agent id guard for the current claimant.")
+    release_parser.add_argument("--claim-token", default="", help="Optional claim token guard from the claim response.")
     release_parser.add_argument("--release-reason", default="")
 
     release_stale_parser = subparsers.add_parser("release-stale", parents=[common], help="Release stale claimed assignments back to queued.")
@@ -165,6 +169,7 @@ def main(argv: list[str] | None = None) -> int:
                 result_summary=args.result_summary,
                 output_artifact_ids=output_artifact_ids,
                 agent_id=args.agent_id,
+                claim_token=args.claim_token,
             )
             payload = _assignment_payload(result.state, result.assignment, service)
         elif args.command == "fail":
@@ -176,6 +181,7 @@ def main(argv: list[str] | None = None) -> int:
                 output_artifact_ids=output_artifact_ids,
                 blocked_reason=args.blocked_reason,
                 agent_id=args.agent_id,
+                claim_token=args.claim_token,
             )
             payload = _assignment_payload(result.state, result.assignment, service)
         elif args.command == "heartbeat":
@@ -183,6 +189,7 @@ def main(argv: list[str] | None = None) -> int:
                 state.project.id,
                 assignment_id=args.assignment_id,
                 agent_id=args.agent_id,
+                claim_token=args.claim_token,
             )
             payload = _assignment_payload(result.state, result.assignment, service)
         elif args.command == "release":
@@ -190,6 +197,7 @@ def main(argv: list[str] | None = None) -> int:
                 state.project.id,
                 assignment_id=args.assignment_id,
                 agent_id=args.agent_id,
+                claim_token=args.claim_token,
                 release_reason=args.release_reason,
             )
             payload = _assignment_payload(result.state, result.assignment, service)
@@ -391,6 +399,7 @@ def _assignment_payload(
             **asdict(assignment),
             "status": assignment.status.value,
             "assigned_agent_id": assignment.assigned_agent_id or "",
+            "claim_token": assignment.claim_token,
             "blocked_reason": assignment.blocked_reason or "",
             "claimable": service.claimable(state, assignment),
             "unmet_dependency_ids": service.unmet_dependency_ids(state, assignment),

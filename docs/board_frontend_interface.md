@@ -542,10 +542,11 @@ GET /projects/{project_id}/runtime/stream
 - `POST /api/projects/{project_id}/tasks/{assignment_id}/release`
 - `POST /api/projects/{project_id}/tasks/release-stale`
 
-Task payloads and Board snapshots expose `claimed_age_seconds`,
+Task payloads and Board snapshots expose `claim_token`, `claimed_age_seconds`,
 `last_heartbeat_at`, `heartbeat_age_seconds`, and `stale_claimed`. Frontends
 should use heartbeat age rather than claim age to decide whether a long-running
-external worker is stale.
+external worker is stale, and should pass `claim_token` back on
+`complete`/`fail`/`heartbeat`/`release` mutations when available.
 - `GET /api/settings/execution`
 - `POST /api/settings/execution`
 - `GET /api/settings/cli`

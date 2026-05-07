@@ -92,7 +92,7 @@ class RunManifestWriter:
             probe_llm=False,
         ).to_dict()
         manifest = RunManifest(
-            schema_version="1.19",
+            schema_version="1.20",
             run_id=f"{state.project.id}:{generated_at}",
             project_id=state.project.id,
             generated_at=generated_at,
@@ -170,6 +170,7 @@ class RunManifestWriter:
                     "role": assignment.role,
                     "status": assignment.status.value,
                     "assigned_agent_id": assignment.assigned_agent_id or "",
+                    "claim_token": assignment.claim_token,
                     "claim_reason": assignment.claim_reason,
                     "claimable": task_center.claimable(state, assignment),
                     "unmet_dependency_ids": task_center.unmet_dependency_ids(state, assignment),

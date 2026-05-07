@@ -219,6 +219,7 @@ def test_project_task_claim_and_complete_protocol() -> None:
     claimed_task = claimed_payload["task"]
     assert claimed_task["status"] == "claimed"
     assert claimed_task["assigned_agent_id"] == "agent-manual"
+    assert claimed_task["claim_token"]
     assert claimed_task["claim_reason"] == "manual smoke"
     assert claimed_task["claimed_at"]
     assert claimed_task["last_heartbeat_at"]
@@ -228,7 +229,7 @@ def test_project_task_claim_and_complete_protocol() -> None:
 
     heartbeat = client.post(
         f"/api/projects/{state.project.id}/tasks/{assignment_id}/heartbeat",
-        json={"agent_id": "agent-manual"},
+        json={"agent_id": "agent-manual", "claim_token": claimed_task["claim_token"]},
     )
     assert heartbeat.status_code == 200
     heartbeat_task = heartbeat.json()["task"]
@@ -242,7 +243,12 @@ def test_project_task_claim_and_complete_protocol() -> None:
 
     completed = client.post(
         f"/api/projects/{state.project.id}/tasks/{assignment_id}/complete",
-        json={"agent_id": "agent-manual", "result_summary": "finished task", "output_artifact_ids": ["artifact-manual"]},
+        json={
+            "agent_id": "agent-manual",
+            "claim_token": heartbeat_task["claim_token"],
+            "result_summary": "finished task",
+            "output_artifact_ids": ["artifact-manual"],
+        },
     )
 
     assert completed.status_code == 200
@@ -278,6 +284,26 @@ def test_project_task_complete_api_rejects_wrong_agent_guard() -> None:
 
     assert completed.status_code == 403
     assert "claimed by another agent" in completed.json()["detail"]
+
+
+def test_project_task_complete_api_rejects_stale_claim_token() -> None:
+    client = TestClient(board.app)
+    state = board.engine.create_project(requirement="Build a local reading list", project_root="")
+    assignment_id = state.task_assignments[0].id
+    claim = client.post(
+        f"/api/projects/{state.project.id}/tasks/{assignment_id}/claim",
+        json={"agent_id": "agent-owner"},
+    )
+    assert claim.status_code == 200
+    claim_token = claim.json()["task"]["claim_token"]
+
+    completed = client.post(
+        f"/api/projects/{state.project.id}/tasks/{assignment_id}/complete",
+        json={"agent_id": "agent-owner", "claim_token": f"stale-{claim_token}", "result_summary": "finished task"},
+    )
+
+    assert completed.status_code == 403
+    assert "claim token does not match" in completed.json()["detail"]
 
 
 def test_project_task_complete_api_can_create_output_artifact() -> None:

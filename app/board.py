@@ -140,6 +140,7 @@ class TaskReturnRequest(BaseModel):
     """Payload for returning a task-center assignment."""
 
     agent_id: OptionalTodoTitle = None
+    claim_token: str = ""
     result_summary: TodoContent = ""
     output_artifact_ids: list[str] = Field(default_factory=list)
     output_artifact_content: str = ""
@@ -152,12 +153,14 @@ class TaskHeartbeatRequest(BaseModel):
     """Payload for refreshing a claimed task-center assignment heartbeat."""
 
     agent_id: OptionalTodoTitle = None
+    claim_token: str = ""
 
 
 class TaskReleaseRequest(BaseModel):
     """Payload for releasing a claimed/failed task-center assignment."""
 
     agent_id: OptionalTodoTitle = None
+    claim_token: str = ""
     release_reason: TodoContent = ""
 
 
@@ -639,6 +642,7 @@ async def complete_project_task_api(project_id: str, assignment_id: str, payload
         result_summary=payload.result_summary,
         output_artifact_ids=output_artifact_ids,
         agent_id=payload.agent_id or "",
+        claim_token=payload.claim_token,
     )
     return JSONResponse(
         {
@@ -661,6 +665,7 @@ async def fail_project_task_api(project_id: str, assignment_id: str, payload: Ta
         output_artifact_ids=output_artifact_ids,
         blocked_reason=payload.blocked_reason,
         agent_id=payload.agent_id or "",
+        claim_token=payload.claim_token,
     )
     return JSONResponse(
         {
@@ -683,6 +688,7 @@ async def heartbeat_project_task_api(
         project_id,
         assignment_id=assignment_id,
         agent_id=payload.agent_id or "",
+        claim_token=payload.claim_token,
     )
     return JSONResponse(
         {
@@ -701,6 +707,7 @@ async def release_project_task_api(project_id: str, assignment_id: str, payload:
         project_id,
         assignment_id=assignment_id,
         agent_id=payload.agent_id or "",
+        claim_token=payload.claim_token,
         release_reason=payload.release_reason,
     )
     return JSONResponse(
@@ -891,6 +898,7 @@ def _task_assignment_payload(
         "role": assignment.role,
         "status": assignment.status.value,
         "assigned_agent_id": assignment.assigned_agent_id or "",
+        "claim_token": assignment.claim_token,
         "claim_reason": assignment.claim_reason,
         "claimable": task_center.claimable(state, assignment),
         "unmet_dependency_ids": task_center.unmet_dependency_ids(state, assignment),
