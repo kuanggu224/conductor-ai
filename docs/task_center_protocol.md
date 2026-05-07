@@ -37,6 +37,7 @@ python -m app.task_center context <assignment-id> --project-root <project-root>
 python -m app.task_center context <assignment-id> --project-root <project-root> --format markdown
 python -m app.task_center claim-next --project-root <project-root> --agent-id <agent-id> --role backend_engineer
 python -m app.task_center claim-next --project-root <project-root> --agent-id <agent-id> --with-context
+python -m app.task_center claim-next --project-root <project-root> --agent-id <agent-id> --with-context --context-format markdown
 python -m app.task_center claim <assignment-id> --project-root <project-root> --agent-id <agent-id> --with-context
 python -m app.task_center complete <assignment-id> --project-root <project-root> --result-summary "done"
 python -m app.task_center complete <assignment-id> --project-root <project-root> --output-file result.md
@@ -50,6 +51,9 @@ Use `context --format markdown` when handing a claimed assignment to a CLI
 agent. The Markdown output is prompt material: it includes project goal,
 assignment metadata, WorkItem details, acceptance criteria, selected input
 artifact content, and the return protocol.
+Use `claim` or `claim-next` with `--with-context --context-format markdown`
+when the worker should claim the task and receive a direct Markdown prompt in a
+single command.
 
 ## Board API
 
@@ -151,6 +155,8 @@ Mutation responses from `claim`, `claim-next`, `complete`, and `fail` include:
 When `--with-context` or `include_context=true` is used on claim operations,
 the response also includes `context`, with the same shape as the standalone
 context endpoint.
+For CLI claim operations, `--context-format markdown` prints the rendered
+Markdown prompt instead of the JSON mutation payload.
 
 The mutation `summary` is computed after the state transition. Clients can use
 it to update dashboards without issuing a second summary request.

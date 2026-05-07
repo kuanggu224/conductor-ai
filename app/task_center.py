@@ -47,6 +47,7 @@ def build_parser() -> argparse.ArgumentParser:
     claim_parser.add_argument("--with-context", action="store_true", help="Include input artifact context in the claim response.")
     claim_parser.add_argument("--no-content", action="store_true", help="Only print artifact metadata with --with-context.")
     claim_parser.add_argument("--max-content-chars", type=int, default=12000)
+    claim_parser.add_argument("--context-format", choices=["json", "markdown"], default="json")
 
     claim_next_parser = subparsers.add_parser("claim-next", parents=[common], help="Claim the next queued assignment.")
     claim_next_parser.add_argument("--agent-id", required=True)
@@ -55,6 +56,7 @@ def build_parser() -> argparse.ArgumentParser:
     claim_next_parser.add_argument("--with-context", action="store_true", help="Include input artifact context in the claim response.")
     claim_next_parser.add_argument("--no-content", action="store_true", help="Only print artifact metadata with --with-context.")
     claim_next_parser.add_argument("--max-content-chars", type=int, default=12000)
+    claim_next_parser.add_argument("--context-format", choices=["json", "markdown"], default="json")
 
     complete_parser = subparsers.add_parser("complete", parents=[common], help="Return one claimed assignment as completed.")
     complete_parser.add_argument("assignment_id")
@@ -230,16 +232,20 @@ def _attach_context_if_requested(
     state: SharedProjectState,
     assignment: TaskAssignment,
     service: TaskCenterService,
-) -> dict[str, object]:
+) -> dict[str, object] | str:
     if not getattr(args, "with_context", False):
         return payload
-    payload["context"] = TaskContextBuilder().build(
+    context_builder = TaskContextBuilder()
+    context = context_builder.build(
         state,
         assignment.id,
         service=service,
         include_content=not getattr(args, "no_content", False),
         max_content_chars=getattr(args, "max_content_chars", 12000),
     )
+    if getattr(args, "context_format", "json") == "markdown":
+        return context_builder.render_markdown(context)
+    payload["context"] = context
     return payload
 
 
