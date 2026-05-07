@@ -148,6 +148,8 @@ class ProjectLogStore:
                 f"- {item.id} | stage={item.stage} | kind={item.kind} | "
                 f"status={item.status.value} | owner={item.owner_agent or '-'}"
             )
+            for criterion in item.acceptance_criteria:
+                lines.append(f"  - acceptance: {criterion}")
 
         lines.extend(["", "## Artifacts"])
         if state.artifacts:

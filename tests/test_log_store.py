@@ -59,6 +59,7 @@ def test_project_report_includes_requirement_coverage_traceability(tmp_path) -> 
                 description="\u9a8c\u6536\u9879\u76ee",
                 stage="testing",
                 kind="acceptance_check",
+                acceptance_criteria=["Provide validation evidence for frozen requirement: refresh persistence"],
             )
         ],
         executions=[
@@ -90,6 +91,7 @@ def test_project_report_includes_requirement_coverage_traceability(tmp_path) -> 
     report = store.render_project_report(state, [])
 
     assert "## Requirement Coverage Traceability" in report
+    assert "acceptance: Provide validation evidence for frozen requirement: refresh persistence" in report
     assert "WorkItem `workitem-validation` by `agent-tester`: missing_coverage" in report
     assert "add item interaction: `covered`" in report
     assert "refresh persistence: `missing`" in report
