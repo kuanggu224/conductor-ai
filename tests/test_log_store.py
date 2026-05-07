@@ -2,6 +2,7 @@
 
 from conductor.config.cli import CLISelectionConfig
 from conductor.controller.engine import ConductorEngine
+from conductor.domain.models import Artifact, Execution, ExecutionStatus, Project, ProjectStatus, SharedProjectState, WorkItem
 from conductor.logging.store import ProjectLogStore
 
 
@@ -40,3 +41,56 @@ def test_project_log_store_writes_structured_state_events_and_report(tmp_path) -
     report = report_path.read_text(encoding="utf-8")
     assert "## Activated Agents" in report
     assert "## Event Timeline" in report
+
+
+def test_project_report_includes_requirement_coverage_traceability(tmp_path) -> None:
+    store = ProjectLogStore(tmp_path)
+    state = SharedProjectState(
+        project=Project(
+            id="project-trace",
+            goal="\u6dfb\u52a0\u4e66\u7c4d\uff0c\u5237\u65b0\u540e\u4fdd\u7559\u6570\u636e\uff0c\u5bfc\u51fa CSV",
+            current_stage="testing",
+        ),
+        project_status=ProjectStatus.IN_PROGRESS,
+        current_stage="testing",
+        workitems=[
+            WorkItem(
+                id="workitem-validation",
+                description="\u9a8c\u6536\u9879\u76ee",
+                stage="testing",
+                kind="acceptance_check",
+            )
+        ],
+        executions=[
+            Execution(
+                workitem_id="workitem-validation",
+                agent_id="agent-tester",
+                result="\n".join(
+                    [
+                        "Browser form interaction updated visible state: sample",
+                        "Browser export/download action triggered",
+                    ]
+                ),
+                status=ExecutionStatus.FAILED,
+            )
+        ],
+        artifacts=[
+            Artifact(
+                id="artifact-frozen",
+                project_id="project-trace",
+                workitem_id="workitem-req",
+                agent_id="agent-requirement",
+                kind="frozen_requirement_spec",
+                title="Frozen Requirement",
+                content="\u652f\u6301\u6dfb\u52a0\u4e66\u7c4d\uff0c\u5237\u65b0\u540e\u4fdd\u7559\u6570\u636e\uff0c\u5e76\u5bfc\u51fa CSV\u3002",
+            )
+        ],
+    )
+
+    report = store.render_project_report(state, [])
+
+    assert "## Requirement Coverage Traceability" in report
+    assert "WorkItem `workitem-validation` by `agent-tester`: missing_coverage" in report
+    assert "add item interaction: `covered`" in report
+    assert "refresh persistence: `missing`" in report
+    assert "CSV export/download: `covered`" in report

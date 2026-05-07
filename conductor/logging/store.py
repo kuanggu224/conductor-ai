@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from conductor.domain.models import SharedProjectState
+from conductor.testing.coverage import evaluate_requirement_coverage
 
 
 @dataclass(slots=True)
@@ -158,6 +159,10 @@ class ProjectLogStore:
         else:
             lines.append("- None")
 
+        lines.extend(["", "## Requirement Coverage Traceability"])
+        coverage_lines = self._requirement_coverage_traceability_lines(state)
+        lines.extend(coverage_lines or ["- Not evaluated"])
+
         lines.extend(["", "## Blockers"])
         if state.blockers:
             lines.extend(f"- {blocker}" for blocker in state.blockers)
@@ -172,6 +177,47 @@ class ProjectLogStore:
             )
         lines.append("")
         return "\n".join(lines)
+
+    def _requirement_coverage_traceability_lines(self, state: SharedProjectState) -> list[str]:
+        """Render requirement-to-validation traceability for human reports."""
+        frozen_requirement = next(
+            (artifact for artifact in reversed(state.artifacts) if artifact.kind == "frozen_requirement_spec"),
+            None,
+        )
+        if frozen_requirement is None:
+            return []
+
+        validation_workitem_ids = {
+            item.id
+            for item in state.workitems
+            if item.kind in {"acceptance_check", "automated_test", "api_validation", "ui_validation"}
+        }
+        lines: list[str] = []
+        for execution in state.executions:
+            if execution.workitem_id not in validation_workitem_ids and not execution.validation_command:
+                continue
+            output = "\n".join(
+                [
+                    execution.result or "",
+                    execution.cli_stdout_tail or "",
+                    execution.cli_stderr_tail or "",
+                ]
+            )
+            coverage = evaluate_requirement_coverage(frozen_requirement, output)
+            lines.append(
+                f"- WorkItem `{execution.workitem_id}` by `{execution.agent_id}`: "
+                f"{'pass' if coverage.passed else 'missing_coverage'}"
+            )
+            if not coverage.required_rules:
+                lines.append("  - No coverage rules inferred from frozen requirement.")
+                continue
+            for item in coverage.traceability:
+                requirement_terms = ", ".join(item.requirement_terms) or "-"
+                evidence_terms = ", ".join(item.evidence_terms) or "-"
+                lines.append(
+                    f"  - {item.label}: `{item.status}` | requirement={requirement_terms} | evidence={evidence_terms}"
+                )
+        return lines
 
     def classify_event(self, message: str) -> str:
         """Classify a controller event into a stable log category."""
