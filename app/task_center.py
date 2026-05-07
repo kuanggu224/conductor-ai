@@ -29,6 +29,8 @@ def build_parser() -> argparse.ArgumentParser:
     list_parser = subparsers.add_parser("list", parents=[common], help="List task-center assignments.")
     list_parser.add_argument("--status", choices=[status.value for status in TaskAssignmentStatus])
 
+    subparsers.add_parser("summary", parents=[common], help="Print task-center summary counts.")
+
     claim_parser = subparsers.add_parser("claim", parents=[common], help="Claim one queued assignment.")
     claim_parser.add_argument("assignment_id")
     claim_parser.add_argument("--agent-id", required=True)
@@ -67,6 +69,8 @@ def main(argv: list[str] | None = None) -> int:
                 service,
                 status=args.status,
             )
+        elif args.command == "summary":
+            payload = _summary_payload(state, service)
         elif args.command == "claim":
             result = service.claim(
                 state.project.id,
@@ -143,6 +147,14 @@ def _list_payload(
         "total": len(assignments),
         "summary": service.summary(state),
         "tasks": [_assignment_payload(state, assignment, service)["task"] for assignment in assignments],
+    }
+
+
+def _summary_payload(state: SharedProjectState, service: TaskCenterService) -> dict[str, object]:
+    return {
+        "ok": True,
+        "project_id": state.project.id,
+        "summary": service.summary(state),
     }
 
 

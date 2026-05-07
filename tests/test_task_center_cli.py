@@ -81,6 +81,26 @@ def test_task_center_cli_lists_claims_and_completes_persisted_assignment(tmp_pat
     assert any("TaskCenterCLI" in event for event in reloaded.recent_events)
 
 
+def test_task_center_cli_prints_summary_only(tmp_path, capsys) -> None:
+    project_root = tmp_path / "project"
+    state_store = FileStateStore(project_root / ".conductor" / "state")
+    engine = ConductorEngine(
+        log_dir=project_root / ".conductor" / "logs",
+        artifact_dir=project_root / ".conductor" / "artifacts",
+        state_store=state_store,
+    )
+    state = engine.create_project(requirement="Build a local reading list", project_root=str(project_root))
+
+    code = main(["summary", "--project-root", str(project_root)])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert payload["project_id"] == state.project.id
+    assert payload["summary"]["total"] == 1
+    assert payload["summary"]["claimable"] == 1
+    assert "tasks" not in payload
+
+
 def test_task_center_cli_rejects_return_before_claim(tmp_path, capsys) -> None:
     project_root = tmp_path / "project"
     state_store = FileStateStore(project_root / ".conductor" / "state")
