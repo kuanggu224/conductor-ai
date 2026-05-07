@@ -26,6 +26,9 @@ class Planner:
     API_KEYWORDS = ("接口", "api", "后端", "服务", "restful", "http")
     TEST_KEYWORDS = ("测试", "test", "验证", "验收", "单元测试", "集成测试")
     DATA_KEYWORDS = ("数据", "数据库", "存储", "持久化", "mysql", "postgres", "sql")
+    FRONTEND_ONLY_KEYWORDS = ("只做前端", "纯前端", "静态 web", "静态页面", "本地静态", "localstorage")
+    BACKEND_NEGATION_KEYWORDS = ("不接后端", "无后端", "不涉及后端", "无需后端", "不需要后端", "不接 api", "不接api")
+    DATABASE_NEGATION_KEYWORDS = ("不接数据库", "无数据库", "不涉及数据库", "无需数据库", "不需要数据库")
 
     def __init__(
         self,
@@ -81,6 +84,7 @@ class Planner:
         ]
 
     def _plan_design_drafts(self, normalized_requirement: str, original_requirement: str) -> list[WorkItemDraft]:
+        frontend_only = self._is_frontend_only_requirement(normalized_requirement)
         drafts = [
             WorkItemDraft(
                 kind="design_overview",
@@ -96,7 +100,7 @@ class Planner:
                     acceptance_criteria=["识别核心页面或交互点", "形成前端实现输入"],
                 )
             )
-        if self._contains_any(normalized_requirement, self.API_KEYWORDS):
+        if self._contains_any(normalized_requirement, self.API_KEYWORDS) and not frontend_only:
             drafts.append(
                 WorkItemDraft(
                     kind="api_design",
@@ -120,7 +124,8 @@ class Planner:
         original_requirement: str,
     ) -> list[WorkItemDraft]:
         drafts: list[WorkItemDraft] = []
-        if self._contains_any(normalized_requirement, self.API_KEYWORDS):
+        frontend_only = self._is_frontend_only_requirement(normalized_requirement)
+        if self._contains_any(normalized_requirement, self.API_KEYWORDS) and not frontend_only:
             drafts.append(
                 WorkItemDraft(
                     kind="api_implementation",
@@ -136,7 +141,7 @@ class Planner:
                     acceptance_criteria=["页面结构可运行", "交互入口清晰"],
                 )
             )
-        if self._contains_any(normalized_requirement, self.DATA_KEYWORDS):
+        if self._contains_any(normalized_requirement, self.DATA_KEYWORDS) and not frontend_only:
             drafts.append(
                 WorkItemDraft(
                     kind="data_implementation",
@@ -155,6 +160,7 @@ class Planner:
         return drafts
 
     def _plan_testing_drafts(self, normalized_requirement: str, original_requirement: str) -> list[WorkItemDraft]:
+        frontend_only = self._is_frontend_only_requirement(normalized_requirement)
         drafts = [
             WorkItemDraft(
                 kind="acceptance_check",
@@ -170,7 +176,7 @@ class Planner:
                     acceptance_criteria=["测试覆盖主要路径", "执行结果清晰可读"],
                 )
             )
-        if self._contains_any(normalized_requirement, self.API_KEYWORDS):
+        if self._contains_any(normalized_requirement, self.API_KEYWORDS) and not frontend_only:
             drafts.append(
                 WorkItemDraft(
                     kind="api_validation",
@@ -201,3 +207,13 @@ class Planner:
     def _contains_any(self, text: str, keywords: tuple[str, ...]) -> bool:
         """Return True when the text contains any keyword."""
         return any(keyword in text for keyword in keywords)
+
+    def _is_frontend_only_requirement(self, text: str) -> bool:
+        """Return whether the requirement explicitly excludes backend/database work."""
+        has_frontend_scope = self._contains_any(text, self.UI_KEYWORDS) or self._contains_any(text, self.FRONTEND_ONLY_KEYWORDS)
+        excludes_backend = self._contains_any(text, self.BACKEND_NEGATION_KEYWORDS)
+        excludes_database = self._contains_any(text, self.DATABASE_NEGATION_KEYWORDS)
+        local_static_scope = self._contains_any(text, self.FRONTEND_ONLY_KEYWORDS) and (
+            "localstorage" in text or "本地" in text or "静态" in text
+        )
+        return has_frontend_scope and (excludes_backend or excludes_database or local_static_scope)

@@ -5,6 +5,8 @@ from __future__ import annotations
 import shutil
 import sys
 import json
+import re
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -21,6 +23,7 @@ from conductor.harness.base import BaseHarness
 from conductor.harness.llm import LLMHarnessRequest, OpenAICompatibleLLMHarness
 from conductor.harness.models import HarnessRequest, HarnessResult
 from conductor.harness.shell import ShellHarness
+from conductor.io.encoding import looks_like_mojibake
 from conductor.execution.runtime_stream import RuntimeStreamStore
 from conductor.execution.failure_policy import (
     FailureDecision,
@@ -597,33 +600,54 @@ class Runner:
         """Use a controlled LLM call to generate concrete code files."""
         if self.llm_harness is None or self.llm_harness_config is None:
             return self._real_backend_required_result(workitem, agent, "LLMHarness is not configured for code")
-        result = self.llm_harness.run(
-            LLMHarnessRequest(
-                prompt=self._build_llm_code_prompt(project_id, workitem, agent),
-                system_prompt=(
-                    "You are a non-interactive coding agent. Return only JSON matching the requested schema. "
-                    "Do not include markdown fences or explanation."
-                ),
-                working_directory=project_root,
-                output_path=f".conductor/llm_outputs/{workitem.id}.code.json",
-                config=self.llm_harness_config,
-                max_tokens=4096,
-                temperature=0.1,
-                stream_callback=self._build_stream_callback(project_id),
-                metadata={
-                    "project_id": project_id,
-                    "workitem_id": workitem.id,
-                    "agent_role": agent.role,
-                    "mode": "code_generation",
-                },
+        result = None
+        for attempt in range(1, 3):
+            result = self.llm_harness.run(
+                LLMHarnessRequest(
+                    prompt=self._build_llm_code_prompt(project_id, workitem, agent),
+                    system_prompt=(
+                        "You are a non-interactive coding agent. Return only file blocks matching the requested format. "
+                        "Do not include markdown fences or explanation."
+                    ),
+                    working_directory=project_root,
+                    output_path=f".conductor/llm_outputs/{workitem.id}.code.attempt-{attempt}.txt",
+                    config=self.llm_harness_config,
+                    max_tokens=4096,
+                    temperature=0.1,
+                    stream_callback=self._build_stream_callback(project_id),
+                    metadata={
+                        "project_id": project_id,
+                        "workitem_id": workitem.id,
+                        "agent_role": agent.role,
+                        "mode": "code_generation",
+                        "attempt": attempt,
+                    },
+                )
             )
-        )
+            if result.success and result.content.strip():
+                break
+            if attempt < 2:
+                self.state_store.add_event(
+                    project_id,
+                    f"WorkItem {workitem.id} LLMHarness 代码生成返回空内容或失败，执行第 {attempt + 1} 次尝试",
+                )
+        if result is None:
+            return self._real_backend_required_result(workitem, agent, "LLMHarness code generation did not run")
         if not result.success:
             return WorkItemRunResult(
                 content=self._real_backend_required_result(workitem, agent, f"LLMHarness code generation failed: {result.error}").content,
                 source_backend="llm_harness_code",
                 succeeded=False,
-                failure=configuration_required(f"LLMHarness code generation failed: {result.error}"),
+                failure=FailureDecision(FailureType.TRANSIENT, True, f"LLMHarness code generation failed: {result.error}"),
+                model=self.llm_harness_config.model_name,
+                working_directory=project_root,
+            )
+        if not result.content.strip():
+            return WorkItemRunResult(
+                content=self._real_backend_required_result(workitem, agent, "LLMHarness code generation returned empty content").content,
+                source_backend="llm_harness_code",
+                succeeded=False,
+                failure=FailureDecision(FailureType.TRANSIENT, True, "LLMHarness code generation returned empty content"),
                 model=self.llm_harness_config.model_name,
                 working_directory=project_root,
             )
@@ -762,13 +786,13 @@ class Runner:
         state = self.state_store.get_state(project_id)
         criteria = "\n".join(f"- {item}" for item in workitem.acceptance_criteria) or "- No explicit acceptance criteria"
         artifact_context = "\n\n".join(
-            f"### Upstream Artifact\n{artifact[:1800]}"
-            for artifact in context_pack.artifacts[-5:]
+            f"### Upstream Artifact\n{artifact[:900]}"
+            for artifact in context_pack.artifacts[-3:]
         )
         if agent.role == "frontend_engineer":
             file_hint = (
                 "Prefer a small local web UI. Generate index.html, static/app.js, and static/style.css "
-                "unless the upstream design clearly requires another minimal structure."
+                "unless the upstream design clearly requires another minimal structure. Keep the total code concise."
             )
         elif agent.role == "backend_engineer":
             file_hint = (
@@ -779,14 +803,19 @@ class Runner:
             file_hint = "Generate the smallest useful implementation files for the current work item."
         return (
             "Generate concrete project files for the current workspace.\n"
-            "Return JSON only, with this exact schema:\n"
-            '{"files":[{"path":"relative/path.ext","content":"complete file content"}]}\n'
+            "Return file blocks only, using this exact format for every file:\n"
+            "<<FILE:relative/path.ext>>\n"
+            "complete file content\n"
+            "<<END_FILE>>\n"
             "Rules:\n"
             "- Paths must be relative to the project root.\n"
             "- Do not write into .conductor, .git, __pycache__, .pytest_cache, node_modules, or virtualenv folders.\n"
             "- Include complete file contents, not patches.\n"
             "- Keep the implementation small and runnable.\n"
-            "- Do not include markdown fences or commentary outside JSON.\n\n"
+            "- Keep total generated source under roughly 250 lines unless the task is impossible otherwise.\n"
+            "- Prefer ASCII/English UI labels and comments in generated source files unless Chinese UI copy is explicitly required.\n"
+            "- Never output mojibake, replacement characters, or garbled Chinese text in generated files.\n"
+            "- Do not include markdown fences or commentary outside file blocks.\n\n"
             f"Project requirement:\n{state.project.goal}\n\n"
             f"Agent role: {agent.role}\n"
             f"WorkItem ID: {workitem.id}\n"
@@ -798,10 +827,44 @@ class Runner:
         )
 
     def _extract_generated_files(self, content: str) -> list[dict[str, str]]:
-        """Parse and validate LLM-generated file JSON."""
-        payload_text = self._extract_json_payload(content)
-        payload = json.loads(payload_text)
+        """Parse and validate LLM-generated files.
+
+        The preferred protocol is delimiter-based file blocks because complete
+        HTML/CSS/JS is fragile when forced through JSON string escaping. Keep
+        JSON support for existing tests and older saved prompts.
+        """
+        file_blocks = self._extract_delimited_files(content)
+        if file_blocks:
+            return self._validate_generated_files(file_blocks)
+
+        try:
+            payload_text = self._extract_json_payload(content)
+            payload = json.loads(payload_text)
+        except Exception as error:
+            raise RuntimeError(f"LLMHarness code output is not valid file blocks or JSON: {error}") from error
         files = payload.get("files") if isinstance(payload, dict) else None
+        return self._validate_generated_files(files)
+
+    def _extract_delimited_files(self, content: str) -> list[dict[str, str]]:
+        """Extract file blocks in the <<FILE:path>> ... <<END_FILE>> protocol."""
+        pattern = re.compile(r"<<FILE:(?P<path>[^>\r\n]+)>>(?P<content>.*?)<<END_FILE>>", re.DOTALL)
+        files: list[dict[str, str]] = []
+        for match in pattern.finditer(content):
+            path = match.group("path").strip()
+            file_content = match.group("content")
+            if file_content.startswith("\r\n"):
+                file_content = file_content[2:]
+            elif file_content.startswith("\n"):
+                file_content = file_content[1:]
+            if file_content.endswith("\r\n"):
+                file_content = file_content[:-2]
+            elif file_content.endswith("\n"):
+                file_content = file_content[:-1]
+            files.append({"path": path, "content": file_content})
+        return files
+
+    def _validate_generated_files(self, files: object) -> list[dict[str, str]]:
+        """Validate normalized generated file entries."""
         if not isinstance(files, list) or not files:
             raise RuntimeError("LLMHarness code output must contain a non-empty `files` list")
         validated: list[dict[str, str]] = []
@@ -814,6 +877,8 @@ class Runner:
                 raise RuntimeError("Generated file entry missing string `path`")
             if not isinstance(file_content, str):
                 raise RuntimeError(f"Generated file `{path}` missing string `content`")
+            if looks_like_mojibake(file_content):
+                raise RuntimeError(f"Generated file `{path}` appears to contain mojibake/corrupted UTF-8 text")
             validated.append({"path": path, "content": file_content})
         return validated
 
@@ -1059,7 +1124,7 @@ class Runner:
             content=(
                 f"# 真实 Agent 产出未完成 - {workitem.id}\n\n"
                 "## 状态\n"
-                "当前工作项要求由真实 Agent 后端产出，系统不会再生成模拟设计文档。\n\n"
+                "当前工作项要求由真实 Agent 产出，系统不会再生成模拟交付物。\n\n"
                 "## 原因\n"
                 f"- {reason}\n\n"
                 "## 需要处理\n"
@@ -1287,6 +1352,7 @@ class Runner:
             timeout_seconds=180.0,
             description=f"{workitem.kind}:{workitem.description}",
             stream_callback=stream_callback,
+            environment=self._validation_environment(),
         )
 
     def _run_post_edit_validation(self, workitem: WorkItem, working_directory: str) -> HarnessResult:
@@ -1298,8 +1364,16 @@ class Runner:
             timeout_seconds=300.0,
             description=f"post-validate:{workitem.id}",
             stream_callback=self._build_stream_callback_from_workitem(workitem.id),
+            environment=self._validation_environment(),
         )
         return self.shell_harness.run(request)
+
+    def _validation_environment(self) -> dict[str, str]:
+        """Make Conductor's internal validation modules importable from project roots."""
+        platform_root = str(Path(__file__).resolve().parents[2])
+        existing = os.environ.get("PYTHONPATH", "")
+        pythonpath = platform_root if not existing else os.pathsep.join([platform_root, existing])
+        return {"PYTHONPATH": pythonpath}
 
     def _build_stream_callback(self, project_id: str):
         """Build a runtime stream callback for a project."""

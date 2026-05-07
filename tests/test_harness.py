@@ -145,6 +145,42 @@ document.querySelector('form').addEventListener('submit', event => {
     assert "Browser form interaction updated visible state" in result.stdout
 
 
+def test_static_web_harness_uses_valid_rating_sample_value(tmp_path) -> None:
+    (tmp_path / "static").mkdir()
+    (tmp_path / "index.html").write_text(
+        """<!doctype html>
+<html>
+  <head><title>Rating</title></head>
+  <body>
+    <form>
+      <input id="title" required>
+      <input id="rating" type="number" min="1" max="5" required>
+      <button type="submit">Add</button>
+    </form>
+    <script src="static/app.js"></script>
+  </body>
+</html>
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "static" / "app.js").write_text(
+        """
+document.querySelector('form').addEventListener('submit', event => {
+  event.preventDefault();
+  const output = document.createElement('p');
+  output.textContent = `Rating ${document.querySelector('#rating').value}`;
+  document.body.appendChild(output);
+});
+""",
+        encoding="utf-8",
+    )
+
+    result = StaticWebHarness().run(HarnessRequest(command=[], working_directory=str(tmp_path)))
+
+    assert result.success is True
+    assert "Browser form interaction updated visible state: 5" in result.stdout
+
+
 def test_static_web_harness_fails_missing_local_asset(tmp_path) -> None:
     (tmp_path / "index.html").write_text(
         """<!doctype html>
@@ -162,6 +198,24 @@ def test_static_web_harness_fails_missing_local_asset(tmp_path) -> None:
     assert result.exit_code == 1
     assert result.failure_reason == "static_web_validation_failed"
     assert "Missing script asset: static/missing.js" in result.stdout
+
+
+def test_static_web_harness_fails_mojibake_text(tmp_path) -> None:
+    (tmp_path / "index.html").write_text(
+        """<!doctype html>
+<html>
+  <head><title>鏈湴璇讳功娓呭崟</title></head>
+  <body><h1>鏈湴璇讳功娓呭崟</h1></body>
+</html>
+""",
+        encoding="utf-8",
+    )
+
+    result = StaticWebHarness().run(HarnessRequest(command=[], working_directory=str(tmp_path)))
+
+    assert result.success is False
+    assert result.exit_code == 1
+    assert "mojibake/corrupted UTF-8 text" in result.stdout
 
 
 def test_static_web_harness_fails_when_form_submit_does_not_change_visible_state(tmp_path) -> None:

@@ -8,6 +8,24 @@ from collections.abc import Mapping
 
 
 UTF8_CODE_PAGE = 65001
+MOJIBAKE_MARKERS = (
+    "\ufffd",
+    "\ue000",
+    "\ue100",
+    "\u951b",  # 锛
+    "\u9428",  # 鐨
+    "\u93c8",  # 鏈
+    "\u6d93",  # 涓
+    "\u7edb",  # 绛
+    "\u7035",  # 瀵
+    "\u6d63",  # 浣
+    "\u5a23",  # 娣
+    "\u9366",  # 鍦
+    "\u64b3",  # 撳
+    "\u934a",  # 鍊
+    "\u7463",  # 瑙
+    "€",
+)
 
 
 def configure_utf8_stdio() -> None:
@@ -41,6 +59,16 @@ def utf8_subprocess_environment(overrides: Mapping[str, str] | None = None) -> d
     return environment
 
 
+def looks_like_mojibake(text: str) -> bool:
+    """Return whether text appears to contain corrupted UTF-8/GBK mojibake."""
+    if not text:
+        return False
+    if "\ufffd" in text or "\ue000" in text or "\ue100" in text:
+        return True
+    marker_hits = sum(text.count(marker) for marker in MOJIBAKE_MARKERS if marker)
+    return marker_hits >= 3
+
+
 def _reconfigure_stream(stream) -> None:
     reconfigure = getattr(stream, "reconfigure", None)
     if reconfigure is None:
@@ -66,4 +94,4 @@ def _set_windows_console_code_page() -> None:
         return
 
 
-__all__ = ["UTF8_CODE_PAGE", "configure_utf8_stdio", "utf8_subprocess_environment"]
+__all__ = ["UTF8_CODE_PAGE", "configure_utf8_stdio", "looks_like_mojibake", "utf8_subprocess_environment"]

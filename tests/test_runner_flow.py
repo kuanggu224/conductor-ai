@@ -305,7 +305,7 @@ def test_runner_blocks_real_design_when_no_real_backend_available() -> None:
     assert latest.artifacts[0].source_backend == "real_backend_required"
     assert latest.workitems[0].failure_type == "configuration_required"
     assert latest.workitems[0].retryable is False
-    assert "不会再生成模拟设计文档" in latest.artifacts[0].content
+    assert "不会再生成模拟交付物" in latest.artifacts[0].content
 
 
 def test_runner_uses_shell_harness_for_tester_workitems() -> None:

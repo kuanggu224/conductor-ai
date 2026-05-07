@@ -31,3 +31,20 @@ def test_planner_generates_keyword_specific_workitems() -> None:
         "api_validation",
         "ui_validation",
     ]
+
+
+def test_planner_skips_backend_and_api_work_for_static_frontend_only_requirement() -> None:
+    workflow = WorkflowTemplate()
+    planner = Planner()
+    requirement = (
+        "做一个本地静态 Web 读书清单应用，使用 localStorage 保存数据，"
+        "只做前端静态页面，不接后端，不接数据库。"
+    )
+
+    design_workitems = planner.plan_stage_workitems(workflow.get_next_stage("requirement"), requirement)
+    development_workitems = planner.plan_stage_workitems(workflow.get_next_stage("design"), requirement)
+    testing_workitems = planner.plan_stage_workitems(workflow.get_next_stage("development"), requirement)
+
+    assert [item.kind for item in design_workitems] == ["design_overview", "ui_design"]
+    assert [item.kind for item in development_workitems] == ["ui_implementation"]
+    assert [item.kind for item in testing_workitems] == ["acceptance_check", "ui_validation"]

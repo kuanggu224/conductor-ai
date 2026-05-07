@@ -15,7 +15,7 @@ from urllib.request import urlopen
 
 from conductor.harness.base import BaseHarness
 from conductor.harness.models import HarnessRequest, HarnessResult
-from conductor.io.encoding import utf8_subprocess_environment
+from conductor.io.encoding import looks_like_mojibake, utf8_subprocess_environment
 
 
 @dataclass(slots=True)
@@ -102,6 +102,8 @@ class StaticWebHarness(BaseHarness):
         if not html.strip():
             report.errors.append("index.html is empty")
             return self._result(started, report)
+        if looks_like_mojibake(html):
+            report.errors.append("index.html appears to contain mojibake/corrupted UTF-8 text")
 
         parser = _HTMLAssetParser()
         parser.feed(html)
@@ -139,6 +141,14 @@ class StaticWebHarness(BaseHarness):
             if not target.exists():
                 report.errors.append(f"Missing {label} asset: {ref}")
                 continue
+            if target.suffix.lower() in {".html", ".js", ".css"}:
+                try:
+                    text = target.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    text = ""
+                if looks_like_mojibake(text):
+                    report.errors.append(f"{label} asset appears to contain mojibake/corrupted UTF-8 text: {ref}")
+                    continue
             report.checks.append(f"{label} asset exists: {ref}")
             local_files.append(target)
         return local_files
@@ -297,6 +307,8 @@ class StaticWebHarness(BaseHarness):
         return " ".join(parts).lower()
 
     def _sample_value(self, input_type: str, identity: str = "") -> str:
+        if any(token in identity for token in ("rating", "score", "star")):
+            return "5"
         if any(token in identity for token in ("category", "分类", "type", "tag")):
             return "Food"
         if any(token in identity for token in ("note", "remark", "description", "备注", "说明")):
