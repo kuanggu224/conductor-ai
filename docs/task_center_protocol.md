@@ -61,9 +61,9 @@ single command.
 Use `--prompt-file <path>` to persist the rendered Markdown prompt for audit,
 handoff, or direct CLI consumption. Relative paths are resolved under
 `project_root`.
-Markdown prompts include copyable `complete` and `fail` commands with the
-current `assignment_id` and `project_root`, so external agents can return task
-status without reconstructing the protocol manually.
+Markdown prompts include copyable `complete`, `fail`, and `release` commands
+with the current `assignment_id` and `project_root`, so external agents can
+return task status without reconstructing the protocol manually.
 
 ## Board API
 

@@ -374,6 +374,7 @@ def test_project_task_context_api_can_return_markdown_prompt() -> None:
     assert "Acceptance: add book, persist refresh, export CSV." in response.text
     assert "## CLI Return Commands" in response.text
     assert f'python -m app.task_center complete "{assignment.id}"' in response.text
+    assert f'python -m app.task_center release "{assignment.id}"' in response.text
 
 
 def test_project_task_claim_api_can_include_context() -> None:
@@ -444,6 +445,7 @@ def test_project_task_claim_api_can_include_context_markdown() -> None:
     assert payload["context_markdown"].startswith("# Task Assignment Context")
     assert "artifact-claim-context-markdown" in payload["context_markdown"]
     assert f'python -m app.task_center complete "{assignment.id}"' in payload["context_markdown"]
+    assert f'python -m app.task_center release "{assignment.id}"' in payload["context_markdown"]
 
 
 def test_project_task_claim_rejects_non_queued_assignment() -> None:
@@ -521,6 +523,7 @@ def test_project_task_claim_next_can_include_context_markdown() -> None:
     assert payload["context_markdown"].startswith("# Task Assignment Context")
     assert "artifact-claim-next-context-markdown" in payload["context_markdown"]
     assert f'python -m app.task_center complete "{assignment.id}"' in payload["context_markdown"]
+    assert f'python -m app.task_center release "{assignment.id}"' in payload["context_markdown"]
 
 
 def test_project_task_claim_next_can_write_prompt_file(tmp_path) -> None:
@@ -567,6 +570,7 @@ def test_project_task_claim_next_can_write_prompt_file(tmp_path) -> None:
     assert "# Task Assignment Context" in prompt_content
     assert "artifact-claim-next-prompt-file" in prompt_content
     assert f'python -m app.task_center complete "{assignment.id}"' in prompt_content
+    assert f'python -m app.task_center release "{assignment.id}"' in prompt_content
 
     reloaded = board.engine.get_project(state.project.id)
     assert reloaded.task_assignments[0].prompt_file == str(prompt_file.resolve())

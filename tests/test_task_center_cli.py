@@ -183,6 +183,7 @@ def test_task_center_cli_prints_assignment_context_as_markdown(tmp_path, capsys)
     assert "Acceptance: add book, persist refresh, export CSV." in output
     assert "## CLI Return Commands" in output
     assert f'python -m app.task_center complete "{assignment.id}"' in output
+    assert f'python -m app.task_center release "{assignment.id}"' in output
     assert f'--project-root "{project_root}"' in output
     assert "## Return Protocol" in output
 
@@ -333,6 +334,7 @@ def test_task_center_cli_claim_next_can_write_prompt_file(tmp_path, capsys) -> N
     assert "## CLI Return Commands" in prompt_content
     assert f'python -m app.task_center complete "{assignment.id}"' in prompt_content
     assert f'python -m app.task_center fail "{assignment.id}"' in prompt_content
+    assert f'python -m app.task_center release "{assignment.id}"' in prompt_content
 
     reloaded = FileStateStore(project_root / ".conductor" / "state").get_state(state.project.id)
     assert reloaded.task_assignments[0].status == TaskAssignmentStatus.CLAIMED

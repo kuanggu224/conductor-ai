@@ -249,6 +249,11 @@ def _return_command_lines(payload: dict[str, object], assignment: dict[str, obje
         '--result-summary "failed" '
         '--blocked-reason "explain blocker"'
     )
+    release_command = (
+        f'python -m app.task_center release "{assignment_id}" '
+        f'--project-root "{project_root}" '
+        '--release-reason "worker interrupted"'
+    )
     return [
         "Use one of these commands after finishing the task:",
         "",
@@ -257,6 +262,9 @@ def _return_command_lines(payload: dict[str, object], assignment: dict[str, obje
         "",
         "Return failure/blocker:",
         _fenced(fail_command),
+        "",
+        "Release for retry:",
+        _fenced(release_command),
     ]
 
 
