@@ -5,12 +5,13 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from dataclasses import asdict, replace
+from dataclasses import asdict
 from pathlib import Path
 
-from conductor.domain.models import SharedProjectState, TaskAssignment, TaskAssignmentStatus, WorkItemStatus
+from conductor.domain.models import SharedProjectState, TaskAssignment, TaskAssignmentStatus
 from conductor.io.encoding import configure_utf8_stdio
 from conductor.state.file_store import FileStateStore
+from conductor.task_center.service import TaskCenterError, TaskCenterService
 
 configure_utf8_stdio()
 
@@ -56,62 +57,52 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     store = FileStateStore(_resolve_state_dir(args))
     state = _resolve_state(store, args.project_id)
+    service = TaskCenterService(store, event_prefix="TaskCenterCLI")
 
     try:
         if args.command == "list":
-            payload = _list_payload(state, status=args.status)
+            payload = _list_payload(state, service.list_assignments(state.project.id, status=args.status), status=args.status)
         elif args.command == "claim":
-            state, assignment = _claim_assignment(
-                store,
-                state,
+            result = service.claim(
+                state.project.id,
                 assignment_id=args.assignment_id,
                 agent_id=args.agent_id,
                 claim_reason=args.claim_reason,
             )
-            payload = _assignment_payload(state, assignment)
+            payload = _assignment_payload(result.state, result.assignment)
         elif args.command == "claim-next":
-            assignment = _select_next_assignment(state, role=args.role)
-            state, assignment = _claim_assignment(
-                store,
-                state,
-                assignment_id=assignment.id,
+            result = service.claim_next(
+                state.project.id,
                 agent_id=args.agent_id,
+                role=args.role,
                 claim_reason=args.claim_reason,
             )
-            payload = _assignment_payload(state, assignment)
+            payload = _assignment_payload(result.state, result.assignment)
         elif args.command == "complete":
-            state, assignment = _return_assignment(
-                store,
-                state,
+            result = service.complete(
+                state.project.id,
                 assignment_id=args.assignment_id,
-                status=TaskAssignmentStatus.COMPLETED,
                 result_summary=args.result_summary,
                 output_artifact_ids=args.output_artifact_id,
             )
-            payload = _assignment_payload(state, assignment)
+            payload = _assignment_payload(result.state, result.assignment)
         elif args.command == "fail":
-            state, assignment = _return_assignment(
-                store,
-                state,
+            result = service.fail(
+                state.project.id,
                 assignment_id=args.assignment_id,
-                status=TaskAssignmentStatus.FAILED,
                 result_summary=args.result_summary,
                 output_artifact_ids=args.output_artifact_id,
                 blocked_reason=args.blocked_reason,
             )
-            payload = _assignment_payload(state, assignment)
+            payload = _assignment_payload(result.state, result.assignment)
         else:
             raise AssertionError(f"Unsupported command: {args.command}")
-    except TaskCenterCommandError as error:
+    except TaskCenterError as error:
         print(json.dumps({"ok": False, "error": str(error)}, ensure_ascii=False), file=sys.stderr)
         return 2
 
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0
-
-
-class TaskCenterCommandError(Exception):
-    """Expected task-center command failure."""
 
 
 def _resolve_state_dir(args) -> Path:
@@ -125,21 +116,20 @@ def _resolve_state(store: FileStateStore, project_id: str | None) -> SharedProje
         try:
             return store.get_state(project_id)
         except KeyError as error:
-            raise TaskCenterCommandError(f"Project not found: {project_id}") from error
+            raise TaskCenterError(f"Project not found: {project_id}", status_code=404) from error
     states = store.list_states()
     if not states:
-        raise TaskCenterCommandError("No project state found.")
+        raise TaskCenterError("No project state found.", status_code=404)
     if len(states) > 1:
-        raise TaskCenterCommandError("Multiple project states found. Pass --project-id.")
+        raise TaskCenterError("Multiple project states found. Pass --project-id.")
     return states[0]
 
 
-def _list_payload(state: SharedProjectState, status: str | None = None) -> dict[str, object]:
-    assignments = [
-        assignment
-        for assignment in state.task_assignments
-        if status is None or assignment.status.value == status
-    ]
+def _list_payload(
+    state: SharedProjectState,
+    assignments: list[TaskAssignment],
+    status: str | None = None,
+) -> dict[str, object]:
     return {
         "ok": True,
         "project_id": state.project.id,
@@ -147,134 +137,6 @@ def _list_payload(state: SharedProjectState, status: str | None = None) -> dict[
         "total": len(assignments),
         "tasks": [_assignment_payload(state, assignment)["task"] for assignment in assignments],
     }
-
-
-def _claim_assignment(
-    store: FileStateStore,
-    state: SharedProjectState,
-    assignment_id: str,
-    agent_id: str,
-    claim_reason: str = "",
-) -> tuple[SharedProjectState, TaskAssignment]:
-    assignment = _require_assignment(state, assignment_id)
-    if assignment.status != TaskAssignmentStatus.QUEUED:
-        raise TaskCenterCommandError(f"Task assignment is not queued: {assignment.status.value}")
-    updated = replace(
-        assignment,
-        status=TaskAssignmentStatus.CLAIMED,
-        assigned_agent_id=agent_id,
-        claim_reason=claim_reason or assignment.claim_reason,
-        blocked_reason=None,
-    )
-    _sync_workitem_claim(store, state, assignment, agent_id)
-    store.upsert_task_assignment(state.project.id, updated)
-    store.add_event(state.project.id, f"TaskCenterCLI: {agent_id} claimed {assignment.workitem_id}")
-    return store.get_state(state.project.id), updated
-
-
-def _select_next_assignment(state: SharedProjectState, role: str | None = None) -> TaskAssignment:
-    """Return the first queued assignment whose dependencies are satisfied."""
-    for assignment in state.task_assignments:
-        if assignment.status != TaskAssignmentStatus.QUEUED:
-            continue
-        if role and assignment.role != role:
-            continue
-        if not _dependencies_satisfied(state, assignment):
-            continue
-        return assignment
-    suffix = f" for role {role}" if role else ""
-    raise TaskCenterCommandError(f"No queued task assignment available{suffix}.")
-
-
-def _dependencies_satisfied(state: SharedProjectState, assignment: TaskAssignment) -> bool:
-    """Return whether all referenced WorkItem dependencies are done."""
-    if not assignment.dependencies:
-        return True
-    status_by_workitem = {item.id: item.status for item in state.workitems}
-    return all(status_by_workitem.get(dependency_id) == WorkItemStatus.DONE for dependency_id in assignment.dependencies)
-
-
-def _return_assignment(
-    store: FileStateStore,
-    state: SharedProjectState,
-    assignment_id: str,
-    status: TaskAssignmentStatus,
-    result_summary: str = "",
-    output_artifact_ids: list[str] | None = None,
-    blocked_reason: str = "",
-) -> tuple[SharedProjectState, TaskAssignment]:
-    assignment = _require_assignment(state, assignment_id)
-    if assignment.status != TaskAssignmentStatus.CLAIMED:
-        raise TaskCenterCommandError(f"Task assignment is not claimed: {assignment.status.value}")
-    updated = replace(
-        assignment,
-        status=status,
-        result_summary=result_summary,
-        output_artifact_ids=list(output_artifact_ids or []),
-        blocked_reason=blocked_reason or None,
-    )
-    _sync_workitem_return(
-        store,
-        state,
-        assignment,
-        status=status,
-        result_summary=result_summary,
-        output_artifact_ids=list(output_artifact_ids or []),
-        blocked_reason=blocked_reason,
-    )
-    store.upsert_task_assignment(state.project.id, updated)
-    store.add_event(state.project.id, f"TaskCenterCLI: {assignment.workitem_id} returned {status.value}")
-    return store.get_state(state.project.id), updated
-
-
-def _sync_workitem_claim(
-    store: FileStateStore,
-    state: SharedProjectState,
-    assignment: TaskAssignment,
-    agent_id: str,
-) -> None:
-    try:
-        store.update_workitem(
-            state.project.id,
-            assignment.workitem_id,
-            WorkItemStatus.RUNNING,
-            owner_agent=agent_id,
-        )
-    except (KeyError, ValueError) as error:
-        raise TaskCenterCommandError(str(error)) from error
-
-
-def _sync_workitem_return(
-    store: FileStateStore,
-    state: SharedProjectState,
-    assignment: TaskAssignment,
-    status: TaskAssignmentStatus,
-    result_summary: str,
-    output_artifact_ids: list[str],
-    blocked_reason: str = "",
-) -> None:
-    workitem_status = WorkItemStatus.DONE if status == TaskAssignmentStatus.COMPLETED else WorkItemStatus.FAILED
-    try:
-        store.update_workitem(
-            state.project.id,
-            assignment.workitem_id,
-            workitem_status,
-            owner_agent=assignment.assigned_agent_id,
-            result=result_summary,
-            output_artifact_ids=output_artifact_ids,
-            blocked_reason=blocked_reason or None,
-            failure_type="task_center" if workitem_status == WorkItemStatus.FAILED else "",
-            failure_summary=(blocked_reason or result_summary) if workitem_status == WorkItemStatus.FAILED else "",
-        )
-    except (KeyError, ValueError) as error:
-        raise TaskCenterCommandError(str(error)) from error
-
-
-def _require_assignment(state: SharedProjectState, assignment_id: str) -> TaskAssignment:
-    for assignment in state.task_assignments:
-        if assignment.id == assignment_id:
-            return assignment
-    raise TaskCenterCommandError(f"Task assignment not found: {assignment_id}")
 
 
 def _assignment_payload(state: SharedProjectState, assignment: TaskAssignment) -> dict[str, object]:

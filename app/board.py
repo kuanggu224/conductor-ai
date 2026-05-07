@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass
 from contextlib import asynccontextmanager
 from pathlib import Path
 from threading import Lock, Thread
@@ -43,9 +43,10 @@ from conductor.config.llm import (
     save_llm_runtime_config,
 )
 from conductor.controller.engine import ConductorEngine
-from conductor.domain.models import SharedProjectState, TaskAssignment, TaskAssignmentStatus, WorkItemStatus
+from conductor.domain.models import SharedProjectState, TaskAssignment
 from conductor.io.encoding import configure_utf8_stdio
 from conductor.io.requirements import RequirementInputError, load_requirement_text
+from conductor.task_center.service import TaskCenterError, TaskCenterService
 from conductor.todo.service import (
     TODO_SESSION_COOKIE,
     create_todo_service,
@@ -500,14 +501,17 @@ def project_tasks_api(project_id: str, status: str | None = None) -> JSONRespons
 @app.post("/api/projects/{project_id}/tasks/claim-next")
 async def claim_next_project_task_api(project_id: str, payload: TaskClaimNextRequest) -> JSONResponse:
     """Claim the next queued task-center assignment, optionally filtered by role."""
-    state = _require_project_state(project_id)
-    assignment = _select_next_task_assignment(state, role=payload.role)
-    updated = _claim_task_assignment(project_id, assignment, payload.agent_id, payload.claim_reason)
-    state = _require_project_state(project_id)
+    transition = _run_task_center_transition(
+        _task_center_service().claim_next,
+        project_id,
+        agent_id=payload.agent_id,
+        role=payload.role,
+        claim_reason=payload.claim_reason,
+    )
     return JSONResponse(
         {
             "project_id": project_id,
-            "task": _task_assignment_payload(updated, state),
+            "task": _task_assignment_payload(transition.assignment, transition.state),
         }
     )
 
@@ -515,14 +519,17 @@ async def claim_next_project_task_api(project_id: str, payload: TaskClaimNextReq
 @app.post("/api/projects/{project_id}/tasks/{assignment_id}/claim")
 async def claim_project_task_api(project_id: str, assignment_id: str, payload: TaskClaimRequest) -> JSONResponse:
     """Claim one queued task-center assignment."""
-    state = _require_project_state(project_id)
-    assignment = _require_task_assignment(state, assignment_id)
-    updated = _claim_task_assignment(project_id, assignment, payload.agent_id, payload.claim_reason)
-    state = _require_project_state(project_id)
+    transition = _run_task_center_transition(
+        _task_center_service().claim,
+        project_id,
+        assignment_id=assignment_id,
+        agent_id=payload.agent_id,
+        claim_reason=payload.claim_reason,
+    )
     return JSONResponse(
         {
             "project_id": project_id,
-            "task": _task_assignment_payload(updated, state),
+            "task": _task_assignment_payload(transition.assignment, transition.state),
         }
     )
 
@@ -530,28 +537,17 @@ async def claim_project_task_api(project_id: str, assignment_id: str, payload: T
 @app.post("/api/projects/{project_id}/tasks/{assignment_id}/complete")
 async def complete_project_task_api(project_id: str, assignment_id: str, payload: TaskReturnRequest) -> JSONResponse:
     """Return a claimed task-center assignment as completed."""
-    state = _require_project_state(project_id)
-    assignment = _require_task_assignment(state, assignment_id)
-    if assignment.status != TaskAssignmentStatus.CLAIMED:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Task assignment is not claimed: {assignment.status.value}",
-        )
-    updated = replace(
-        assignment,
-        status=TaskAssignmentStatus.COMPLETED,
-        output_artifact_ids=list(payload.output_artifact_ids),
+    transition = _run_task_center_transition(
+        _task_center_service().complete,
+        project_id,
+        assignment_id=assignment_id,
         result_summary=payload.result_summary,
-        blocked_reason=None,
+        output_artifact_ids=list(payload.output_artifact_ids),
     )
-    _sync_task_workitem_return(project_id, assignment, WorkItemStatus.DONE, payload)
-    engine.state_store.upsert_task_assignment(project_id, updated)
-    engine.state_store.add_event(project_id, f"TaskCenter: {assignment.workitem_id} returned completed")
-    state = _require_project_state(project_id)
     return JSONResponse(
         {
             "project_id": project_id,
-            "task": _task_assignment_payload(updated, state),
+            "task": _task_assignment_payload(transition.assignment, transition.state),
         }
     )
 
@@ -559,28 +555,18 @@ async def complete_project_task_api(project_id: str, assignment_id: str, payload
 @app.post("/api/projects/{project_id}/tasks/{assignment_id}/fail")
 async def fail_project_task_api(project_id: str, assignment_id: str, payload: TaskReturnRequest) -> JSONResponse:
     """Return a claimed task-center assignment as failed."""
-    state = _require_project_state(project_id)
-    assignment = _require_task_assignment(state, assignment_id)
-    if assignment.status != TaskAssignmentStatus.CLAIMED:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Task assignment is not claimed: {assignment.status.value}",
-        )
-    updated = replace(
-        assignment,
-        status=TaskAssignmentStatus.FAILED,
-        output_artifact_ids=list(payload.output_artifact_ids),
+    transition = _run_task_center_transition(
+        _task_center_service().fail,
+        project_id,
+        assignment_id=assignment_id,
         result_summary=payload.result_summary,
-        blocked_reason=payload.blocked_reason or None,
+        output_artifact_ids=list(payload.output_artifact_ids),
+        blocked_reason=payload.blocked_reason,
     )
-    _sync_task_workitem_return(project_id, assignment, WorkItemStatus.FAILED, payload)
-    engine.state_store.upsert_task_assignment(project_id, updated)
-    engine.state_store.add_event(project_id, f"TaskCenter: {assignment.workitem_id} returned failed")
-    state = _require_project_state(project_id)
     return JSONResponse(
         {
             "project_id": project_id,
-            "task": _task_assignment_payload(updated, state),
+            "task": _task_assignment_payload(transition.assignment, transition.state),
         }
     )
 
@@ -660,99 +646,17 @@ def _task_assignment_payload(
     }
 
 
-def _require_task_assignment(state: SharedProjectState, assignment_id: str) -> TaskAssignment:
-    """Return an assignment or raise 404."""
-    for assignment in state.task_assignments:
-        if assignment.id == assignment_id:
-            return assignment
-    raise HTTPException(status_code=404, detail=f"Task assignment not found: {assignment_id}")
+def _task_center_service() -> TaskCenterService:
+    """Return a Task Center service bound to the current in-process engine."""
+    return TaskCenterService(engine.state_store, event_prefix="TaskCenter")
 
 
-def _claim_task_assignment(
-    project_id: str,
-    assignment: TaskAssignment,
-    agent_id: str,
-    claim_reason: str = "",
-) -> TaskAssignment:
-    """Claim one queued task-center assignment and sync its WorkItem."""
-    if assignment.status != TaskAssignmentStatus.QUEUED:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Task assignment is not queued: {assignment.status.value}",
-        )
-    updated = replace(
-        assignment,
-        status=TaskAssignmentStatus.CLAIMED,
-        assigned_agent_id=agent_id,
-        claim_reason=claim_reason,
-        blocked_reason=None,
-    )
-    _sync_task_workitem_claim(project_id, assignment, agent_id)
-    engine.state_store.upsert_task_assignment(project_id, updated)
-    engine.state_store.add_event(project_id, f"TaskCenter: {agent_id} claimed {assignment.workitem_id}")
-    return updated
-
-
-def _select_next_task_assignment(state: SharedProjectState, role: str | None = None) -> TaskAssignment:
-    """Return the first queued assignment whose dependencies are satisfied."""
-    for assignment in state.task_assignments:
-        if assignment.status != TaskAssignmentStatus.QUEUED:
-            continue
-        if role and assignment.role != role:
-            continue
-        if not _task_assignment_dependencies_satisfied(state, assignment):
-            continue
-        return assignment
-    suffix = f" for role {role}" if role else ""
-    raise HTTPException(status_code=404, detail=f"No queued task assignment available{suffix}.")
-
-
-def _task_assignment_dependencies_satisfied(state: SharedProjectState, assignment: TaskAssignment) -> bool:
-    """Return whether all WorkItem dependencies for an assignment are done."""
-    if not assignment.dependencies:
-        return True
-    status_by_workitem = {item.id: item.status for item in state.workitems}
-    return all(status_by_workitem.get(dependency_id) == WorkItemStatus.DONE for dependency_id in assignment.dependencies)
-
-
-def _sync_task_workitem_claim(project_id: str, assignment: TaskAssignment, agent_id: str) -> None:
-    """Keep WorkItem lifecycle aligned with manual task-center claims."""
+def _run_task_center_transition(action: Callable, *args, **kwargs):
+    """Run one Task Center action and convert domain errors to HTTP responses."""
     try:
-        engine.state_store.update_workitem(
-            project_id,
-            assignment.workitem_id,
-            WorkItemStatus.RUNNING,
-            owner_agent=agent_id,
-        )
-    except KeyError as error:
-        raise HTTPException(status_code=404, detail=f"WorkItem not found: {assignment.workitem_id}") from error
-    except ValueError as error:
-        raise HTTPException(status_code=409, detail=str(error)) from error
-
-
-def _sync_task_workitem_return(
-    project_id: str,
-    assignment: TaskAssignment,
-    status: WorkItemStatus,
-    payload: TaskReturnRequest,
-) -> None:
-    """Keep WorkItem lifecycle aligned with manual task-center returns."""
-    try:
-        engine.state_store.update_workitem(
-            project_id,
-            assignment.workitem_id,
-            status,
-            owner_agent=assignment.assigned_agent_id,
-            result=payload.result_summary,
-            output_artifact_ids=list(payload.output_artifact_ids),
-            blocked_reason=payload.blocked_reason or None,
-            failure_type="task_center" if status == WorkItemStatus.FAILED else "",
-            failure_summary=(payload.blocked_reason or payload.result_summary) if status == WorkItemStatus.FAILED else "",
-        )
-    except KeyError as error:
-        raise HTTPException(status_code=404, detail=f"WorkItem not found: {assignment.workitem_id}") from error
-    except ValueError as error:
-        raise HTTPException(status_code=409, detail=str(error)) from error
+        return action(*args, **kwargs)
+    except TaskCenterError as error:
+        raise HTTPException(status_code=error.status_code, detail=str(error)) from error
 
 
 def _task_workitem_payload(workitem) -> dict[str, object]:
