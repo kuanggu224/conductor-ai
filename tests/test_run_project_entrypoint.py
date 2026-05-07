@@ -88,10 +88,12 @@ def test_run_project_parser_accepts_collaboration_overrides() -> None:
             "--collaboration-max-rounds",
             "1",
             "--static-requirement-review",
+            "--diagnose-cli",
             "--diagnose-llm",
         ]
     )
 
     assert args.collaboration_max_rounds == 1
     assert args.static_requirement_review is True
+    assert args.diagnose_cli is True
     assert args.diagnose_llm is True

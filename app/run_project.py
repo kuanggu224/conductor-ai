@@ -62,6 +62,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--diagnose", action="store_true", help="Print platform diagnostics and exit.")
     parser.add_argument(
+        "--diagnose-cli",
+        action="store_true",
+        help="When used with --diagnose, run lightweight --version probes for Agent CLI tools.",
+    )
+    parser.add_argument(
         "--diagnose-llm",
         action="store_true",
         help="When used with --diagnose, also probe enabled OpenAI-compatible LLM servers.",
@@ -91,6 +96,7 @@ def main(argv: list[str] | None = None) -> int:
             cli_config=cli_config,
             project_root=project_root,
             llm_runtime_config=llm_runtime_config,
+            probe_cli=args.diagnose_cli,
             probe_llm=args.diagnose_llm,
             preflight_probe=(
                 build_requirement_llm_preflight_probe(

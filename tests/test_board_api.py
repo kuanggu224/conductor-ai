@@ -87,9 +87,27 @@ def test_diagnostics_api_returns_platform_health_snapshot(monkeypatch) -> None:
     assert "project_root" in payload
     assert "config_paths" in payload
     assert "available_cli_names" in payload
+    assert "cli_tools" in payload
+    assert payload["cli_tools"][0]["version_status"] == "not_checked"
     assert "role_bindings" in payload
     assert "llm_backends" in payload
     assert payload["llm_backends"][0]["server_status"] == "not_checked"
+
+
+def test_diagnostics_api_can_probe_cli_versions(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "conductor.diagnostics.discover_cli_tools",
+        lambda: [type("Tool", (), {"name": "codex", "label": "Codex CLI", "path": "/bin/codex", "available": True})()],
+    )
+    monkeypatch.setattr("conductor.diagnostics._probe_cli_version", lambda *_: ("ok", "codex 1.2.3", ""))
+    client = TestClient(board.app)
+
+    response = client.get("/api/diagnostics?probe_cli=true")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["cli_tools"][0]["version_status"] == "ok"
+    assert payload["cli_tools"][0]["version_output"] == "codex 1.2.3"
 
 
 def test_diagnostics_api_can_run_llm_preflight(monkeypatch) -> None:

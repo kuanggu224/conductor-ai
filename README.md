@@ -94,20 +94,24 @@ runtime configuration:
 
 ```bash
 python -m app.diagnostics
+python -m app.diagnostics --probe-cli
 python -m app.diagnostics --preflight-llm
 python -m app.run_project --diagnose
+python -m app.run_project --diagnose --diagnose-cli
 python -m app.run_project --diagnose --diagnose-llm
 ```
 
 Board exposes the same health snapshot for frontends:
 
 - `GET /api/diagnostics`
+- `GET /api/diagnostics?probe_cli=true`
 - `GET /api/diagnostics?probe_llm=true`
 - `GET /api/diagnostics?preflight_llm=true`
 
-The default API call is read-only and does not touch network services. The
-`probe_llm=true` variant checks enabled OpenAI-compatible model endpoints. The
-`preflight_llm=true` variant also runs a lightweight chat-completion probe.
+The default API call is read-only and does not touch network services or start
+agent CLIs. The `probe_cli=true` variant runs lightweight `--version` checks.
+The `probe_llm=true` variant checks enabled OpenAI-compatible model endpoints.
+The `preflight_llm=true` variant also runs a lightweight chat-completion probe.
 
 ### Windows PowerShell UTF-8
 

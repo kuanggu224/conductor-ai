@@ -25,6 +25,9 @@ def test_platform_diagnostics_marks_ready_bindings(monkeypatch, tmp_path) -> Non
 
     assert diagnostics.ok is True
     assert diagnostics.available_cli_names == ["codex"]
+    assert diagnostics.cli_tools[0].name == "codex"
+    assert diagnostics.cli_tools[0].status == "available"
+    assert diagnostics.cli_tools[0].version_status == "not_checked"
     assert diagnostics.role_bindings[0].status == "ready"
     assert diagnostics.to_dict()["project_root"] == str(tmp_path.resolve())
     assert diagnostics.encoding.preferred_encoding
@@ -57,6 +60,62 @@ def test_platform_diagnostics_warns_for_missing_or_unselected_cli(monkeypatch) -
     assert statuses["frontend_engineer"] == "missing"
     assert statuses["tester"] == "unbound"
     assert diagnostics.warnings
+
+
+def test_platform_diagnostics_can_probe_cli_versions(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        "conductor.diagnostics.discover_cli_tools",
+        lambda: [
+            type("Tool", (), {"name": "codex", "label": "Codex CLI", "path": "/bin/codex", "available": True})(),
+            type("Tool", (), {"name": "opencode", "label": "OpenCode CLI", "path": "", "available": False})(),
+        ],
+    )
+    calls = []
+
+    def fake_cli_probe(path, timeout_seconds):
+        calls.append((path, timeout_seconds))
+        return "ok", "codex 1.2.3", ""
+
+    diagnostics = build_platform_diagnostics(
+        cli_config=CLISelectionConfig(
+            selected_cli_names=["codex"],
+            role_cli_bindings={"designer": "codex"},
+        ),
+        project_root=tmp_path,
+        probe_cli=True,
+        cli_probe=fake_cli_probe,
+    )
+
+    codex = {item.name: item for item in diagnostics.cli_tools}["codex"]
+    opencode = {item.name: item for item in diagnostics.cli_tools}["opencode"]
+    assert diagnostics.ok is True
+    assert calls == [("/bin/codex", 5.0)]
+    assert codex.selected is True
+    assert codex.version_status == "ok"
+    assert codex.version_output == "codex 1.2.3"
+    assert opencode.version_status == "not_available"
+
+
+def test_platform_diagnostics_warns_when_selected_cli_probe_fails(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        "conductor.diagnostics.discover_cli_tools",
+        lambda: [
+            type("Tool", (), {"name": "codex", "label": "Codex CLI", "path": "/bin/codex", "available": True})(),
+        ],
+    )
+
+    diagnostics = build_platform_diagnostics(
+        cli_config=CLISelectionConfig(
+            selected_cli_names=["codex"],
+            role_cli_bindings={"designer": "codex"},
+        ),
+        project_root=tmp_path,
+        probe_cli=True,
+        cli_probe=lambda *_: ("failed", "", "exit_code=1"),
+    )
+
+    assert diagnostics.ok is False
+    assert any("Selected CLI `codex` probe failed" in warning for warning in diagnostics.warnings)
 
 
 def test_platform_diagnostics_reports_llm_backend_config_without_probe(monkeypatch, tmp_path) -> None:

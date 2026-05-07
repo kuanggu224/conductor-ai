@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import locale
 import os
+import subprocess
 import sys
 import urllib.error
 import urllib.request
@@ -17,6 +18,22 @@ from conductor.config.defaults import CLI_CONFIG_PATH, LLM_CONFIG_PATH
 from conductor.config.execution import EXECUTION_CONFIG_PATH
 from conductor.config.llm import LLMRuntimeConfig, load_llm_runtime_config
 from conductor.config.system import SYSTEM_CONFIG_PATH
+from conductor.io.encoding import utf8_subprocess_environment
+
+
+@dataclass(slots=True)
+class CLIToolDiagnostic:
+    """Health information for one discovered Agent CLI tool."""
+
+    name: str
+    label: str
+    path: str
+    available: bool
+    selected: bool
+    status: str
+    version_status: str = "not_checked"
+    version_output: str = ""
+    version_error: str = ""
 
 
 @dataclass(slots=True)
@@ -73,6 +90,7 @@ class PlatformDiagnostics:
     selected_cli_names: list[str]
     available_cli_names: list[str]
     encoding: EncodingDiagnostic
+    cli_tools: list[CLIToolDiagnostic] = field(default_factory=list)
     role_bindings: list[RoleBindingDiagnostic] = field(default_factory=list)
     llm_backends: list[LLMBackendDiagnostic] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
@@ -84,12 +102,15 @@ class PlatformDiagnostics:
 
 ModelProbe = Callable[[str, str | None, float], tuple[str, list[str], int | None, str]]
 PreflightProbe = Callable[[str], tuple[bool, str]]
+CLIProbe = Callable[[str, float], tuple[str, str, str]]
 
 
 def build_platform_diagnostics(
     cli_config: CLISelectionConfig | None = None,
     project_root: str | Path | None = None,
     llm_runtime_config: LLMRuntimeConfig | None = None,
+    probe_cli: bool = False,
+    cli_probe: CLIProbe | None = None,
     probe_llm: bool = False,
     model_probe: ModelProbe | None = None,
     preflight_probe: PreflightProbe | None = None,
@@ -98,9 +119,15 @@ def build_platform_diagnostics(
     runtime_cli_config = cli_config or load_cli_selection_config()
     runtime_llm_config = llm_runtime_config or load_llm_runtime_config()
     tools = discover_cli_tools()
-    available_by_name = {tool.name: tool.available for tool in tools}
-    available_cli_names = [tool.name for tool in tools if tool.available]
     selected_cli_names = list(runtime_cli_config.selected_cli_names)
+    cli_tools = _build_cli_tool_diagnostics(
+        tools,
+        selected_cli_names=selected_cli_names,
+        probe_cli=probe_cli,
+        cli_probe=cli_probe,
+    )
+    available_by_name = {tool.name: tool.available for tool in cli_tools}
+    available_cli_names = [tool.name for tool in cli_tools if tool.available]
     role_bindings = [
         _diagnose_role_binding(
             role=role,
@@ -116,7 +143,7 @@ def build_platform_diagnostics(
         model_probe=model_probe,
         preflight_probe=preflight_probe,
     )
-    warnings = _build_warnings(selected_cli_names, available_by_name, role_bindings, llm_backends)
+    warnings = _build_warnings(selected_cli_names, available_by_name, role_bindings, llm_backends, cli_tools)
     return PlatformDiagnostics(
         ok=not warnings,
         project_root=str(Path(project_root or Path.cwd()).expanduser().resolve()),
@@ -129,6 +156,7 @@ def build_platform_diagnostics(
         selected_cli_names=selected_cli_names,
         available_cli_names=available_cli_names,
         encoding=_runtime_encoding_diagnostic(),
+        cli_tools=cli_tools,
         role_bindings=role_bindings,
         llm_backends=llm_backends,
         warnings=warnings,
@@ -154,6 +182,41 @@ def build_requirement_llm_preflight_probe(
         return result.success, result.error
 
     return probe
+
+
+def _build_cli_tool_diagnostics(
+    tools,
+    *,
+    selected_cli_names: list[str],
+    probe_cli: bool,
+    cli_probe: CLIProbe | None,
+) -> list[CLIToolDiagnostic]:
+    """Build diagnostics for discovered Agent CLI tools."""
+    selected = set(selected_cli_names)
+    probe = cli_probe or _probe_cli_version
+    diagnostics: list[CLIToolDiagnostic] = []
+    for tool in tools:
+        name = str(getattr(tool, "name", ""))
+        label = str(getattr(tool, "label", name))
+        path = str(getattr(tool, "path", "") or "")
+        available = bool(getattr(tool, "available", False))
+        item = CLIToolDiagnostic(
+            name=name,
+            label=label,
+            path=path,
+            available=available,
+            selected=name in selected,
+            status="available" if available else "missing",
+        )
+        if probe_cli and available and path:
+            status, output, error = probe(path, 5.0)
+            item.version_status = status
+            item.version_output = output
+            item.version_error = error
+        elif probe_cli and not available:
+            item.version_status = "not_available"
+        diagnostics.append(item)
+    return diagnostics
 
 
 def _build_llm_backend_diagnostics(
@@ -244,6 +307,7 @@ def _build_warnings(
     available_by_name: dict[str, bool],
     role_bindings: list[RoleBindingDiagnostic],
     llm_backends: list[LLMBackendDiagnostic],
+    cli_tools: list[CLIToolDiagnostic],
 ) -> list[str]:
     warnings: list[str] = []
     for cli_name in selected_cli_names:
@@ -252,6 +316,9 @@ def _build_warnings(
     for binding in role_bindings:
         if binding.status in {"not_selected", "missing"}:
             warnings.append(binding.message)
+    for tool in cli_tools:
+        if tool.selected and tool.version_status in {"failed", "timeout"}:
+            warnings.append(f"Selected CLI `{tool.name}` probe failed: {tool.version_error or tool.version_output}")
     for backend in llm_backends:
         if not backend.enabled:
             continue
@@ -310,6 +377,29 @@ def _probe_openai_models(
     return "reachable", models, context_length, ""
 
 
+def _probe_cli_version(path: str, timeout_seconds: float) -> tuple[str, str, str]:
+    """Run a lightweight CLI version probe without invoking agent work."""
+    try:
+        completed = subprocess.run(
+            [path, "--version"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout_seconds,
+            env=utf8_subprocess_environment(),
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return "timeout", "", f"`{path} --version` timed out after {timeout_seconds:g}s"
+    except OSError as error:
+        return "failed", "", str(error)
+    output = (completed.stdout or completed.stderr or "").strip()
+    if completed.returncode != 0:
+        return "failed", output[:500], f"exit_code={completed.returncode}"
+    return "ok", output[:500], ""
+
+
 def _extract_model_names(payload: object) -> list[str]:
     if not isinstance(payload, dict):
         return []
@@ -346,6 +436,7 @@ def _extract_context_length(payload: object, selected_model: str) -> int | None:
 
 
 __all__ = [
+    "CLIToolDiagnostic",
     "LLMBackendDiagnostic",
     "EncodingDiagnostic",
     "PlatformDiagnostics",

@@ -1020,13 +1020,14 @@ def llm_settings_api() -> JSONResponse:
 
 
 @app.get("/api/diagnostics")
-def diagnostics_api(probe_llm: bool = False, preflight_llm: bool = False) -> JSONResponse:
+def diagnostics_api(probe_cli: bool = False, probe_llm: bool = False, preflight_llm: bool = False) -> JSONResponse:
     """Return current CLI, LLM, config, and encoding diagnostics."""
     llm_runtime_config = load_llm_runtime_config()
     diagnostics = build_platform_diagnostics(
         cli_config=load_cli_selection_config(),
         project_root=ROOT_DIR,
         llm_runtime_config=llm_runtime_config,
+        probe_cli=probe_cli,
         probe_llm=probe_llm or preflight_llm,
         preflight_probe=(
             build_requirement_llm_preflight_probe(

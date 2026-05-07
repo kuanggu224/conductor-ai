@@ -23,6 +23,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Probe enabled OpenAI-compatible LLM /models endpoints.",
     )
     parser.add_argument(
+        "--probe-cli",
+        action="store_true",
+        help="Run lightweight --version probes for discovered Agent CLI tools.",
+    )
+    parser.add_argument(
         "--preflight-llm",
         action="store_true",
         help="Run a lightweight chat-completion preflight for enabled LLM backends.",
@@ -37,6 +42,7 @@ def main(argv: list[str] | None = None) -> int:
     diagnostics = build_platform_diagnostics(
         project_root=args.project_root,
         llm_runtime_config=llm_runtime_config,
+        probe_cli=args.probe_cli,
         probe_llm=args.probe_llm or args.preflight_llm,
         preflight_probe=(
             build_requirement_llm_preflight_probe(
