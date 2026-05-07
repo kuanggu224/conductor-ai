@@ -39,6 +39,7 @@ def build_parser() -> argparse.ArgumentParser:
     context_parser.add_argument("--no-content", action="store_true", help="Only print artifact metadata.")
     context_parser.add_argument("--max-content-chars", type=int, default=12000)
     context_parser.add_argument("--format", choices=["json", "markdown"], default="json")
+    context_parser.add_argument("--prompt-file", help="Write Markdown context to a file. Relative paths use project root.")
 
     claim_parser = subparsers.add_parser("claim", parents=[common], help="Claim one queued assignment.")
     claim_parser.add_argument("assignment_id")
@@ -48,6 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
     claim_parser.add_argument("--no-content", action="store_true", help="Only print artifact metadata with --with-context.")
     claim_parser.add_argument("--max-content-chars", type=int, default=12000)
     claim_parser.add_argument("--context-format", choices=["json", "markdown"], default="json")
+    claim_parser.add_argument("--prompt-file", help="Write Markdown context to a file. Relative paths use project root.")
 
     claim_next_parser = subparsers.add_parser("claim-next", parents=[common], help="Claim the next queued assignment.")
     claim_next_parser.add_argument("--agent-id", required=True)
@@ -57,6 +59,7 @@ def build_parser() -> argparse.ArgumentParser:
     claim_next_parser.add_argument("--no-content", action="store_true", help="Only print artifact metadata with --with-context.")
     claim_next_parser.add_argument("--max-content-chars", type=int, default=12000)
     claim_next_parser.add_argument("--context-format", choices=["json", "markdown"], default="json")
+    claim_next_parser.add_argument("--prompt-file", help="Write Markdown context to a file. Relative paths use project root.")
 
     complete_parser = subparsers.add_parser("complete", parents=[common], help="Return one claimed assignment as completed.")
     complete_parser.add_argument("assignment_id")
@@ -103,8 +106,14 @@ def main(argv: list[str] | None = None) -> int:
                 include_content=not args.no_content,
                 max_content_chars=args.max_content_chars,
             )
+            prompt_markdown = ""
+            if args.prompt_file or args.format == "markdown":
+                prompt_markdown = context_builder.render_markdown(payload)
+            if args.prompt_file:
+                prompt_file = _write_prompt_file(args.prompt_file, state.project.project_root, prompt_markdown)
+                payload["prompt_file"] = str(prompt_file)
             if args.format == "markdown":
-                payload = context_builder.render_markdown(payload)
+                payload = prompt_markdown
         elif args.command == "claim":
             result = service.claim(
                 state.project.id,
@@ -233,7 +242,8 @@ def _attach_context_if_requested(
     assignment: TaskAssignment,
     service: TaskCenterService,
 ) -> dict[str, object] | str:
-    if not getattr(args, "with_context", False):
+    prompt_file_arg = getattr(args, "prompt_file", None)
+    if not getattr(args, "with_context", False) and not prompt_file_arg:
         return payload
     context_builder = TaskContextBuilder()
     context = context_builder.build(
@@ -243,10 +253,26 @@ def _attach_context_if_requested(
         include_content=not getattr(args, "no_content", False),
         max_content_chars=getattr(args, "max_content_chars", 12000),
     )
+    prompt_markdown = ""
+    if prompt_file_arg or getattr(args, "context_format", "json") == "markdown":
+        prompt_markdown = context_builder.render_markdown(context)
+    if prompt_file_arg:
+        prompt_file = _write_prompt_file(prompt_file_arg, state.project.project_root, prompt_markdown)
+        payload["prompt_file"] = str(prompt_file)
     if getattr(args, "context_format", "json") == "markdown":
-        return context_builder.render_markdown(context)
-    payload["context"] = context
+        return prompt_markdown
+    if getattr(args, "with_context", False):
+        payload["context"] = context
     return payload
+
+
+def _write_prompt_file(prompt_file: str, project_root: str, content: str) -> Path:
+    path = Path(prompt_file).expanduser()
+    if not path.is_absolute():
+        path = Path(project_root).expanduser().resolve() / path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    return path.resolve()
 
 
 def _assignment_payload(

@@ -280,6 +280,59 @@ def test_task_center_cli_claim_next_can_print_context_markdown(tmp_path, capsys)
     assert reloaded.task_assignments[0].assigned_agent_id == "agent-markdown-worker"
 
 
+def test_task_center_cli_claim_next_can_write_prompt_file(tmp_path, capsys) -> None:
+    project_root = tmp_path / "project"
+    state_store = FileStateStore(project_root / ".conductor" / "state")
+    engine = ConductorEngine(
+        log_dir=project_root / ".conductor" / "logs",
+        artifact_dir=project_root / ".conductor" / "artifacts",
+        state_store=state_store,
+    )
+    state = engine.create_project(requirement="Build a local reading list with CSV export", project_root=str(project_root))
+    artifact = engine.artifact_store.save_markdown(
+        Artifact(
+            id="artifact-context",
+            project_id=state.project.id,
+            workitem_id="workitem-upstream",
+            agent_id="agent-designer",
+            kind="frozen_requirement_spec",
+            title="Frozen Requirement",
+            content="Acceptance: add book, persist refresh, export CSV.",
+        ),
+        project_root=state.project.project_root,
+    )
+    state = state_store.add_artifact(state.project.id, artifact)
+    assignment = replace(state.task_assignments[0], input_artifact_ids=[artifact.id])
+    state_store.upsert_task_assignment(state.project.id, assignment)
+
+    code = main(
+        [
+            "claim-next",
+            "--project-root",
+            str(project_root),
+            "--agent-id",
+            "agent-file-worker",
+            "--prompt-file",
+            ".conductor/task_center/prompts/next-task.md",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+    prompt_file = project_root / ".conductor" / "task_center" / "prompts" / "next-task.md"
+    prompt_content = prompt_file.read_text(encoding="utf-8")
+
+    assert code == 0
+    assert payload["task"]["status"] == "claimed"
+    assert payload["prompt_file"] == str(prompt_file.resolve())
+    assert "context" not in payload
+    assert "# Task Assignment Context" in prompt_content
+    assert "artifact-context" in prompt_content
+    assert "Acceptance: add book, persist refresh, export CSV." in prompt_content
+
+    reloaded = FileStateStore(project_root / ".conductor" / "state").get_state(state.project.id)
+    assert reloaded.task_assignments[0].status == TaskAssignmentStatus.CLAIMED
+    assert reloaded.task_assignments[0].assigned_agent_id == "agent-file-worker"
+
+
 def test_task_center_cli_rejects_return_before_claim(tmp_path, capsys) -> None:
     project_root = tmp_path / "project"
     state_store = FileStateStore(project_root / ".conductor" / "state")

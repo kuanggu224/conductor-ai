@@ -35,9 +35,11 @@ python -m app.task_center list --project-root <project-root>
 python -m app.task_center list --project-root <project-root> --status queued
 python -m app.task_center context <assignment-id> --project-root <project-root>
 python -m app.task_center context <assignment-id> --project-root <project-root> --format markdown
+python -m app.task_center context <assignment-id> --project-root <project-root> --prompt-file .conductor/task_center/prompts/task.md
 python -m app.task_center claim-next --project-root <project-root> --agent-id <agent-id> --role backend_engineer
 python -m app.task_center claim-next --project-root <project-root> --agent-id <agent-id> --with-context
 python -m app.task_center claim-next --project-root <project-root> --agent-id <agent-id> --with-context --context-format markdown
+python -m app.task_center claim-next --project-root <project-root> --agent-id <agent-id> --prompt-file .conductor/task_center/prompts/next-task.md
 python -m app.task_center claim <assignment-id> --project-root <project-root> --agent-id <agent-id> --with-context
 python -m app.task_center complete <assignment-id> --project-root <project-root> --result-summary "done"
 python -m app.task_center complete <assignment-id> --project-root <project-root> --output-file result.md
@@ -54,6 +56,9 @@ artifact content, and the return protocol.
 Use `claim` or `claim-next` with `--with-context --context-format markdown`
 when the worker should claim the task and receive a direct Markdown prompt in a
 single command.
+Use `--prompt-file <path>` to persist the rendered Markdown prompt for audit,
+handoff, or direct CLI consumption. Relative paths are resolved under
+`project_root`.
 
 ## Board API
 
