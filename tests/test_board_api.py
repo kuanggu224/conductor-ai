@@ -113,6 +113,21 @@ def test_project_tasks_api_filters_by_status() -> None:
     assert completed.json()["total"] == 0
 
 
+def test_project_tasks_summary_api_returns_counts() -> None:
+    client = TestClient(board.app)
+    state = board.engine.create_project(requirement="Build a local reading list", project_root="")
+
+    response = client.get(f"/api/projects/{state.project.id}/tasks/summary")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["project_id"] == state.project.id
+    assert payload["summary"]["total"] == 1
+    assert payload["summary"]["claimable"] == 1
+    assert payload["summary"]["blocked_by_dependencies"] == 0
+    assert "tasks" not in payload
+
+
 def test_project_task_claim_and_complete_protocol() -> None:
     client = TestClient(board.app)
     state = board.engine.create_project(requirement="Build a local reading list", project_root="")

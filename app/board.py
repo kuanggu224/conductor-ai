@@ -498,6 +498,18 @@ def project_tasks_api(project_id: str, status: str | None = None) -> JSONRespons
     return JSONResponse(_task_center_payload(state, status=status))
 
 
+@app.get("/api/projects/{project_id}/tasks/summary")
+def project_tasks_summary_api(project_id: str) -> JSONResponse:
+    """Return compact task-center summary counts for one project."""
+    state = _require_project_state(project_id)
+    return JSONResponse(
+        {
+            "project_id": project_id,
+            "summary": _task_center_service().summary(state),
+        }
+    )
+
+
 @app.post("/api/projects/{project_id}/tasks/claim-next")
 async def claim_next_project_task_api(project_id: str, payload: TaskClaimNextRequest) -> JSONResponse:
     """Claim the next queued task-center assignment, optionally filtered by role."""
