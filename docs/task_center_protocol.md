@@ -85,6 +85,31 @@ Endpoints:
 
 ## Payload Shape
 
+List responses include:
+
+- `ok` for CLI responses
+- `project_id`
+- `status_filter`
+- `total`
+- `summary`
+- `tasks`
+
+Summary responses include:
+
+- `ok` for CLI responses
+- `project_id`
+- `summary`
+
+Mutation responses from `claim`, `claim-next`, `complete`, and `fail` include:
+
+- `ok` for CLI responses
+- `project_id`
+- `summary`
+- `task`
+
+The mutation `summary` is computed after the state transition. Clients can use
+it to update dashboards without issuing a second summary request.
+
 Task payloads include:
 
 - `id`
