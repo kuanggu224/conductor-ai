@@ -54,6 +54,7 @@ CLI entrypoint:
 python -m app.task_center list --project-root <project-root>
 python -m app.task_center summary --project-root <project-root>
 python -m app.task_center context <assignment-id> --project-root <project-root>
+python -m app.task_center context <assignment-id> --project-root <project-root> --format markdown
 python -m app.task_center claim-next --project-root <project-root> --agent-id <agent-id> [--role <role>]
 python -m app.task_center claim-next --project-root <project-root> --agent-id <agent-id> --with-context
 python -m app.task_center claim <assignment-id> --project-root <project-root> --agent-id <agent-id>

@@ -34,6 +34,7 @@ python -m app.task_center summary --project-root <project-root>
 python -m app.task_center list --project-root <project-root>
 python -m app.task_center list --project-root <project-root> --status queued
 python -m app.task_center context <assignment-id> --project-root <project-root>
+python -m app.task_center context <assignment-id> --project-root <project-root> --format markdown
 python -m app.task_center claim-next --project-root <project-root> --agent-id <agent-id> --role backend_engineer
 python -m app.task_center claim-next --project-root <project-root> --agent-id <agent-id> --with-context
 python -m app.task_center claim <assignment-id> --project-root <project-root> --agent-id <agent-id> --with-context
@@ -44,6 +45,11 @@ python -m app.task_center fail <assignment-id> --project-root <project-root> --b
 
 Use `--state-dir` when the state directory is not under
 `<project-root>/.conductor/state`.
+
+Use `context --format markdown` when handing a claimed assignment to a CLI
+agent. The Markdown output is prompt material: it includes project goal,
+assignment metadata, WorkItem details, acceptance criteria, selected input
+artifact content, and the return protocol.
 
 ## Board API
 
@@ -132,6 +138,8 @@ artifact file path when available. Use CLI `--no-content` or API
 `execution_brief` is a compact instruction block for external workers. It
 summarizes the project, assignment, acceptance criteria, input artifacts, and
 return protocol.
+CLI `context --format markdown` renders the same payload as a human-readable
+task prompt for coding agents.
 
 Mutation responses from `claim`, `claim-next`, `complete`, and `fail` include:
 

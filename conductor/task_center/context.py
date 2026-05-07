@@ -58,6 +58,94 @@ class TaskContextBuilder:
             "output_artifacts": output_artifacts,
         }
 
+    def render_markdown(self, payload: dict[str, object]) -> str:
+        """Render a context payload as a CLI-agent friendly Markdown prompt."""
+        assignment = _dict_payload(payload.get("assignment"))
+        workitem = _dict_payload(payload.get("workitem"))
+        input_artifacts = _list_payload(payload.get("input_artifacts"))
+        output_artifacts = _list_payload(payload.get("output_artifacts"))
+        acceptance_criteria = _list_payload(workitem.get("acceptance_criteria"))
+
+        lines = [
+            "# Task Assignment Context",
+            "",
+            "## Project",
+            f"- Project ID: {payload.get('project_id', '')}",
+            f"- Goal: {payload.get('project_goal', '')}",
+            f"- Root: {payload.get('project_root', '')}",
+            "",
+            "## Assignment",
+            f"- Assignment ID: {assignment.get('id', '')}",
+            f"- Status: {assignment.get('status', '')}",
+            f"- Role: {assignment.get('role', '')}",
+            f"- Assigned Agent: {assignment.get('assigned_agent_id', '') or 'unassigned'}",
+            f"- Claimable: {assignment.get('claimable', '')}",
+            f"- Dependencies: {_join_or_none(_list_payload(assignment.get('dependencies')))}",
+            f"- Unmet Dependencies: {_join_or_none(_list_payload(assignment.get('unmet_dependency_ids')))}",
+            "",
+            "## WorkItem",
+            f"- WorkItem ID: {workitem.get('id', '')}",
+            f"- Stage: {workitem.get('stage', '')}",
+            f"- Kind: {workitem.get('kind', '')}",
+            f"- Status: {workitem.get('status', '')}",
+            "",
+            "### Description",
+            str(workitem.get("description", "") or "Not specified"),
+            "",
+            "### Acceptance Criteria",
+            *_bullet_lines(acceptance_criteria),
+            "",
+            "## Execution Brief",
+            _fenced(str(payload.get("execution_brief", "") or "")),
+            "",
+            "## Input Artifacts",
+        ]
+        lines.extend(self._artifact_markdown(input_artifacts, include_content=True))
+        lines.extend(
+            [
+                "",
+                "## Existing Output Artifacts",
+            ]
+        )
+        lines.extend(self._artifact_markdown(output_artifacts, include_content=False))
+        lines.extend(
+            [
+                "",
+                "## Return Protocol",
+                "- Return a concise result summary.",
+                "- Attach substantive output with `--output-file` or `output_artifact_content`.",
+                "- Use fail with a clear blocked reason if the task cannot be completed safely.",
+            ]
+        )
+        return "\n".join(lines).rstrip() + "\n"
+
+    def _artifact_markdown(self, artifacts: list[object], *, include_content: bool) -> list[str]:
+        if not artifacts:
+            return ["- None"]
+        lines: list[str] = []
+        for artifact_item in artifacts:
+            artifact = _dict_payload(artifact_item)
+            lines.extend(
+                [
+                    f"### {artifact.get('id', '')}",
+                    f"- Kind: {artifact.get('kind', '')}",
+                    f"- Title: {artifact.get('title', '')}",
+                    f"- WorkItem ID: {artifact.get('workitem_id', '')}",
+                    f"- Agent ID: {artifact.get('agent_id', '')}",
+                    f"- Source Backend: {artifact.get('source_backend', '')}",
+                    f"- Path: {artifact.get('path', '')}",
+                    f"- Version: {artifact.get('version', '')}",
+                ]
+            )
+            if include_content and "content" in artifact:
+                if artifact.get("content_truncated"):
+                    lines.append("- Content: truncated")
+                else:
+                    lines.append("- Content:")
+                lines.append(_fenced(str(artifact.get("content", ""))))
+            lines.append("")
+        return lines[:-1] if lines and lines[-1] == "" else lines
+
     def _execution_brief(
         self,
         state: SharedProjectState,
@@ -120,6 +208,26 @@ class _ReadOnlyStateStore:
         if self.state.project.id != project_id:
             raise KeyError(project_id)
         return self.state
+
+
+def _dict_payload(value: object) -> dict[str, object]:
+    return value if isinstance(value, dict) else {}
+
+
+def _list_payload(value: object) -> list[object]:
+    return value if isinstance(value, list) else []
+
+
+def _bullet_lines(items: list[object]) -> list[str]:
+    return [f"- {item}" for item in items] if items else ["- Not specified"]
+
+
+def _join_or_none(items: list[object]) -> str:
+    return ", ".join(str(item) for item in items) if items else "None"
+
+
+def _fenced(content: str) -> str:
+    return f"````text\n{content.rstrip()}\n````"
 
 
 __all__ = ["TaskContextBuilder"]

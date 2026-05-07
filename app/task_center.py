@@ -38,6 +38,7 @@ def build_parser() -> argparse.ArgumentParser:
     context_parser.add_argument("assignment_id")
     context_parser.add_argument("--no-content", action="store_true", help="Only print artifact metadata.")
     context_parser.add_argument("--max-content-chars", type=int, default=12000)
+    context_parser.add_argument("--format", choices=["json", "markdown"], default="json")
 
     claim_parser = subparsers.add_parser("claim", parents=[common], help="Claim one queued assignment.")
     claim_parser.add_argument("assignment_id")
@@ -92,13 +93,16 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "summary":
             payload = _summary_payload(state, service)
         elif args.command == "context":
-            payload = TaskContextBuilder().build(
+            context_builder = TaskContextBuilder()
+            payload = context_builder.build(
                 state,
                 args.assignment_id,
                 service=service,
                 include_content=not args.no_content,
                 max_content_chars=args.max_content_chars,
             )
+            if args.format == "markdown":
+                payload = context_builder.render_markdown(payload)
         elif args.command == "claim":
             result = service.claim(
                 state.project.id,
@@ -145,7 +149,10 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"ok": False, "error": str(error)}, ensure_ascii=False), file=sys.stderr)
         return 2
 
-    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    if isinstance(payload, str):
+        print(payload, end="")
+    else:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0
 
 
