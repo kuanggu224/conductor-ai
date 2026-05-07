@@ -181,6 +181,45 @@ document.querySelector('form').addEventListener('submit', event => {
     assert "Browser form interaction updated visible state: 5" in result.stdout
 
 
+def test_static_web_harness_reports_persistence_after_reload(tmp_path) -> None:
+    (tmp_path / "static").mkdir()
+    (tmp_path / "index.html").write_text(
+        """<!doctype html>
+<html>
+  <head><title>Persist</title></head>
+  <body>
+    <form><input id="title" required><button type="submit">Add</button></form>
+    <ul id="items"></ul>
+    <script src="static/app.js"></script>
+  </body>
+</html>
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "static" / "app.js").write_text(
+        """
+const items = JSON.parse(localStorage.getItem('items') || '[]');
+function render() {
+  document.querySelector('#items').innerHTML = items.map(item => `<li>${item}</li>`).join('');
+}
+document.querySelector('form').addEventListener('submit', event => {
+  event.preventDefault();
+  items.push(document.querySelector('#title').value);
+  localStorage.setItem('items', JSON.stringify(items));
+  render();
+});
+render();
+""",
+        encoding="utf-8",
+    )
+
+    result = StaticWebHarness().run(HarnessRequest(command=[], working_directory=str(tmp_path)))
+
+    assert result.success is True
+    assert "Browser localStorage changed after form submit" in result.stdout
+    assert "Browser reload preserved submitted values: sample" in result.stdout
+
+
 def test_static_web_harness_fails_missing_local_asset(tmp_path) -> None:
     (tmp_path / "index.html").write_text(
         """<!doctype html>

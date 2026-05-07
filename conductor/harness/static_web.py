@@ -56,6 +56,8 @@ class BrowserExerciseResult:
     body_changed: bool = False
     visible_values: list[str] = field(default_factory=list)
     selected_values: list[str] = field(default_factory=list)
+    local_storage_changed: bool = False
+    persisted_values: list[str] = field(default_factory=list)
     download_triggered: bool = False
 
 
@@ -232,6 +234,12 @@ class StaticWebHarness(BaseHarness):
                     report.checks.append(
                         f"Browser interaction populated selectable values: {', '.join(exercise_result.selected_values)}"
                     )
+                if exercise_result.local_storage_changed:
+                    report.checks.append("Browser localStorage changed after form submit")
+                if exercise_result.persisted_values:
+                    report.checks.append(
+                        f"Browser reload preserved submitted values: {', '.join(exercise_result.persisted_values)}"
+                    )
                 if exercise_result.download_triggered:
                     report.checks.append("Browser export/download action triggered")
             if page_errors:
@@ -272,15 +280,23 @@ class StaticWebHarness(BaseHarness):
             control.fill(value)
             submitted_values.append(value)
         before_body = page.locator("body").inner_text(timeout=5_000).strip()
+        before_storage = self._local_storage_snapshot(page)
         submit = form.locator("button[type=submit], input[type=submit], button").first
         if submit.count() > 0:
             submit.click(timeout=5_000)
             result.submitted = True
             page.wait_for_timeout(300)
         after_body = page.locator("body").inner_text(timeout=5_000).strip()
+        after_storage = self._local_storage_snapshot(page)
         result.body_changed = after_body != before_body
+        result.local_storage_changed = after_storage != before_storage
         result.visible_values = [value for value in submitted_values if self._value_visible(value, after_body)]
         result.selected_values = self._visible_select_values(page, submitted_values)
+        if result.visible_values:
+            page.reload(wait_until="domcontentloaded", timeout=10_000)
+            page.wait_for_timeout(300)
+            reloaded_body = page.locator("body").inner_text(timeout=5_000).strip()
+            result.persisted_values = [value for value in result.visible_values if self._value_visible(value, reloaded_body)]
         return result
 
     def _check_download_action(self, page, result: BrowserExerciseResult) -> None:
@@ -339,6 +355,14 @@ class StaticWebHarness(BaseHarness):
             if value and value in option_text:
                 visible.append(value)
         return visible
+
+    def _local_storage_snapshot(self, page) -> str:
+        try:
+            return page.evaluate(
+                "() => JSON.stringify(Object.fromEntries(Array.from({length: localStorage.length}, (_, i) => { const k = localStorage.key(i); return [k, localStorage.getItem(k)]; })))"
+            )
+        except Exception:
+            return ""
 
     def _start_server(self, root: Path) -> ThreadingHTTPServer:
         class QuietHandler(SimpleHTTPRequestHandler):

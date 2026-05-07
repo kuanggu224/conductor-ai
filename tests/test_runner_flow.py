@@ -6,7 +6,7 @@ from conductor.agents.agent import Agent
 from conductor.config.cli import CLISelectionConfig
 from conductor.agents.profile import build_default_agent_profiles
 from conductor.controller.lead_controller import LeadController
-from conductor.domain.models import Capability, ExecutionStatus, WorkItem, WorkItemStatus
+from conductor.domain.models import Artifact, Capability, ExecutionStatus, WorkItem, WorkItemStatus
 from conductor.harness.base import BaseHarness
 from conductor.harness.models import HarnessRequest, HarnessResult
 from conductor.execution.runner import Runner
@@ -24,6 +24,25 @@ class FakeSuccessHarness(BaseHarness):
             stdout="3 passed",
             stderr="",
             duration_ms=12,
+        )
+
+
+class FakePartialStaticValidationHarness(BaseHarness):
+    name = "static_web"
+
+    def run(self, request: HarnessRequest) -> HarnessResult:
+        return HarnessResult(
+            success=True,
+            exit_code=0,
+            stdout="\n".join(
+                [
+                    "Static Web Validation: PASS",
+                    "Browser form interaction updated visible state: sample",
+                    "Browser export/download action triggered",
+                ]
+            ),
+            stderr="",
+            duration_ms=15,
         )
 
 
@@ -347,6 +366,66 @@ def test_runner_uses_shell_harness_for_tester_workitems() -> None:
     assert latest.artifacts[0].source_backend == "cli/shell"
     assert "测试执行报告" in latest.artifacts[0].content
     assert "Exit Code: `0`" in latest.artifacts[0].content
+
+
+def test_runner_blocks_validation_when_frozen_requirement_coverage_is_missing(tmp_path) -> None:
+    (tmp_path / "index.html").write_text("<!doctype html><title>App</title>", encoding="utf-8")
+    state_store = InMemoryStateStore()
+    runner = Runner(
+        state_store,
+        shell_harness=FakePartialStaticValidationHarness(),
+        enable_tester_harness=True,
+    )
+    controller = LeadController(
+        workflow_template=WorkflowTemplate(),
+        state_store=state_store,
+        runner=runner,
+    )
+    state = controller.initialize_project(
+        "\u7528\u6237\u53ef\u4ee5\u6dfb\u52a0\u4e66\u7c4d\uff0c"
+        "\u5237\u65b0\u540e\u4fdd\u7559\u6570\u636e\uff0c"
+        "\u5e76\u5bfc\u51fa CSV\u3002"
+    )
+    state.project.project_root = str(tmp_path)
+    test_workitem = WorkItem(
+        id="workitem-coverage",
+        description="\u9a8c\u6536\u9759\u6001 Web \u4ea4\u4ed8\u7269",
+        stage="testing",
+        kind="acceptance_check",
+    )
+    state.workitems = [test_workitem]
+    state.artifacts = [
+        Artifact(
+            id="artifact-frozen",
+            project_id=state.project.id,
+            workitem_id="workitem-requirement",
+            agent_id="agent-designer",
+            kind="frozen_requirement_spec",
+            title="Frozen Requirement",
+            content=state.project.goal,
+        )
+    ]
+    state_store.save_state(state)
+    tester_profile = next(profile for profile in build_default_agent_profiles() if profile.role_name == "tester")
+    agent = Agent(
+        id="agent-tester",
+        role="tester",
+        profile=tester_profile,
+        capabilities=[Capability.TESTING],
+        backend="mock",
+        execution_backend="cli",
+    )
+
+    execution = runner.run(project_id=state.project.id, workitem=test_workitem, agent=agent)
+    latest = state_store.get_state(state.project.id)
+
+    assert execution.status == ExecutionStatus.FAILED
+    assert execution.failure_type == "validation_failed"
+    assert execution.failure_summary == "Requirement coverage missing: refresh persistence"
+    assert latest.workitems[0].status == WorkItemStatus.FAILED
+    assert "Requirement Coverage" in latest.artifacts[-1].content
+    assert "Status: `missing_coverage`" in latest.artifacts[-1].content
+    assert "refresh persistence" in latest.artifacts[-1].content
 
 
 def test_tester_validation_prefers_shell_harness_even_when_bound_to_agent_cli(monkeypatch) -> None:

@@ -25,6 +25,7 @@ from conductor.harness.llm import LLMHarnessRequest, OpenAICompatibleLLMHarness
 from conductor.harness.models import HarnessRequest, HarnessResult
 from conductor.harness.shell import ShellHarness
 from conductor.io.encoding import looks_like_mojibake
+from conductor.testing.coverage import CoverageResult, evaluate_requirement_coverage
 from conductor.execution.runtime_stream import RuntimeStreamStore
 from conductor.execution.failure_policy import (
     FailureDecision,
@@ -209,16 +210,25 @@ class Runner:
             try:
                 harness_result = self.shell_harness.run(request)
                 no_tests_discovered = self._is_no_tests_discovered(harness_result)
+                coverage_result = self._evaluate_requirement_coverage(project_id, harness_result)
                 if no_tests_discovered:
                     self.state_store.add_event(
                         project_id,
                         f"WorkItem {workitem.id} 未发现测试文件，记录为待补测试报告并继续推进。",
                     )
                 return WorkItemRunResult(
-                    content=self._build_harness_report(workitem, agent, request, harness_result),
+                    content=self._build_harness_report(workitem, agent, request, harness_result, coverage_result=coverage_result),
                     source_backend=f"cli/{self.shell_harness.name}",
-                    succeeded=harness_result.success or no_tests_discovered,
-                    failure=None if harness_result.success or no_tests_discovered else classify_harness_failure(harness_result),
+                    succeeded=(harness_result.success or no_tests_discovered) and coverage_result.passed,
+                    failure=(
+                        None
+                        if (harness_result.success or no_tests_discovered) and coverage_result.passed
+                        else (
+                            FailureDecision(FailureType.VALIDATION_FAILED, True, coverage_result.summary())
+                            if not coverage_result.passed
+                            else classify_harness_failure(harness_result)
+                        )
+                    ),
                 )
             except Exception as error:
                 self.state_store.add_event(project_id, f"WorkItem {workitem.id} Harness 执行失败，使用 mock fallback: {error}")
@@ -316,16 +326,25 @@ class Runner:
             try:
                 harness_result = self.shell_harness.run(request)
                 no_tests_discovered = self._is_no_tests_discovered(harness_result)
+                coverage_result = self._evaluate_requirement_coverage(project_id, harness_result)
                 if no_tests_discovered:
                     self.state_store.add_event(
                         project_id,
                         f"WorkItem {workitem.id} 未发现测试文件，记录为待补测试报告并继续推进。",
                     )
                 return WorkItemRunResult(
-                    content=self._build_harness_report(workitem, agent, request, harness_result),
+                    content=self._build_harness_report(workitem, agent, request, harness_result, coverage_result=coverage_result),
                     source_backend=f"cli/{self.shell_harness.name}",
-                    succeeded=harness_result.success or no_tests_discovered,
-                    failure=None if harness_result.success or no_tests_discovered else classify_harness_failure(harness_result),
+                    succeeded=(harness_result.success or no_tests_discovered) and coverage_result.passed,
+                    failure=(
+                        None
+                        if (harness_result.success or no_tests_discovered) and coverage_result.passed
+                        else (
+                            FailureDecision(FailureType.VALIDATION_FAILED, True, coverage_result.summary())
+                            if not coverage_result.passed
+                            else classify_harness_failure(harness_result)
+                        )
+                    ),
                 )
             except Exception as error:
                 self.state_store.add_event(project_id, f"WorkItem {workitem.id} Harness 执行失败，使用 mock fallback: {error}")
@@ -1544,6 +1563,16 @@ class Runner:
         )
         return evaluate_scope_contract(frozen_requirement, candidate_content)
 
+    def _evaluate_requirement_coverage(self, project_id: str, result: HarnessResult) -> CoverageResult:
+        """Validate harness evidence against the latest frozen requirement."""
+        state = self.state_store.get_state(project_id)
+        frozen_requirement = next(
+            (artifact for artifact in reversed(state.artifacts) if artifact.kind == "frozen_requirement_spec"),
+            None,
+        )
+        output = f"{result.stdout or ''}\n{result.stderr or ''}"
+        return evaluate_requirement_coverage(frozen_requirement, output)
+
     def _build_harness_request(self, workitem: WorkItem, working_directory: str, stream_callback=None) -> HarnessRequest:
         """Build tester harness request."""
         return HarnessRequest(
@@ -1701,6 +1730,7 @@ class Runner:
         agent: Agent,
         request: HarnessRequest,
         result: HarnessResult,
+        coverage_result: CoverageResult | None = None,
     ) -> str:
         """Convert a harness result into a Markdown report."""
         no_tests_discovered = self._is_no_tests_discovered(result)
@@ -1709,6 +1739,7 @@ class Runner:
         stdout = (result.stdout or "").strip() or "(无 stdout)"
         stderr = (result.stderr or "").strip() or "(无 stderr)"
         command = " ".join(request.command)
+        coverage_section = f"{coverage_result.render_markdown()}\n" if coverage_result else ""
         return (
             f"# 测试执行报告 - {workitem.id}\n\n"
             "## 目标\n"
@@ -1725,6 +1756,7 @@ class Runner:
             f"- 阶段：{workitem.stage}\n\n"
             f"## stdout\n```text\n{stdout}\n```\n\n"
             f"## stderr\n```text\n{stderr}\n```\n\n"
+            f"{coverage_section}"
             "## 结论\n"
             f"- 当前测试执行{status_label}。\n"
             f"{no_tests_note}"
