@@ -27,6 +27,8 @@ def test_platform_diagnostics_marks_ready_bindings(monkeypatch, tmp_path) -> Non
     assert diagnostics.available_cli_names == ["codex"]
     assert diagnostics.role_bindings[0].status == "ready"
     assert diagnostics.to_dict()["project_root"] == str(tmp_path.resolve())
+    assert diagnostics.encoding.preferred_encoding
+    assert "encoding" in diagnostics.to_dict()
 
 
 def test_platform_diagnostics_warns_for_missing_or_unselected_cli(monkeypatch) -> None:
@@ -87,6 +89,7 @@ def test_platform_diagnostics_reports_llm_backend_config_without_probe(monkeypat
     assert cloud.api_key_present is True
     assert cloud.server_status == "not_checked"
     assert "preferred=" in cloud.encoding
+    assert "stdout=" in cloud.encoding
 
 
 def test_platform_diagnostics_can_probe_llm_models_and_preflight(monkeypatch, tmp_path) -> None:

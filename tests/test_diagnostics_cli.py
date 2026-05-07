@@ -25,6 +25,8 @@ def test_diagnostics_cli_prints_platform_snapshot(monkeypatch, tmp_path, capsys)
     assert exit_code in {0, 2}
     assert payload["project_root"] == str(tmp_path.resolve())
     assert "config_paths" in payload
+    assert "encoding" in payload
+    assert "stdout_encoding" in payload["encoding"]
     assert "available_cli_names" in payload
     assert "llm_backends" in payload
     assert payload["llm_backends"][0]["server_status"] == "not_checked"

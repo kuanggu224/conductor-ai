@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import locale
+import os
+import sys
 import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass, field
@@ -49,6 +51,19 @@ class LLMBackendDiagnostic:
 
 
 @dataclass(slots=True)
+class EncodingDiagnostic:
+    """Runtime encoding information useful for Windows/Linux troubleshooting."""
+
+    preferred_encoding: str
+    filesystem_encoding: str
+    stdout_encoding: str
+    stderr_encoding: str
+    python_utf8_mode: int
+    pythonioencoding_env: str
+    pythonutf8_env: str
+
+
+@dataclass(slots=True)
 class PlatformDiagnostics:
     """Serializable platform health snapshot."""
 
@@ -57,6 +72,7 @@ class PlatformDiagnostics:
     config_paths: dict[str, str]
     selected_cli_names: list[str]
     available_cli_names: list[str]
+    encoding: EncodingDiagnostic
     role_bindings: list[RoleBindingDiagnostic] = field(default_factory=list)
     llm_backends: list[LLMBackendDiagnostic] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
@@ -112,6 +128,7 @@ def build_platform_diagnostics(
         },
         selected_cli_names=selected_cli_names,
         available_cli_names=available_cli_names,
+        encoding=_runtime_encoding_diagnostic(),
         role_bindings=role_bindings,
         llm_backends=llm_backends,
         warnings=warnings,
@@ -227,8 +244,24 @@ def _build_warnings(
 
 
 def _runtime_encoding_summary() -> str:
-    preferred = locale.getpreferredencoding(False)
-    return f"preferred={preferred}"
+    diagnostic = _runtime_encoding_diagnostic()
+    return (
+        f"preferred={diagnostic.preferred_encoding}, "
+        f"stdout={diagnostic.stdout_encoding}, "
+        f"utf8_mode={diagnostic.python_utf8_mode}"
+    )
+
+
+def _runtime_encoding_diagnostic() -> EncodingDiagnostic:
+    return EncodingDiagnostic(
+        preferred_encoding=locale.getpreferredencoding(False),
+        filesystem_encoding=sys.getfilesystemencoding(),
+        stdout_encoding=getattr(sys.stdout, "encoding", "") or "",
+        stderr_encoding=getattr(sys.stderr, "encoding", "") or "",
+        python_utf8_mode=int(sys.flags.utf8_mode),
+        pythonioencoding_env=os.environ.get("PYTHONIOENCODING", ""),
+        pythonutf8_env=os.environ.get("PYTHONUTF8", ""),
+    )
 
 
 def _probe_openai_models(
@@ -293,6 +326,7 @@ def _extract_context_length(payload: object, selected_model: str) -> int | None:
 
 __all__ = [
     "LLMBackendDiagnostic",
+    "EncodingDiagnostic",
     "PlatformDiagnostics",
     "RoleBindingDiagnostic",
     "build_platform_diagnostics",
