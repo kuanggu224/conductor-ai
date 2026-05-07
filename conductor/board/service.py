@@ -19,6 +19,7 @@ from conductor.board.models import (
 from conductor.domain.models import SharedProjectState
 from conductor.config.cli import CLISelectionConfig
 from conductor.config.llm import LLMRuntimeConfig
+from conductor.task_center.service import TaskCenterService
 
 STAGE_LABELS = {
     "requirement": "需求",
@@ -148,6 +149,18 @@ def label_role(value: str) -> str:
     return ROLE_LABELS.get(value, AGENT_LABELS.get(value, value))
 
 
+class _BoardStateStore:
+    """Read-only adapter for Board task-center readiness calculations."""
+
+    def __init__(self, state: SharedProjectState) -> None:
+        self.state = state
+
+    def get_state(self, project_id: str) -> SharedProjectState:
+        if self.state.project.id != project_id:
+            raise KeyError(project_id)
+        return self.state
+
+
 class BoardService:
     """把内部 SharedProjectState 转换成 BoardSnapshot。"""
 
@@ -167,6 +180,7 @@ class BoardService:
             if artifact.kind in {"api_implementation", "data_implementation", "generic_implementation", "ui_implementation"}
             and artifact.source_backend.startswith("agent_cli/")
         ]
+        task_center = TaskCenterService(_BoardStateStore(state))
         return BoardSnapshot(
             project_id=state.project.id,
             project_goal=state.project.goal,
@@ -226,6 +240,8 @@ class BoardService:
                     status_label=TASK_ASSIGNMENT_STATUS_LABELS.get(assignment.status.value, assignment.status.value),
                     assigned_agent_id=assignment.assigned_agent_id or "-",
                     assigned_agent_label=AGENT_LABELS.get(assignment.assigned_agent_id or "-", assignment.assigned_agent_id or "-"),
+                    claimable=task_center.claimable(state, assignment),
+                    unmet_dependency_ids=task_center.unmet_dependency_ids(state, assignment),
                     dependencies=assignment.dependencies,
                     input_artifact_ids=assignment.input_artifact_ids,
                     output_artifact_ids=assignment.output_artifact_ids,

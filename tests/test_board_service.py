@@ -5,7 +5,7 @@ from conductor.collaboration.models import Collaboration, CollaborationStatus
 from conductor.config.cli import CLISelectionConfig
 from conductor.config.llm import LLMHTTPConfig, LLMRuntimeConfig, LLMUsagePolicy
 from conductor.controller.lead_controller import LeadController
-from conductor.domain.models import Artifact, Project, ProjectStatus, SharedProjectState, WorkItem
+from conductor.domain.models import Artifact, Project, ProjectStatus, SharedProjectState, TaskAssignment, WorkItem
 from conductor.execution.runner import Runner
 from conductor.state.store import InMemoryStateStore
 from conductor.workflow.template import WorkflowTemplate
@@ -56,6 +56,9 @@ def test_board_service_builds_snapshot_from_state() -> None:
     assert snapshot.execution_runtime.task_position_label
     assert snapshot.execution_runtime.output_summary
     assert snapshot.execution_runtime.working_directory
+    assert snapshot.task_assignments
+    assert snapshot.task_assignments[0].claimable in {True, False}
+    assert isinstance(snapshot.task_assignments[0].unmet_dependency_ids, list)
 
 
 def test_board_service_extracts_code_execution_reports() -> None:
@@ -134,3 +137,33 @@ def test_board_service_exposes_requirement_team_plan() -> None:
 
     assert snapshot.design_collaboration.team_plan["complexity_level"] == "complex"
     assert snapshot.design_collaboration.team_plan["peer_seats"][0]["seat_id"] == "designer.interaction"
+
+
+def test_board_service_exposes_task_center_readiness() -> None:
+    state = SharedProjectState(
+        project=Project(id="project-task-center", goal="task center readiness", current_stage="development"),
+        project_status=ProjectStatus.IN_PROGRESS,
+        current_stage="development",
+        workitems=[
+            WorkItem(id="workitem-dependency", description="Dependency", stage="development"),
+            WorkItem(
+                id="workitem-blocked",
+                description="Blocked",
+                stage="development",
+                dependencies=["workitem-dependency"],
+            ),
+        ],
+        task_assignments=[
+            TaskAssignment(
+                id="assignment-blocked",
+                workitem_id="workitem-blocked",
+                role="backend_engineer",
+                dependencies=["workitem-dependency"],
+            )
+        ],
+    )
+
+    snapshot = BoardService().build_snapshot(state)
+
+    assert snapshot.task_assignments[0].claimable is False
+    assert snapshot.task_assignments[0].unmet_dependency_ids == ["workitem-dependency"]
