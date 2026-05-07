@@ -47,6 +47,7 @@ class RunManifest:
     task_assignments: list[dict[str, object]]
     artifacts: list[dict[str, object]]
     artifact_files: list[str]
+    task_prompt_files: list[str]
     files: dict[str, object]
     log_path: str
     report_path: str
@@ -72,6 +73,8 @@ class RunManifestWriter:
         requirement_evaluations = self._requirement_evaluations(state)
         requirement_coverage_results = self._requirement_coverage_results(state)
         task_center = TaskCenterService(_ManifestStateStore(state))
+        artifact_files = [artifact.path or "" for artifact in state.artifacts if artifact.path]
+        task_prompt_files = self._dedupe([assignment.prompt_file for assignment in state.task_assignments])
         platform_diagnostics = build_platform_diagnostics(
             cli_config=cli_config,
             project_root=state.project.project_root or Path.cwd(),
@@ -79,7 +82,7 @@ class RunManifestWriter:
             probe_llm=False,
         ).to_dict()
         manifest = RunManifest(
-            schema_version="1.11",
+            schema_version="1.12",
             run_id=f"{state.project.id}:{generated_at}",
             project_id=state.project.id,
             generated_at=generated_at,
@@ -164,12 +167,14 @@ class RunManifestWriter:
                 }
                 for artifact in state.artifacts
             ],
-            artifact_files=[artifact.path or "" for artifact in state.artifacts if artifact.path],
+            artifact_files=artifact_files,
+            task_prompt_files=task_prompt_files,
             files={
                 "log": log_path,
                 "report": report_path_text,
                 "manifest": str(path),
-                "artifacts": [artifact.path or "" for artifact in state.artifacts if artifact.path],
+                "artifacts": artifact_files,
+                "task_prompts": task_prompt_files,
             },
             log_path=log_path,
             report_path=report_path_text,

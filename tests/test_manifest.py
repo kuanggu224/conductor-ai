@@ -1,6 +1,7 @@
 """Run manifest tests."""
 
 import json
+from dataclasses import replace
 
 from conductor.config.cli import CLISelectionConfig
 from conductor.config.execution import RunProfile
@@ -21,7 +22,7 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     manifest_path = engine.write_run_manifest(state.project.id, report_path)
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-    assert payload["schema_version"] == "1.11"
+    assert payload["schema_version"] == "1.12"
     assert payload["run_id"].startswith(state.project.id)
     assert payload["project_id"] == state.project.id
     assert payload["run_profile"] == "mock"
@@ -61,8 +62,11 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     assert "unmet_dependency_ids" in payload["task_assignments"][0]
     assert isinstance(payload["task_assignments"][0]["unmet_dependency_ids"], list)
     assert payload["artifact_files"]
+    assert "task_prompt_files" in payload
+    assert isinstance(payload["task_prompt_files"], list)
     assert payload["files"]["log"].endswith(f"{state.project.id}.jsonl")
     assert payload["files"]["report"] == str(report_path)
+    assert "task_prompts" in payload["files"]
     assert payload["summary"]["execution_count"] == len(state.executions)
     assert "requirement_quality_score" in payload["summary"]
     assert "requirement_coverage_status" in payload["summary"]
@@ -75,9 +79,28 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     assert payload["log_path"].endswith(f"{state.project.id}.jsonl")
 
 
-def test_manifest_records_requirement_coverage_results(tmp_path) -> None:
-    from dataclasses import replace
+def test_manifest_indexes_task_prompt_files(tmp_path) -> None:
+    engine = ConductorEngine(
+        log_dir=tmp_path / "logs",
+        artifact_dir=tmp_path / "artifacts",
+        cli_selection_config=CLISelectionConfig(),
+        run_profile=RunProfile.MOCK,
+    )
+    state = engine.create_project("Build a local reading list", project_root=str(tmp_path / "project"))
+    prompt_file = str(tmp_path / "project" / ".conductor" / "task_center" / "prompts" / "next-task.md")
+    assignment = replace(state.task_assignments[0], prompt_file=prompt_file)
+    state = engine.state_store.upsert_task_assignment(state.project.id, assignment)
+    report_path = engine.write_project_report(state.project.id)
 
+    manifest_path = engine.write_run_manifest(state.project.id, report_path)
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert payload["task_assignments"][0]["prompt_file"] == prompt_file
+    assert payload["task_prompt_files"] == [prompt_file]
+    assert payload["files"]["task_prompts"] == [prompt_file]
+
+
+def test_manifest_records_requirement_coverage_results(tmp_path) -> None:
     from conductor.domain.models import Artifact, Execution, ExecutionStatus, WorkItem
 
     engine = ConductorEngine(
