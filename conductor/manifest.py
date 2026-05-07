@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
+import platform
+import sys
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -35,6 +38,7 @@ class RunManifest:
     selected_cli_names: list[str]
     role_cli_bindings: dict[str, str | None]
     summary: dict[str, object]
+    run_environment: dict[str, object]
     platform_diagnostics: dict[str, object]
     agents: list[dict[str, object]]
     executions: list[dict[str, object]]
@@ -82,7 +86,7 @@ class RunManifestWriter:
             probe_llm=False,
         ).to_dict()
         manifest = RunManifest(
-            schema_version="1.13",
+            schema_version="1.14",
             run_id=f"{state.project.id}:{generated_at}",
             project_id=state.project.id,
             generated_at=generated_at,
@@ -109,6 +113,7 @@ class RunManifestWriter:
                 "requirement_coverage_status": self._requirement_coverage_status(requirement_coverage_results),
                 "task_center_summary": task_center.summary(state),
             },
+            run_environment=self._run_environment_snapshot(),
             platform_diagnostics=platform_diagnostics,
             agents=[self._agent_record(state, activation, cli_config) for activation in state.agent_activations],
             executions=executions,
@@ -183,6 +188,34 @@ class RunManifestWriter:
         )
         path.write_text(json.dumps(asdict(manifest), ensure_ascii=False, indent=2), encoding="utf-8")
         return path
+
+    def _run_environment_snapshot(self) -> dict[str, object]:
+        """Return a non-secret runtime snapshot for replay and audit."""
+        safe_env_keys = [
+            "PYTHONUTF8",
+            "PYTHONIOENCODING",
+            "LANG",
+            "LC_ALL",
+            "VIRTUAL_ENV",
+            "CONDA_PREFIX",
+            "UV_PROJECT_ENVIRONMENT",
+            "COMSPEC",
+            "SHELL",
+        ]
+        environment = {key: os.environ.get(key, "") for key in safe_env_keys if os.environ.get(key)}
+        path_value = os.environ.get("PATH", "")
+        return {
+            "python_executable": sys.executable,
+            "python_version": platform.python_version(),
+            "implementation": platform.python_implementation(),
+            "platform": platform.platform(),
+            "system": platform.system(),
+            "machine": platform.machine(),
+            "process_cwd": str(Path.cwd()),
+            "command_argv": list(sys.argv),
+            "path_entries_count": len([entry for entry in path_value.split(os.pathsep) if entry]),
+            "environment": environment,
+        }
 
     def _requirement_evaluations(self, state: SharedProjectState) -> list[dict[str, object]]:
         """Evaluate requirement-stage artifacts and embed quality scores in the manifest."""

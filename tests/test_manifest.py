@@ -24,7 +24,7 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     manifest_path = engine.write_run_manifest(state.project.id, report_path)
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-    assert payload["schema_version"] == "1.13"
+    assert payload["schema_version"] == "1.14"
     assert payload["run_id"].startswith(state.project.id)
     assert payload["project_id"] == state.project.id
     assert payload["run_profile"] == "mock"
@@ -77,6 +77,11 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     assert payload["summary"]["task_center_summary"]["total"] == len(state.task_assignments)
     assert "claimable" in payload["summary"]["task_center_summary"]
     assert "blocked_by_dependencies" in payload["summary"]["task_center_summary"]
+    assert payload["run_environment"]["python_executable"]
+    assert payload["run_environment"]["python_version"]
+    assert payload["run_environment"]["process_cwd"]
+    assert isinstance(payload["run_environment"]["command_argv"], list)
+    assert "PATH" not in payload["run_environment"]["environment"]
     assert payload["platform_diagnostics"]["project_root"] == state.project.project_root
     assert payload["platform_diagnostics"]["llm_backends"][0]["server_status"] == "not_checked"
     assert "config_paths" in payload["platform_diagnostics"]

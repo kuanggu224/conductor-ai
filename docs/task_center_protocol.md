@@ -255,7 +255,7 @@ Summary payloads include:
 
 ## Audit Outputs
 
-Run Manifest schema `1.13` records:
+Run Manifest schema `1.14` records:
 
 - `task_assignments[].claimable`
 - `task_assignments[].unmet_dependency_ids`
@@ -267,6 +267,7 @@ Run Manifest schema `1.13` records:
 - `task_prompt_files`
 - `files.task_prompts`
 - `summary.task_center_summary`
+- `run_environment`
 - `platform_diagnostics`
 - `executions[].input_artifact_ids`
 
