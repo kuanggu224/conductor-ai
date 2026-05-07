@@ -125,6 +125,7 @@ class TaskClaimRequest(BaseModel):
     include_context: StrictBool = False
     include_context_content: StrictBool = True
     max_context_content_chars: int = 12000
+    context_format: str = "json"
 
 
 class TaskClaimNextRequest(TaskClaimRequest):
@@ -666,13 +667,20 @@ def _task_claim_response_payload(
         "task": _task_assignment_payload(assignment, state),
     }
     if payload.include_context:
-        response["context"] = TaskContextBuilder(engine.artifact_store).build(
+        if payload.context_format not in {"json", "markdown"}:
+            raise HTTPException(status_code=422, detail="context_format must be 'json' or 'markdown'")
+        context_builder = TaskContextBuilder(engine.artifact_store)
+        context = context_builder.build(
             state,
             assignment.id,
             service=_task_center_service(),
             include_content=payload.include_context_content,
             max_content_chars=payload.max_context_content_chars,
         )
+        if payload.context_format == "markdown":
+            response["context_markdown"] = context_builder.render_markdown(context)
+        else:
+            response["context"] = context
     return response
 
 

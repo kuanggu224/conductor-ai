@@ -380,6 +380,43 @@ def test_project_task_claim_api_can_include_context() -> None:
     assert "content" in payload["context"]["input_artifacts"][0]
 
 
+def test_project_task_claim_api_can_include_context_markdown() -> None:
+    client = TestClient(board.app)
+    state = board.engine.create_project(requirement="Build a local reading list with CSV export", project_root="")
+    artifact = board.engine.artifact_store.save_markdown(
+        Artifact(
+            id="artifact-claim-context-markdown",
+            project_id=state.project.id,
+            workitem_id="workitem-upstream",
+            agent_id="agent-designer",
+            kind="frozen_requirement_spec",
+            title="Frozen Requirement",
+            content="Acceptance: add book, persist refresh, export CSV.",
+        ),
+        project_root=state.project.project_root,
+    )
+    state = board.engine.state_store.add_artifact(state.project.id, artifact)
+    assignment = replace(state.task_assignments[0], input_artifact_ids=[artifact.id])
+    board.engine.state_store.upsert_task_assignment(state.project.id, assignment)
+
+    response = client.post(
+        f"/api/projects/{state.project.id}/tasks/{assignment.id}/claim",
+        json={
+            "agent_id": "agent-api-worker",
+            "include_context": True,
+            "context_format": "markdown",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["task"]["status"] == "claimed"
+    assert "context" not in payload
+    assert payload["context_markdown"].startswith("# Task Assignment Context")
+    assert "artifact-claim-context-markdown" in payload["context_markdown"]
+    assert f'python -m app.task_center complete "{assignment.id}"' in payload["context_markdown"]
+
+
 def test_project_task_claim_rejects_non_queued_assignment() -> None:
     client = TestClient(board.app)
     state = board.engine.create_project(requirement="Build a local reading list", project_root="")
@@ -418,6 +455,43 @@ def test_project_task_claim_next_selects_available_role_task() -> None:
     assert task["assigned_agent_id"] == "agent-api-worker"
     assert task["claim_reason"] == "api worker"
     assert task["workitem"]["status"] == "running"
+
+
+def test_project_task_claim_next_can_include_context_markdown() -> None:
+    client = TestClient(board.app)
+    state = board.engine.create_project(requirement="Build a local reading list with CSV export", project_root="")
+    artifact = board.engine.artifact_store.save_markdown(
+        Artifact(
+            id="artifact-claim-next-context-markdown",
+            project_id=state.project.id,
+            workitem_id="workitem-upstream",
+            agent_id="agent-designer",
+            kind="frozen_requirement_spec",
+            title="Frozen Requirement",
+            content="Acceptance: add book, persist refresh, export CSV.",
+        ),
+        project_root=state.project.project_root,
+    )
+    state = board.engine.state_store.add_artifact(state.project.id, artifact)
+    assignment = replace(state.task_assignments[0], input_artifact_ids=[artifact.id])
+    board.engine.state_store.upsert_task_assignment(state.project.id, assignment)
+
+    response = client.post(
+        f"/api/projects/{state.project.id}/tasks/claim-next",
+        json={
+            "agent_id": "agent-api-worker",
+            "include_context": True,
+            "context_format": "markdown",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["task"]["status"] == "claimed"
+    assert "context" not in payload
+    assert payload["context_markdown"].startswith("# Task Assignment Context")
+    assert "artifact-claim-next-context-markdown" in payload["context_markdown"]
+    assert f'python -m app.task_center complete "{assignment.id}"' in payload["context_markdown"]
 
 
 def test_project_task_claim_next_returns_404_when_no_role_task() -> None:

@@ -86,7 +86,8 @@ Endpoints:
   "claim_reason": "external worker",
   "include_context": true,
   "include_context_content": true,
-  "max_context_content_chars": 12000
+  "max_context_content_chars": 12000,
+  "context_format": "json"
 }
 ```
 
@@ -165,6 +166,9 @@ Mutation responses from `claim`, `claim-next`, `complete`, and `fail` include:
 When `--with-context` or `include_context=true` is used on claim operations,
 the response also includes `context`, with the same shape as the standalone
 context endpoint.
+When API claim operations set `context_format=markdown`, the response includes
+`context_markdown` instead of `context`, while still returning `summary` and
+`task`.
 For CLI claim operations, `--context-format markdown` prints the rendered
 Markdown prompt instead of the JSON mutation payload.
 
