@@ -146,6 +146,9 @@ def test_task_center_cli_prints_assignment_context_with_input_artifacts(tmp_path
     assert "Return Protocol" in payload["execution_brief"]
     assert payload["input_artifacts"]
     assert "content" in payload["input_artifacts"][0]
+    assert "parent_artifact_id" in payload["input_artifacts"][0]
+    assert "derived_from" in payload["input_artifacts"][0]
+    assert "review_of" in payload["input_artifacts"][0]
 
 
 def test_task_center_cli_prints_assignment_context_as_markdown(tmp_path, capsys) -> None:
@@ -182,6 +185,9 @@ def test_task_center_cli_prints_assignment_context_as_markdown(tmp_path, capsys)
     assert "## Input Artifacts" in output
     assert "artifact-context" in output
     assert "Acceptance: add book, persist refresh, export CSV." in output
+    assert "- Parent Artifact ID:" in output
+    assert "- Review Of:" in output
+    assert "- Derived From:" in output
     assert "## CLI Return Commands" in output
     assert f'python -m app.task_center complete "{assignment.id}"' in output
     assert f'python -m app.task_center release "{assignment.id}"' in output

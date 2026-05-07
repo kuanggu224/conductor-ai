@@ -139,6 +139,9 @@ class TaskContextBuilder:
                     f"- Source Backend: {artifact.get('source_backend', '')}",
                     f"- Path: {artifact.get('path', '')}",
                     f"- Version: {artifact.get('version', '')}",
+                    f"- Parent Artifact ID: {artifact.get('parent_artifact_id', '') or '-'}",
+                    f"- Review Of: {artifact.get('review_of', '') or '-'}",
+                    f"- Derived From: {_join_or_none(_list_payload(artifact.get('derived_from')))}",
                 ]
             )
             if include_content and "content" in artifact:
@@ -193,6 +196,9 @@ class TaskContextBuilder:
             "source_backend": artifact.source_backend,
             "path": artifact.path or "",
             "version": artifact.version,
+            "parent_artifact_id": artifact.parent_artifact_id or "",
+            "derived_from": list(artifact.derived_from),
+            "review_of": artifact.review_of or "",
         }
         if include_content:
             content = self.artifact_store.read_content(artifact)

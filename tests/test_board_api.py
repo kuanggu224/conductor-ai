@@ -419,6 +419,9 @@ def test_project_task_context_api_returns_input_artifact_content() -> None:
     assert "Return Protocol" in payload["execution_brief"]
     assert payload["input_artifacts"]
     assert "content" in payload["input_artifacts"][0]
+    assert "parent_artifact_id" in payload["input_artifacts"][0]
+    assert "derived_from" in payload["input_artifacts"][0]
+    assert "review_of" in payload["input_artifacts"][0]
 
 
 def test_project_task_context_api_can_return_markdown_prompt() -> None:
@@ -450,6 +453,9 @@ def test_project_task_context_api_can_return_markdown_prompt() -> None:
     assert response.text.startswith("# Task Assignment Context")
     assert "artifact-context-markdown" in response.text
     assert "Acceptance: add book, persist refresh, export CSV." in response.text
+    assert "- Parent Artifact ID:" in response.text
+    assert "- Review Of:" in response.text
+    assert "- Derived From:" in response.text
     assert "## CLI Return Commands" in response.text
     assert f'python -m app.task_center complete "{assignment.id}"' in response.text
     assert f'python -m app.task_center release "{assignment.id}"' in response.text
