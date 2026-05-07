@@ -538,6 +538,9 @@ GET /projects/{project_id}/runtime/stream
 - `POST /api/projects/{project_id}/tasks/{assignment_id}/claim`
 - `POST /api/projects/{project_id}/tasks/{assignment_id}/complete`
 - `POST /api/projects/{project_id}/tasks/{assignment_id}/fail`
+- `POST /api/projects/{project_id}/tasks/{assignment_id}/heartbeat`
+- `POST /api/projects/{project_id}/tasks/{assignment_id}/release`
+- `POST /api/projects/{project_id}/tasks/release-stale`
 - `GET /api/settings/execution`
 - `POST /api/settings/execution`
 - `GET /api/settings/cli`

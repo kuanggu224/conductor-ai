@@ -189,6 +189,7 @@ def test_task_center_service_release_requeues_claimed_assignment() -> None:
     assert transition.assignment.assigned_agent_id is None
     assert transition.assignment.claim_reason == "worker interrupted"
     assert transition.assignment.claimed_at == ""
+    assert transition.assignment.last_heartbeat_at == ""
     assert transition.assignment.returned_at == ""
     assert transition.assignment.prompt_file == ""
     assert transition.state.workitems[0].status == WorkItemStatus.PENDING
@@ -221,6 +222,89 @@ def test_task_center_service_counts_stale_claimed_assignments() -> None:
     assert service.claimed_age_seconds(assignment, now=now) == 7200
     assert service.stale_claimed(assignment, stale_after_seconds=3600, now=now) is True
     assert service.summary(state, stale_after_seconds=3600, now=now)["stale_claimed"] == 1
+
+
+def test_task_center_service_heartbeat_refreshes_stale_activity() -> None:
+    store = InMemoryStateStore()
+    state = SharedProjectState(
+        project=Project(id="project-service", goal="Build a local tool"),
+        project_status=ProjectStatus.INITIALIZED,
+        current_stage="development",
+        workitems=[
+            WorkItem(
+                id="workitem-open",
+                description="Open task",
+                stage="development",
+                status=WorkItemStatus.RUNNING,
+                owner_agent="agent-backend",
+            )
+        ],
+        task_assignments=[
+            TaskAssignment(
+                id="assignment-open",
+                workitem_id="workitem-open",
+                role="backend_engineer",
+                status=TaskAssignmentStatus.CLAIMED,
+                assigned_agent_id="agent-backend",
+                claimed_at="2026-05-08T00:00:00+00:00",
+                last_heartbeat_at="2026-05-08T00:00:00+00:00",
+            ),
+        ],
+    )
+    store.save_state(state)
+    service = TaskCenterService(store)
+
+    transition = service.heartbeat(
+        "project-service",
+        "assignment-open",
+        agent_id="agent-backend",
+        now=datetime(2026, 5, 8, 1, 30, tzinfo=timezone.utc),
+    )
+
+    assert transition.assignment.last_heartbeat_at == "2026-05-08T01:30:00+00:00"
+    assert service.claimed_age_seconds(
+        transition.assignment,
+        now=datetime(2026, 5, 8, 2, 0, tzinfo=timezone.utc),
+    ) == 7200
+    assert service.heartbeat_age_seconds(
+        transition.assignment,
+        now=datetime(2026, 5, 8, 2, 0, tzinfo=timezone.utc),
+    ) == 1800
+    assert service.stale_claimed(
+        transition.assignment,
+        stale_after_seconds=3600,
+        now=datetime(2026, 5, 8, 2, 0, tzinfo=timezone.utc),
+    ) is False
+
+
+def test_task_center_service_rejects_heartbeat_for_wrong_agent() -> None:
+    store = InMemoryStateStore()
+    state = SharedProjectState(
+        project=Project(id="project-service", goal="Build a local tool"),
+        project_status=ProjectStatus.INITIALIZED,
+        current_stage="development",
+        workitems=[WorkItem(id="workitem-open", description="Open task", stage="development")],
+        task_assignments=[
+            TaskAssignment(
+                id="assignment-open",
+                workitem_id="workitem-open",
+                role="backend_engineer",
+                status=TaskAssignmentStatus.CLAIMED,
+                assigned_agent_id="agent-owner",
+                claimed_at="2026-05-08T00:00:00+00:00",
+            ),
+        ],
+    )
+    store.save_state(state)
+    service = TaskCenterService(store)
+
+    try:
+        service.heartbeat("project-service", "assignment-open", agent_id="agent-other")
+    except TaskCenterError as error:
+        assert str(error) == "Task assignment is claimed by another agent: agent-owner"
+        assert error.status_code == 403
+    else:
+        raise AssertionError("Expected TaskCenterError")
 
 
 def test_task_center_service_release_stale_requeues_only_stale_claimed() -> None:

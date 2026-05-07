@@ -133,6 +133,7 @@ class FileStateStore(InMemoryStateStore):
             result_summary=data.get("result_summary", ""),
             blocked_reason=data.get("blocked_reason"),
             claimed_at=data.get("claimed_at", ""),
+            last_heartbeat_at=data.get("last_heartbeat_at", ""),
             returned_at=data.get("returned_at", ""),
             prompt_file=data.get("prompt_file", ""),
         )

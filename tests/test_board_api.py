@@ -221,9 +221,20 @@ def test_project_task_claim_and_complete_protocol() -> None:
     assert claimed_task["assigned_agent_id"] == "agent-manual"
     assert claimed_task["claim_reason"] == "manual smoke"
     assert claimed_task["claimed_at"]
+    assert claimed_task["last_heartbeat_at"]
     assert claimed_task["returned_at"] == ""
     assert claimed_task["workitem"]["status"] == "running"
     assert claimed_task["workitem"]["owner_agent"] == "agent-manual"
+
+    heartbeat = client.post(
+        f"/api/projects/{state.project.id}/tasks/{assignment_id}/heartbeat",
+        json={"agent_id": "agent-manual"},
+    )
+    assert heartbeat.status_code == 200
+    heartbeat_task = heartbeat.json()["task"]
+    assert heartbeat_task["status"] == "claimed"
+    assert heartbeat_task["last_heartbeat_at"]
+    assert heartbeat_task["heartbeat_age_seconds"] is not None
 
     claimed_list = client.get(f"/api/projects/{state.project.id}/tasks?status=claimed")
     assert claimed_list.status_code == 200
@@ -338,7 +349,7 @@ def test_project_tasks_api_can_filter_stale_claimed_assignments() -> None:
     assert claim.status_code == 200
     claimed_state = board.engine.get_project(state.project.id)
     claimed_at = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
-    assignment = replace(claimed_state.task_assignments[0], claimed_at=claimed_at)
+    assignment = replace(claimed_state.task_assignments[0], claimed_at=claimed_at, last_heartbeat_at=claimed_at)
     board.engine.state_store.upsert_task_assignment(state.project.id, assignment)
 
     response = client.get(f"/api/projects/{state.project.id}/tasks?stale_only=true&stale_after_seconds=1")
@@ -362,7 +373,7 @@ def test_project_tasks_api_can_release_stale_claimed_assignments() -> None:
     assert claim.status_code == 200
     claimed_state = board.engine.get_project(state.project.id)
     claimed_at = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
-    assignment = replace(claimed_state.task_assignments[0], claimed_at=claimed_at)
+    assignment = replace(claimed_state.task_assignments[0], claimed_at=claimed_at, last_heartbeat_at=claimed_at)
     board.engine.state_store.upsert_task_assignment(state.project.id, assignment)
 
     response = client.post(

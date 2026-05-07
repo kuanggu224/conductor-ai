@@ -83,6 +83,10 @@ def build_parser() -> argparse.ArgumentParser:
     fail_parser.add_argument("--output-artifact-kind", default="external_result")
     fail_parser.add_argument("--output-artifact-title", default="")
 
+    heartbeat_parser = subparsers.add_parser("heartbeat", parents=[common], help="Refresh one claimed assignment heartbeat.")
+    heartbeat_parser.add_argument("assignment_id")
+    heartbeat_parser.add_argument("--agent-id", default="", help="Optional agent id guard for the current claimant.")
+
     release_parser = subparsers.add_parser("release", parents=[common], help="Release a claimed/failed assignment back to queued.")
     release_parser.add_argument("assignment_id")
     release_parser.add_argument("--release-reason", default="")
@@ -167,6 +171,13 @@ def main(argv: list[str] | None = None) -> int:
                 result_summary=args.result_summary,
                 output_artifact_ids=output_artifact_ids,
                 blocked_reason=args.blocked_reason,
+            )
+            payload = _assignment_payload(result.state, result.assignment, service)
+        elif args.command == "heartbeat":
+            result = service.heartbeat(
+                state.project.id,
+                assignment_id=args.assignment_id,
+                agent_id=args.agent_id,
             )
             payload = _assignment_payload(result.state, result.assignment, service)
         elif args.command == "release":
@@ -365,6 +376,7 @@ def _assignment_payload(
 ) -> dict[str, object]:
     workitem = next((item for item in state.workitems if item.id == assignment.workitem_id), None)
     claimed_age_seconds = service.claimed_age_seconds(assignment)
+    heartbeat_age_seconds = service.heartbeat_age_seconds(assignment)
     return {
         "ok": True,
         "project_id": state.project.id,
@@ -377,6 +389,7 @@ def _assignment_payload(
             "claimable": service.claimable(state, assignment),
             "unmet_dependency_ids": service.unmet_dependency_ids(state, assignment),
             "claimed_age_seconds": claimed_age_seconds,
+            "heartbeat_age_seconds": heartbeat_age_seconds,
             "stale_claimed": service.stale_claimed(assignment, stale_after_seconds=stale_after_seconds),
             "workitem": asdict(workitem) if workitem else {},
         },

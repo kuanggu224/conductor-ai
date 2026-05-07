@@ -24,7 +24,7 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     manifest_path = engine.write_run_manifest(state.project.id, report_path)
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-    assert payload["schema_version"] == "1.18"
+    assert payload["schema_version"] == "1.19"
     assert payload["run_id"].startswith(state.project.id)
     assert payload["project_id"] == state.project.id
     assert payload["run_profile"] == "mock"
@@ -64,6 +64,8 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     assert "assigned_agent_id" in payload["task_assignments"][0]
     assert "claimed_at" in payload["task_assignments"][0]
     assert "claimed_age_seconds" in payload["task_assignments"][0]
+    assert "last_heartbeat_at" in payload["task_assignments"][0]
+    assert "heartbeat_age_seconds" in payload["task_assignments"][0]
     assert "stale_claimed" in payload["task_assignments"][0]
     assert "returned_at" in payload["task_assignments"][0]
     assert "prompt_file" in payload["task_assignments"][0]
@@ -149,6 +151,7 @@ def test_manifest_records_stale_claimed_task_assignments(tmp_path) -> None:
         status=TaskAssignmentStatus.CLAIMED,
         assigned_agent_id="agent-designer",
         claimed_at=claimed_at,
+        last_heartbeat_at=claimed_at,
     )
     state = engine.state_store.upsert_task_assignment(state.project.id, assignment)
     report_path = engine.write_project_report(state.project.id)
@@ -158,6 +161,7 @@ def test_manifest_records_stale_claimed_task_assignments(tmp_path) -> None:
 
     assert payload["summary"]["task_center_summary"]["stale_claimed"] == 1
     assert payload["task_assignments"][0]["claimed_age_seconds"] >= 7200
+    assert payload["task_assignments"][0]["heartbeat_age_seconds"] >= 7200
     assert payload["task_assignments"][0]["stale_claimed"] is True
 
 

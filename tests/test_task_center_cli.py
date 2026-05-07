@@ -54,9 +54,27 @@ def test_task_center_cli_lists_claims_and_completes_persisted_assignment(tmp_pat
     assert claim_payload["task"]["status"] == "claimed"
     assert claim_payload["task"]["assigned_agent_id"] == "agent-external"
     assert claim_payload["task"]["claimed_at"]
+    assert claim_payload["task"]["last_heartbeat_at"]
     assert claim_payload["task"]["returned_at"] == ""
     assert claim_payload["task"]["workitem"]["status"] == "running"
     assert claim_payload["task"]["workitem"]["owner_agent"] == "agent-external"
+
+    heartbeat_code = main(
+        [
+            "heartbeat",
+            assignment_id,
+            "--project-root",
+            str(project_root),
+            "--agent-id",
+            "agent-external",
+        ]
+    )
+    heartbeat_payload = json.loads(capsys.readouterr().out)
+
+    assert heartbeat_code == 0
+    assert heartbeat_payload["task"]["status"] == "claimed"
+    assert heartbeat_payload["task"]["last_heartbeat_at"]
+    assert heartbeat_payload["task"]["heartbeat_age_seconds"] is not None
 
     complete_code = main(
         [
@@ -190,6 +208,7 @@ def test_task_center_cli_prints_assignment_context_as_markdown(tmp_path, capsys)
     assert "- Derived From:" in output
     assert "## CLI Return Commands" in output
     assert f'python -m app.task_center complete "{assignment.id}"' in output
+    assert f'python -m app.task_center heartbeat "{assignment.id}"' in output
     assert f'python -m app.task_center release "{assignment.id}"' in output
     assert f'--project-root "{project_root}"' in output
     assert "## Return Protocol" in output
@@ -477,7 +496,7 @@ def test_task_center_cli_lists_stale_claimed_assignments(tmp_path, capsys) -> No
     capsys.readouterr()
     claimed_state = FileStateStore(project_root / ".conductor" / "state").get_state(state.project.id)
     claimed_at = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
-    assignment = replace(claimed_state.task_assignments[0], claimed_at=claimed_at)
+    assignment = replace(claimed_state.task_assignments[0], claimed_at=claimed_at, last_heartbeat_at=claimed_at)
     FileStateStore(project_root / ".conductor" / "state").upsert_task_assignment(state.project.id, assignment)
 
     list_code = main(
@@ -522,7 +541,7 @@ def test_task_center_cli_release_stale_requeues_stale_claimed_assignments(tmp_pa
     capsys.readouterr()
     claimed_state = FileStateStore(project_root / ".conductor" / "state").get_state(state.project.id)
     claimed_at = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
-    assignment = replace(claimed_state.task_assignments[0], claimed_at=claimed_at)
+    assignment = replace(claimed_state.task_assignments[0], claimed_at=claimed_at, last_heartbeat_at=claimed_at)
     FileStateStore(project_root / ".conductor" / "state").upsert_task_assignment(state.project.id, assignment)
 
     release_code = main(

@@ -46,7 +46,7 @@
 - 支持读取模型直出文本文件作为 direct baseline。
 - 支持输出 JSON 和 Markdown 对比报告。
 - 需求评分支持中英文 aspect 同义词匹配和中文关键词变体匹配，避免中文需求产物被英文标签或同义表达误判。
-- Run Manifest schema 已升级到 `1.18`，包含 `requirement_evaluations`、`summary.requirement_quality_score` 和运行审计摘要。
+- Run Manifest schema 已升级到 `1.19`，包含 `requirement_evaluations`、`summary.requirement_quality_score` 和运行审计摘要。
 - `requirement_spec` 的协作 accepted 后还会执行需求质量评分；评分未通过时不会冻结需求规格。
 - 需求协作/质量门禁失败时，会自动创建新的 `requirement_spec` 返工 WorkItem，并把失败原因和上轮产物作为返工上下文。
 - `python -m app.requirement_benchmark compare` 支持 `--direct-llm local|cloud`，可自动生成不接入平台的模型直出 baseline。

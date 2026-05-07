@@ -255,6 +255,10 @@ def _return_command_lines(payload: dict[str, object], assignment: dict[str, obje
         '--result-summary "failed" '
         '--blocked-reason "explain blocker"'
     )
+    heartbeat_command = (
+        f'python -m app.task_center heartbeat "{assignment_id}" '
+        f'--project-root "{project_root}"'
+    )
     release_command = (
         f'python -m app.task_center release "{assignment_id}" '
         f'--project-root "{project_root}" '
@@ -268,6 +272,9 @@ def _return_command_lines(payload: dict[str, object], assignment: dict[str, obje
         "",
         "Return failure/blocker:",
         _fenced(fail_command),
+        "",
+        "Refresh heartbeat while still working:",
+        _fenced(heartbeat_command),
         "",
         "Release for retry:",
         _fenced(release_command),

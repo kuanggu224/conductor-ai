@@ -158,6 +158,7 @@ class TaskCenterService:
             result_summary="",
             blocked_reason=None,
             claimed_at="",
+            last_heartbeat_at="",
             returned_at="",
             prompt_file="",
         )
@@ -187,6 +188,28 @@ class TaskCenterService:
             released.append(transition.assignment)
         return TaskCenterBulkTransition(state=self._state(project_id), assignments=released)
 
+    def heartbeat(
+        self,
+        project_id: str,
+        assignment_id: str,
+        agent_id: str = "",
+        now: datetime | None = None,
+    ) -> TaskCenterTransition:
+        """Refresh one claimed assignment's worker heartbeat timestamp."""
+        state = self._state(project_id)
+        assignment = self.require_assignment(state, assignment_id)
+        if assignment.status != TaskAssignmentStatus.CLAIMED:
+            raise TaskCenterError(f"Task assignment is not claimed: {assignment.status.value}")
+        if agent_id and assignment.assigned_agent_id and assignment.assigned_agent_id != agent_id:
+            raise TaskCenterError(
+                f"Task assignment is claimed by another agent: {assignment.assigned_agent_id}",
+                status_code=403,
+            )
+        updated = replace(assignment, last_heartbeat_at=_utc_now(now))
+        self.state_store.upsert_task_assignment(project_id, updated)
+        self.state_store.add_event(project_id, f"{self.event_prefix}: heartbeat {assignment.workitem_id}")
+        return TaskCenterTransition(state=self._state(project_id), assignment=updated)
+
     def require_assignment(self, state: SharedProjectState, assignment_id: str) -> TaskAssignment:
         """Return an assignment or raise a Task Center not-found error."""
         for assignment in state.task_assignments:
@@ -211,18 +234,36 @@ class TaskCenterService:
 
     def claimed_age_seconds(self, assignment: TaskAssignment, now: datetime | None = None) -> int | None:
         """Return assignment claim age in seconds, or None when not claimed."""
+        return self._timestamp_age_seconds(assignment, assignment.claimed_at, now=now)
+
+    def heartbeat_age_seconds(self, assignment: TaskAssignment, now: datetime | None = None) -> int | None:
+        """Return age of the latest heartbeat or claim timestamp for a claimed assignment."""
+        if assignment.last_heartbeat_at:
+            heartbeat_age = self._timestamp_age_seconds(assignment, assignment.last_heartbeat_at, now=now)
+            if heartbeat_age is not None:
+                return heartbeat_age
+        return self._timestamp_age_seconds(assignment, assignment.claimed_at, now=now)
+
+    def _timestamp_age_seconds(
+        self,
+        assignment: TaskAssignment,
+        timestamp: str,
+        *,
+        now: datetime | None = None,
+    ) -> int | None:
+        """Return age in seconds for a claimed assignment timestamp."""
         if assignment.status != TaskAssignmentStatus.CLAIMED or not assignment.claimed_at:
             return None
         try:
-            claimed_at = datetime.fromisoformat(assignment.claimed_at)
+            parsed_timestamp = datetime.fromisoformat(timestamp)
         except ValueError:
             return None
-        if claimed_at.tzinfo is None:
-            claimed_at = claimed_at.replace(tzinfo=timezone.utc)
+        if parsed_timestamp.tzinfo is None:
+            parsed_timestamp = parsed_timestamp.replace(tzinfo=timezone.utc)
         current = now or datetime.now(timezone.utc)
         if current.tzinfo is None:
             current = current.replace(tzinfo=timezone.utc)
-        return max(0, int((current - claimed_at).total_seconds()))
+        return max(0, int((current - parsed_timestamp).total_seconds()))
 
     def stale_claimed(
         self,
@@ -232,7 +273,7 @@ class TaskCenterService:
         now: datetime | None = None,
     ) -> bool:
         """Return whether a claimed assignment has exceeded the stale threshold."""
-        age = self.claimed_age_seconds(assignment, now=now)
+        age = self.heartbeat_age_seconds(assignment, now=now)
         return age is not None and age >= stale_after_seconds
 
     def dependencies_satisfied(self, state: SharedProjectState, assignment: TaskAssignment) -> bool:
@@ -263,13 +304,15 @@ class TaskCenterService:
             raise TaskCenterError(
                 f"Task assignment dependencies are not satisfied: {', '.join(unmet_dependency_ids)}"
             )
+        now = _utc_now()
         updated = replace(
             assignment,
             status=TaskAssignmentStatus.CLAIMED,
             assigned_agent_id=agent_id,
             claim_reason=claim_reason or assignment.claim_reason,
             blocked_reason=None,
-            claimed_at=_utc_now(),
+            claimed_at=now,
+            last_heartbeat_at=now,
             returned_at="",
         )
         self._sync_workitem_claim(project_id, assignment, agent_id)
@@ -384,5 +427,8 @@ __all__ = [
 ]
 
 
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+def _utc_now(now: datetime | None = None) -> str:
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    return current.isoformat()

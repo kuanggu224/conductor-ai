@@ -116,6 +116,7 @@ class TaskAssignment:
     result_summary: str = ""
     blocked_reason: str | None = None
     claimed_at: str = ""
+    last_heartbeat_at: str = ""
     returned_at: str = ""
     prompt_file: str = ""
 

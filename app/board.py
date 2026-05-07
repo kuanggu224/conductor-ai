@@ -147,6 +147,12 @@ class TaskReturnRequest(BaseModel):
     blocked_reason: TodoContent = ""
 
 
+class TaskHeartbeatRequest(BaseModel):
+    """Payload for refreshing a claimed task-center assignment heartbeat."""
+
+    agent_id: OptionalTodoTitle = None
+
+
 class TaskReleaseRequest(BaseModel):
     """Payload for releasing a claimed/failed task-center assignment."""
 
@@ -661,6 +667,28 @@ async def fail_project_task_api(project_id: str, assignment_id: str, payload: Ta
     )
 
 
+@app.post("/api/projects/{project_id}/tasks/{assignment_id}/heartbeat")
+async def heartbeat_project_task_api(
+    project_id: str,
+    assignment_id: str,
+    payload: TaskHeartbeatRequest,
+) -> JSONResponse:
+    """Refresh one claimed task-center assignment heartbeat."""
+    transition = _run_task_center_transition(
+        _task_center_service().heartbeat,
+        project_id,
+        assignment_id=assignment_id,
+        agent_id=payload.agent_id or "",
+    )
+    return JSONResponse(
+        {
+            "project_id": project_id,
+            "summary": _task_center_service().summary(transition.state),
+            "task": _task_assignment_payload(transition.assignment, transition.state),
+        }
+    )
+
+
 @app.post("/api/projects/{project_id}/tasks/{assignment_id}/release")
 async def release_project_task_api(project_id: str, assignment_id: str, payload: TaskReleaseRequest) -> JSONResponse:
     """Release a claimed/failed task-center assignment back to queued."""
@@ -851,6 +879,7 @@ def _task_assignment_payload(
             if artifact.workitem_id == assignment.workitem_id
         ]
     claimed_age_seconds = task_center.claimed_age_seconds(assignment)
+    heartbeat_age_seconds = task_center.heartbeat_age_seconds(assignment)
     return {
         "id": assignment.id,
         "workitem_id": assignment.workitem_id,
@@ -861,6 +890,7 @@ def _task_assignment_payload(
         "claimable": task_center.claimable(state, assignment),
         "unmet_dependency_ids": task_center.unmet_dependency_ids(state, assignment),
         "claimed_age_seconds": claimed_age_seconds,
+        "heartbeat_age_seconds": heartbeat_age_seconds,
         "stale_claimed": task_center.stale_claimed(assignment, stale_after_seconds=stale_after_seconds),
         "dependencies": list(assignment.dependencies),
         "input_artifact_ids": list(assignment.input_artifact_ids),
@@ -868,6 +898,7 @@ def _task_assignment_payload(
         "result_summary": assignment.result_summary,
         "blocked_reason": assignment.blocked_reason or "",
         "claimed_at": assignment.claimed_at,
+        "last_heartbeat_at": assignment.last_heartbeat_at,
         "returned_at": assignment.returned_at,
         "prompt_file": assignment.prompt_file,
         "workitem": _task_workitem_payload(workitem),

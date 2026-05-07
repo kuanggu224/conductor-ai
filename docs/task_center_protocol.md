@@ -18,6 +18,8 @@ Task assignment statuses:
 - `failed`: returned unsuccessfully and synchronized to `WorkItem.failed`.
 - `blocked`: reserved for dependency or policy blocking.
 - `release`: claimed/failed assignments can be released back to `queued`.
+- `heartbeat`: claimed assignments can refresh worker activity without changing
+  WorkItem status.
 
 Claim rules:
 
@@ -25,6 +27,8 @@ Claim rules:
 - Direct `claim` also validates dependency readiness.
 - `claim-next` skips assignments with unmet dependencies.
 - Failed dependency checks report `unmet_dependency_ids`.
+- Stale detection uses `last_heartbeat_at` when present, falling back to
+  `claimed_at`.
 
 ## CLI
 
@@ -46,6 +50,7 @@ python -m app.task_center claim <assignment-id> --project-root <project-root> --
 python -m app.task_center complete <assignment-id> --project-root <project-root> --result-summary "done"
 python -m app.task_center complete <assignment-id> --project-root <project-root> --output-file result.md
 python -m app.task_center fail <assignment-id> --project-root <project-root> --blocked-reason "reason"
+python -m app.task_center heartbeat <assignment-id> --project-root <project-root> --agent-id <agent-id>
 python -m app.task_center release <assignment-id> --project-root <project-root> --release-reason "worker interrupted"
 python -m app.task_center release-stale --project-root <project-root> --stale-after-seconds 3600 --release-reason "stale cleanup"
 ```
@@ -81,6 +86,7 @@ Endpoints:
 - `POST /api/projects/{project_id}/tasks/{assignment_id}/claim`
 - `POST /api/projects/{project_id}/tasks/{assignment_id}/complete`
 - `POST /api/projects/{project_id}/tasks/{assignment_id}/fail`
+- `POST /api/projects/{project_id}/tasks/{assignment_id}/heartbeat`
 - `POST /api/projects/{project_id}/tasks/{assignment_id}/release`
 - `POST /api/projects/{project_id}/tasks/release-stale`
 
@@ -120,6 +126,16 @@ Endpoints:
   "output_artifact_ids": []
 }
 ```
+
+`heartbeat` request body:
+
+```json
+{
+  "agent_id": "agent-backend"
+}
+```
+
+`agent_id` is optional. When provided, it must match the current claimant.
 
 `release` request body:
 
@@ -189,7 +205,8 @@ CLI `context --format markdown` renders the same payload as a human-readable
 task prompt for coding agents.
 API `/context?format=markdown` returns the same prompt as `text/markdown`.
 
-Mutation responses from `claim`, `claim-next`, `complete`, and `fail` include:
+Mutation responses from `claim`, `claim-next`, `complete`, `fail`, `heartbeat`,
+and `release` include:
 
 - `ok` for CLI responses
 - `project_id`
@@ -224,6 +241,7 @@ Task payloads include:
 - `claimable`
 - `unmet_dependency_ids`
 - `claimed_age_seconds`
+- `heartbeat_age_seconds`
 - `stale_claimed`
 - `dependencies`
 - `input_artifact_ids`
@@ -231,6 +249,7 @@ Task payloads include:
 - `result_summary`
 - `blocked_reason`
 - `claimed_at`
+- `last_heartbeat_at`
 - `returned_at`
 - `prompt_file`
 
@@ -255,12 +274,14 @@ Summary payloads include:
 
 ## Audit Outputs
 
-Run Manifest schema `1.18` records:
+Run Manifest schema `1.19` records:
 
 - `task_assignments[].claimable`
 - `task_assignments[].unmet_dependency_ids`
 - `task_assignments[].claimed_at`
 - `task_assignments[].claimed_age_seconds`
+- `task_assignments[].last_heartbeat_at`
+- `task_assignments[].heartbeat_age_seconds`
 - `task_assignments[].stale_claimed`
 - `task_assignments[].returned_at`
 - `task_assignments[].prompt_file`

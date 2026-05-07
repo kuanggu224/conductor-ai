@@ -258,7 +258,7 @@ Static Web Harness 能检查：
 - log path
 - report path
 
-当前 schema：`1.18`
+当前 schema：`1.19`
 
 Manifest 现在能正确显示：
 
@@ -268,6 +268,7 @@ Manifest 现在能正确显示：
 - LLM review/revision 的输出文件。
 - collaboration phase 与决策统计。
 - task assignment claimability、stale 状态、prompt 文件。
+- task assignment heartbeat 时间和 heartbeat age。
 - artifact lineage：parent、derived_from、review_of、version、collaboration_session_id。
 - execution command、exit code、duration，Agent CLI prompt 会脱敏。
 - runtime environment 和 platform diagnostics。
