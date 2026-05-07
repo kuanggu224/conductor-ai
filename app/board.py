@@ -50,7 +50,7 @@ from conductor.io.requirements import RequirementInputError, load_requirement_te
 from conductor.task_center.artifacts import create_task_return_artifact
 from conductor.task_center.context import TaskContextBuilder
 from conductor.task_center.prompts import resolve_task_prompt_path, write_task_prompt_file
-from conductor.task_center.service import TaskCenterError, TaskCenterService
+from conductor.task_center.service import DEFAULT_STALE_CLAIMED_AFTER_SECONDS, TaskCenterError, TaskCenterService
 from conductor.todo.service import (
     TODO_SESSION_COOKIE,
     create_todo_service,
@@ -510,20 +510,36 @@ def project_detail_api(project_id: str) -> JSONResponse:
 
 
 @app.get("/api/projects/{project_id}/tasks")
-def project_tasks_api(project_id: str, status: str | None = None) -> JSONResponse:
+def project_tasks_api(
+    project_id: str,
+    status: str | None = None,
+    stale_only: bool = False,
+    stale_after_seconds: int = DEFAULT_STALE_CLAIMED_AFTER_SECONDS,
+) -> JSONResponse:
     """Return task center assignments for one project, optionally filtered by status."""
     state = _require_project_state(project_id)
-    return JSONResponse(_task_center_payload(state, status=status))
+    return JSONResponse(
+        _task_center_payload(
+            state,
+            status=status,
+            stale_only=stale_only,
+            stale_after_seconds=stale_after_seconds,
+        )
+    )
 
 
 @app.get("/api/projects/{project_id}/tasks/summary")
-def project_tasks_summary_api(project_id: str) -> JSONResponse:
+def project_tasks_summary_api(
+    project_id: str,
+    stale_after_seconds: int = DEFAULT_STALE_CLAIMED_AFTER_SECONDS,
+) -> JSONResponse:
     """Return compact task-center summary counts for one project."""
     state = _require_project_state(project_id)
     return JSONResponse(
         {
             "project_id": project_id,
-            "summary": _task_center_service().summary(state),
+            "stale_after_seconds": stale_after_seconds,
+            "summary": _task_center_service().summary(state, stale_after_seconds=stale_after_seconds),
         }
     )
 
@@ -720,7 +736,12 @@ def _task_claim_response_payload(
     return response
 
 
-def _task_center_payload(state: SharedProjectState, status: str | None = None) -> dict[str, object]:
+def _task_center_payload(
+    state: SharedProjectState,
+    status: str | None = None,
+    stale_only: bool = False,
+    stale_after_seconds: int = DEFAULT_STALE_CLAIMED_AFTER_SECONDS,
+) -> dict[str, object]:
     """Build the task-center response payload."""
     task_center = _task_center_service()
     workitems_by_id = {item.id: item for item in state.workitems}
@@ -741,11 +762,19 @@ def _task_center_payload(state: SharedProjectState, status: str | None = None) -
         for assignment in state.task_assignments
         if status is None or assignment.status.value == status
     ]
+    if stale_only:
+        assignments = [
+            assignment
+            for assignment in assignments
+            if task_center.stale_claimed(assignment, stale_after_seconds=stale_after_seconds)
+        ]
     return {
         "project_id": state.project.id,
         "status_filter": status or "",
+        "stale_only": stale_only,
+        "stale_after_seconds": stale_after_seconds,
         "total": len(assignments),
-        "summary": task_center.summary(state),
+        "summary": task_center.summary(state, stale_after_seconds=stale_after_seconds),
         "tasks": [
             _task_assignment_payload(
                 assignment,
@@ -753,6 +782,7 @@ def _task_center_payload(state: SharedProjectState, status: str | None = None) -
                 service=task_center,
                 workitem=workitems_by_id.get(assignment.workitem_id),
                 artifacts=artifacts_by_workitem.get(assignment.workitem_id, []),
+                stale_after_seconds=stale_after_seconds,
             )
             for assignment in assignments
         ],
@@ -765,6 +795,7 @@ def _task_assignment_payload(
     service: TaskCenterService | None = None,
     workitem=None,
     artifacts: list[dict[str, object]] | None = None,
+    stale_after_seconds: int = DEFAULT_STALE_CLAIMED_AFTER_SECONDS,
 ) -> dict[str, object]:
     """Build one task-center assignment payload."""
     task_center = service or _task_center_service()
@@ -783,6 +814,7 @@ def _task_assignment_payload(
             for artifact in state.artifacts
             if artifact.workitem_id == assignment.workitem_id
         ]
+    claimed_age_seconds = task_center.claimed_age_seconds(assignment)
     return {
         "id": assignment.id,
         "workitem_id": assignment.workitem_id,
@@ -792,6 +824,8 @@ def _task_assignment_payload(
         "claim_reason": assignment.claim_reason,
         "claimable": task_center.claimable(state, assignment),
         "unmet_dependency_ids": task_center.unmet_dependency_ids(state, assignment),
+        "claimed_age_seconds": claimed_age_seconds,
+        "stale_claimed": task_center.stale_claimed(assignment, stale_after_seconds=stale_after_seconds),
         "dependencies": list(assignment.dependencies),
         "input_artifact_ids": list(assignment.input_artifact_ids),
         "output_artifact_ids": list(assignment.output_artifact_ids),

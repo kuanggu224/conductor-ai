@@ -1,4 +1,5 @@
 from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
 
@@ -307,6 +308,30 @@ def test_project_task_release_api_requeues_claimed_assignment() -> None:
     reloaded = board.engine.get_project(state.project.id)
     assert reloaded.task_assignments[0].status.value == "queued"
     assert reloaded.workitems[0].status.value == "pending"
+
+
+def test_project_tasks_api_can_filter_stale_claimed_assignments() -> None:
+    client = TestClient(board.app)
+    state = board.engine.create_project(requirement="Build a local reading list", project_root="")
+    claim = client.post(
+        f"/api/projects/{state.project.id}/tasks/claim-next",
+        json={"agent_id": "agent-api-worker"},
+    )
+    assert claim.status_code == 200
+    claimed_state = board.engine.get_project(state.project.id)
+    claimed_at = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+    assignment = replace(claimed_state.task_assignments[0], claimed_at=claimed_at)
+    board.engine.state_store.upsert_task_assignment(state.project.id, assignment)
+
+    response = client.get(f"/api/projects/{state.project.id}/tasks?stale_only=true&stale_after_seconds=1")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["stale_only"] is True
+    assert payload["summary"]["stale_claimed"] == 1
+    assert payload["total"] == 1
+    assert payload["tasks"][0]["stale_claimed"] is True
+    assert payload["tasks"][0]["claimed_age_seconds"] is not None
 
 
 def test_project_task_context_api_returns_input_artifact_content() -> None:

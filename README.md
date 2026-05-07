@@ -53,6 +53,7 @@ CLI entrypoint:
 ```bash
 python -m app.task_center list --project-root <project-root>
 python -m app.task_center summary --project-root <project-root>
+python -m app.task_center list --project-root <project-root> --stale-only --stale-after-seconds 3600
 python -m app.task_center context <assignment-id> --project-root <project-root>
 python -m app.task_center context <assignment-id> --project-root <project-root> --format markdown
 python -m app.task_center context <assignment-id> --project-root <project-root> --prompt-file .conductor/task_center/prompts/task.md
@@ -70,6 +71,7 @@ python -m app.task_center release <assignment-id> --project-root <project-root> 
 Board API endpoints:
 
 - `GET /api/projects/{project_id}/tasks`
+- `GET /api/projects/{project_id}/tasks?stale_only=true&stale_after_seconds=3600`
 - `GET /api/projects/{project_id}/tasks/summary`
 - `GET /api/projects/{project_id}/tasks/{assignment_id}/context`
 - `POST /api/projects/{project_id}/tasks/claim-next`
@@ -80,8 +82,8 @@ Board API endpoints:
 
 Task payloads expose `claimable` and `unmet_dependency_ids`. Summaries expose
 `total`, `queued`, `claimed`, `completed`, `failed`, `blocked`, `claimable`,
-and `blocked_by_dependencies`. Run manifests and project reports also include
-Task Center readiness for audit and replay.
+`blocked_by_dependencies`, and `stale_claimed`. Run manifests and project
+reports also include Task Center readiness for audit and replay.
 
 ## Diagnostics
 

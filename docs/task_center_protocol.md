@@ -34,6 +34,7 @@ Use the persisted project root:
 python -m app.task_center summary --project-root <project-root>
 python -m app.task_center list --project-root <project-root>
 python -m app.task_center list --project-root <project-root> --status queued
+python -m app.task_center list --project-root <project-root> --stale-only --stale-after-seconds 3600
 python -m app.task_center context <assignment-id> --project-root <project-root>
 python -m app.task_center context <assignment-id> --project-root <project-root> --format markdown
 python -m app.task_center context <assignment-id> --project-root <project-root> --prompt-file .conductor/task_center/prompts/task.md
@@ -71,6 +72,7 @@ Endpoints:
 
 - `GET /api/projects/{project_id}/tasks`
 - `GET /api/projects/{project_id}/tasks?status=queued`
+- `GET /api/projects/{project_id}/tasks?stale_only=true&stale_after_seconds=3600`
 - `GET /api/projects/{project_id}/tasks/summary`
 - `GET /api/projects/{project_id}/tasks/{assignment_id}/context`
 - `GET /api/projects/{project_id}/tasks/{assignment_id}/context?format=markdown`
@@ -206,6 +208,8 @@ Task payloads include:
 - `claim_reason`
 - `claimable`
 - `unmet_dependency_ids`
+- `claimed_age_seconds`
+- `stale_claimed`
 - `dependencies`
 - `input_artifact_ids`
 - `output_artifact_ids`
@@ -232,6 +236,7 @@ Summary payloads include:
 - `blocked`
 - `claimable`
 - `blocked_by_dependencies`
+- `stale_claimed`
 
 ## Audit Outputs
 

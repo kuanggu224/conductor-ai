@@ -8,6 +8,8 @@ from dataclasses import dataclass, replace
 from conductor.domain.models import SharedProjectState, TaskAssignment, TaskAssignmentStatus, WorkItemStatus
 from conductor.state.store import InMemoryStateStore
 
+DEFAULT_STALE_CLAIMED_AFTER_SECONDS = 3600
+
 
 class TaskCenterError(Exception):
     """Expected Task Center transition failure."""
@@ -41,12 +43,19 @@ class TaskCenterService:
             if status is None or assignment.status.value == status
         ]
 
-    def summary(self, state: SharedProjectState) -> dict[str, int]:
+    def summary(
+        self,
+        state: SharedProjectState,
+        *,
+        stale_after_seconds: int = DEFAULT_STALE_CLAIMED_AFTER_SECONDS,
+        now: datetime | None = None,
+    ) -> dict[str, int]:
         """Return compact Task Center counts for dashboards and reports."""
         counts = {
             "total": len(state.task_assignments),
             "claimable": 0,
             "blocked_by_dependencies": 0,
+            "stale_claimed": 0,
             "queued": 0,
             "claimed": 0,
             "completed": 0,
@@ -59,6 +68,8 @@ class TaskCenterService:
                 counts["claimable"] += 1
             elif assignment.status == TaskAssignmentStatus.QUEUED and self.unmet_dependency_ids(state, assignment):
                 counts["blocked_by_dependencies"] += 1
+            if self.stale_claimed(assignment, stale_after_seconds=stale_after_seconds, now=now):
+                counts["stale_claimed"] += 1
         return counts
 
     def claim(
@@ -168,6 +179,32 @@ class TaskCenterService:
     def claimable(self, state: SharedProjectState, assignment: TaskAssignment) -> bool:
         """Return whether an assignment is queued and all dependencies are done."""
         return assignment.status == TaskAssignmentStatus.QUEUED and self.dependencies_satisfied(state, assignment)
+
+    def claimed_age_seconds(self, assignment: TaskAssignment, now: datetime | None = None) -> int | None:
+        """Return assignment claim age in seconds, or None when not claimed."""
+        if assignment.status != TaskAssignmentStatus.CLAIMED or not assignment.claimed_at:
+            return None
+        try:
+            claimed_at = datetime.fromisoformat(assignment.claimed_at)
+        except ValueError:
+            return None
+        if claimed_at.tzinfo is None:
+            claimed_at = claimed_at.replace(tzinfo=timezone.utc)
+        current = now or datetime.now(timezone.utc)
+        if current.tzinfo is None:
+            current = current.replace(tzinfo=timezone.utc)
+        return max(0, int((current - claimed_at).total_seconds()))
+
+    def stale_claimed(
+        self,
+        assignment: TaskAssignment,
+        *,
+        stale_after_seconds: int = DEFAULT_STALE_CLAIMED_AFTER_SECONDS,
+        now: datetime | None = None,
+    ) -> bool:
+        """Return whether a claimed assignment has exceeded the stale threshold."""
+        age = self.claimed_age_seconds(assignment, now=now)
+        return age is not None and age >= stale_after_seconds
 
     def dependencies_satisfied(self, state: SharedProjectState, assignment: TaskAssignment) -> bool:
         """Return whether all WorkItem dependencies for an assignment are done."""
@@ -310,6 +347,7 @@ class TaskCenterService:
 
 
 __all__ = [
+    "DEFAULT_STALE_CLAIMED_AFTER_SECONDS",
     "TaskCenterError",
     "TaskCenterService",
     "TaskCenterTransition",

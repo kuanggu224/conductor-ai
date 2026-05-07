@@ -16,7 +16,7 @@ from conductor.task_center.context import TaskContextBuilder
 from conductor.task_center.prompts import resolve_task_prompt_path, write_task_prompt_file
 from conductor.state.file_store import FileStateStore
 from conductor.state.store import InMemoryStateStore
-from conductor.task_center.service import TaskCenterError, TaskCenterService
+from conductor.task_center.service import DEFAULT_STALE_CLAIMED_AFTER_SECONDS, TaskCenterError, TaskCenterService
 
 configure_utf8_stdio()
 
@@ -33,8 +33,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     list_parser = subparsers.add_parser("list", parents=[common], help="List task-center assignments.")
     list_parser.add_argument("--status", choices=[status.value for status in TaskAssignmentStatus])
+    list_parser.add_argument("--stale-only", action="store_true", help="Only list stale claimed assignments.")
+    list_parser.add_argument("--stale-after-seconds", type=int, default=DEFAULT_STALE_CLAIMED_AFTER_SECONDS)
 
-    subparsers.add_parser("summary", parents=[common], help="Print task-center summary counts.")
+    summary_parser = subparsers.add_parser("summary", parents=[common], help="Print task-center summary counts.")
+    summary_parser.add_argument("--stale-after-seconds", type=int, default=DEFAULT_STALE_CLAIMED_AFTER_SECONDS)
 
     context_parser = subparsers.add_parser("context", parents=[common], help="Print one assignment with input artifact content.")
     context_parser.add_argument("assignment_id")
@@ -101,9 +104,11 @@ def main(argv: list[str] | None = None) -> int:
                 service.list_assignments(state.project.id, status=args.status),
                 service,
                 status=args.status,
+                stale_only=args.stale_only,
+                stale_after_seconds=args.stale_after_seconds,
             )
         elif args.command == "summary":
-            payload = _summary_payload(state, service)
+            payload = _summary_payload(state, service, stale_after_seconds=args.stale_after_seconds)
         elif args.command == "context":
             context_builder = TaskContextBuilder()
             payload = context_builder.build(
@@ -215,22 +220,40 @@ def _list_payload(
     assignments: list[TaskAssignment],
     service: TaskCenterService,
     status: str | None = None,
+    stale_only: bool = False,
+    stale_after_seconds: int = DEFAULT_STALE_CLAIMED_AFTER_SECONDS,
 ) -> dict[str, object]:
+    if stale_only:
+        assignments = [
+            assignment
+            for assignment in assignments
+            if service.stale_claimed(assignment, stale_after_seconds=stale_after_seconds)
+        ]
     return {
         "ok": True,
         "project_id": state.project.id,
         "status_filter": status or "",
+        "stale_only": stale_only,
+        "stale_after_seconds": stale_after_seconds,
         "total": len(assignments),
-        "summary": service.summary(state),
-        "tasks": [_assignment_payload(state, assignment, service)["task"] for assignment in assignments],
+        "summary": service.summary(state, stale_after_seconds=stale_after_seconds),
+        "tasks": [
+            _assignment_payload(state, assignment, service, stale_after_seconds=stale_after_seconds)["task"]
+            for assignment in assignments
+        ],
     }
 
 
-def _summary_payload(state: SharedProjectState, service: TaskCenterService) -> dict[str, object]:
+def _summary_payload(
+    state: SharedProjectState,
+    service: TaskCenterService,
+    stale_after_seconds: int = DEFAULT_STALE_CLAIMED_AFTER_SECONDS,
+) -> dict[str, object]:
     return {
         "ok": True,
         "project_id": state.project.id,
-        "summary": service.summary(state),
+        "stale_after_seconds": stale_after_seconds,
+        "summary": service.summary(state, stale_after_seconds=stale_after_seconds),
     }
 
 
@@ -308,12 +331,14 @@ def _assignment_payload(
     state: SharedProjectState,
     assignment: TaskAssignment,
     service: TaskCenterService,
+    stale_after_seconds: int = DEFAULT_STALE_CLAIMED_AFTER_SECONDS,
 ) -> dict[str, object]:
     workitem = next((item for item in state.workitems if item.id == assignment.workitem_id), None)
+    claimed_age_seconds = service.claimed_age_seconds(assignment)
     return {
         "ok": True,
         "project_id": state.project.id,
-        "summary": service.summary(state),
+        "summary": service.summary(state, stale_after_seconds=stale_after_seconds),
         "task": {
             **asdict(assignment),
             "status": assignment.status.value,
@@ -321,6 +346,8 @@ def _assignment_payload(
             "blocked_reason": assignment.blocked_reason or "",
             "claimable": service.claimable(state, assignment),
             "unmet_dependency_ids": service.unmet_dependency_ids(state, assignment),
+            "claimed_age_seconds": claimed_age_seconds,
+            "stale_claimed": service.stale_claimed(assignment, stale_after_seconds=stale_after_seconds),
             "workitem": asdict(workitem) if workitem else {},
         },
     }

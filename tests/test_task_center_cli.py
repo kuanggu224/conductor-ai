@@ -2,6 +2,7 @@
 
 import json
 from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 
 from app.task_center import main
 from conductor.controller.engine import ConductorEngine
@@ -447,6 +448,51 @@ def test_task_center_cli_release_requeues_claimed_assignment(tmp_path, capsys) -
     reloaded = FileStateStore(project_root / ".conductor" / "state").get_state(state.project.id)
     assert reloaded.task_assignments[0].status == TaskAssignmentStatus.QUEUED
     assert reloaded.workitems[0].status == WorkItemStatus.PENDING
+
+
+def test_task_center_cli_lists_stale_claimed_assignments(tmp_path, capsys) -> None:
+    project_root = tmp_path / "project"
+    state_store = FileStateStore(project_root / ".conductor" / "state")
+    engine = ConductorEngine(
+        log_dir=project_root / ".conductor" / "logs",
+        artifact_dir=project_root / ".conductor" / "artifacts",
+        state_store=state_store,
+    )
+    state = engine.create_project(requirement="Build a local reading list", project_root=str(project_root))
+    claim_code = main(
+        [
+            "claim-next",
+            "--project-root",
+            str(project_root),
+            "--agent-id",
+            "agent-external",
+        ]
+    )
+    capsys.readouterr()
+    claimed_state = FileStateStore(project_root / ".conductor" / "state").get_state(state.project.id)
+    claimed_at = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+    assignment = replace(claimed_state.task_assignments[0], claimed_at=claimed_at)
+    FileStateStore(project_root / ".conductor" / "state").upsert_task_assignment(state.project.id, assignment)
+
+    list_code = main(
+        [
+            "list",
+            "--project-root",
+            str(project_root),
+            "--stale-only",
+            "--stale-after-seconds",
+            "1",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert claim_code == 0
+    assert list_code == 0
+    assert payload["stale_only"] is True
+    assert payload["summary"]["stale_claimed"] == 1
+    assert payload["total"] == 1
+    assert payload["tasks"][0]["stale_claimed"] is True
+    assert payload["tasks"][0]["claimed_age_seconds"] is not None
 
 
 def test_task_center_cli_claim_next_selects_available_role_task(tmp_path, capsys) -> None:

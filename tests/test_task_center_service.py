@@ -1,5 +1,7 @@
 """Task Center service tests."""
 
+from datetime import datetime, timezone
+
 from conductor.domain.models import (
     Project,
     ProjectStatus,
@@ -192,6 +194,33 @@ def test_task_center_service_release_requeues_claimed_assignment() -> None:
     assert transition.state.workitems[0].status == WorkItemStatus.PENDING
     assert transition.state.workitems[0].owner_agent == ""
     assert service.summary(transition.state)["claimable"] == 1
+
+
+def test_task_center_service_counts_stale_claimed_assignments() -> None:
+    store = InMemoryStateStore()
+    state = SharedProjectState(
+        project=Project(id="project-service", goal="Build a local tool"),
+        project_status=ProjectStatus.INITIALIZED,
+        current_stage="development",
+        workitems=[WorkItem(id="workitem-open", description="Open task", stage="development")],
+        task_assignments=[
+            TaskAssignment(
+                id="assignment-open",
+                workitem_id="workitem-open",
+                role="backend_engineer",
+                status=TaskAssignmentStatus.CLAIMED,
+                claimed_at="2026-05-08T00:00:00+00:00",
+            ),
+        ],
+    )
+    store.save_state(state)
+    service = TaskCenterService(store)
+    assignment = state.task_assignments[0]
+    now = datetime(2026, 5, 8, 2, 0, tzinfo=timezone.utc)
+
+    assert service.claimed_age_seconds(assignment, now=now) == 7200
+    assert service.stale_claimed(assignment, stale_after_seconds=3600, now=now) is True
+    assert service.summary(state, stale_after_seconds=3600, now=now)["stale_claimed"] == 1
 
 
 def test_task_center_service_rejects_release_after_completion() -> None:
