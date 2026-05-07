@@ -292,6 +292,37 @@ def test_task_center_cli_complete_can_create_output_artifact_from_file(tmp_path,
     assert "Implemented by external worker" in artifact.content
 
 
+def test_task_center_cli_rejects_empty_output_artifact_file(tmp_path, capsys) -> None:
+    project_root = tmp_path / "project"
+    output_file = tmp_path / "empty.md"
+    output_file.write_text("   ", encoding="utf-8")
+    state_store = FileStateStore(project_root / ".conductor" / "state")
+    engine = ConductorEngine(
+        log_dir=project_root / ".conductor" / "logs",
+        artifact_dir=project_root / ".conductor" / "artifacts",
+        state_store=state_store,
+    )
+    state = engine.create_project(requirement="Build a local reading list", project_root=str(project_root))
+    assignment_id = state.task_assignments[0].id
+    assert main(["claim", assignment_id, "--project-root", str(project_root), "--agent-id", "agent-external"]) == 0
+    capsys.readouterr()
+
+    code = main(
+        [
+            "complete",
+            assignment_id,
+            "--project-root",
+            str(project_root),
+            "--output-file",
+            str(output_file),
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert code == 2
+    assert "cannot be empty" in captured.err
+
+
 def test_task_center_cli_claim_next_returns_error_when_no_role_task(tmp_path, capsys) -> None:
     project_root = tmp_path / "project"
     state_store = FileStateStore(project_root / ".conductor" / "state")

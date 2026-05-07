@@ -632,15 +632,18 @@ def _task_return_output_artifact_ids(
         return output_artifact_ids
     state = _require_project_state(project_id)
     assignment = _task_center_service().require_assignment(state, assignment_id)
-    artifact = create_task_return_artifact(
-        state_store=engine.state_store,
-        artifact_store=engine.artifact_store,
-        state=state,
-        assignment=assignment,
-        content=payload.output_artifact_content,
-        kind=payload.output_artifact_kind,
-        title=payload.output_artifact_title,
-    )
+    try:
+        artifact = create_task_return_artifact(
+            state_store=engine.state_store,
+            artifact_store=engine.artifact_store,
+            state=state,
+            assignment=assignment,
+            content=payload.output_artifact_content,
+            kind=payload.output_artifact_kind,
+            title=payload.output_artifact_title,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
     output_artifact_ids.append(artifact.id)
     return output_artifact_ids
 

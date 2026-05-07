@@ -141,6 +141,9 @@ def main(argv: list[str] | None = None) -> int:
     except TaskCenterError as error:
         print(json.dumps({"ok": False, "error": str(error)}, ensure_ascii=False), file=sys.stderr)
         return 2
+    except ValueError as error:
+        print(json.dumps({"ok": False, "error": str(error)}, ensure_ascii=False), file=sys.stderr)
+        return 2
 
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0

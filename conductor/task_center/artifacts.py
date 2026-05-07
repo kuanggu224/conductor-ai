@@ -18,6 +18,8 @@ def create_task_return_artifact(
     title: str = "",
 ) -> Artifact:
     """Persist an external worker artifact and attach it to project state."""
+    if not content.strip():
+        raise ValueError("Task return artifact content cannot be empty.")
     artifact_id = _next_external_artifact_id(state, assignment.workitem_id)
     artifact = Artifact(
         id=artifact_id,

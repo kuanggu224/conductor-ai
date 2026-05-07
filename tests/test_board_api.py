@@ -261,6 +261,25 @@ def test_project_task_complete_api_can_create_output_artifact() -> None:
     assert "Implemented through API" in artifact.content
 
 
+def test_project_task_complete_api_rejects_empty_output_artifact() -> None:
+    client = TestClient(board.app)
+    state = board.engine.create_project(requirement="Build a local reading list", project_root="")
+    assignment_id = state.task_assignments[0].id
+    claim = client.post(
+        f"/api/projects/{state.project.id}/tasks/{assignment_id}/claim",
+        json={"agent_id": "agent-api-worker"},
+    )
+    assert claim.status_code == 200
+
+    response = client.post(
+        f"/api/projects/{state.project.id}/tasks/{assignment_id}/complete",
+        json={"output_artifact_content": "   "},
+    )
+
+    assert response.status_code == 422
+    assert "cannot be empty" in response.json()["detail"]
+
+
 def test_project_task_context_api_returns_input_artifact_content() -> None:
     client = TestClient(board.app)
     state = board.engine.create_project(
