@@ -66,7 +66,7 @@ class RunManifestWriter:
         requirement_evaluations = self._requirement_evaluations(state)
         requirement_coverage_results = self._requirement_coverage_results(state)
         manifest = RunManifest(
-            schema_version="1.4",
+            schema_version="1.5",
             run_id=f"{state.project.id}:{generated_at}",
             project_id=state.project.id,
             generated_at=generated_at,
@@ -113,6 +113,7 @@ class RunManifestWriter:
                     "failure_type": item.failure_type,
                     "retryable": item.retryable,
                     "failure_summary": item.failure_summary,
+                    "acceptance_criteria": list(item.acceptance_criteria),
                 }
                 for item in state.workitems
             ],
