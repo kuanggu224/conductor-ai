@@ -158,6 +158,12 @@ class ProjectLogStore:
         else:
             lines.append("- None")
 
+        lines.extend(["", "## Executions"])
+        if state.executions:
+            lines.extend(self._execution_lines(state))
+        else:
+            lines.append("- None")
+
         lines.extend(["", "## Artifacts"])
         if state.artifacts:
             for artifact in state.artifacts:
@@ -203,9 +209,32 @@ class ProjectLogStore:
             lines.append(
                 f"- {assignment.id} | workitem={assignment.workitem_id} | role={assignment.role} | "
                 f"status={assignment.status.value} | agent={assignment.assigned_agent_id or '-'} | "
-                f"claimable={str(task_center.claimable(state, assignment)).lower()} | unmet_dependencies={unmet_text}"
+                f"claimable={str(task_center.claimable(state, assignment)).lower()} | unmet_dependencies={unmet_text} | "
+                f"input_artifacts={self._join_or_dash(assignment.input_artifact_ids)} | "
+                f"output_artifacts={self._join_or_dash(assignment.output_artifact_ids)}"
             )
         return lines
+
+    def _execution_lines(self, state: SharedProjectState) -> list[str]:
+        """Render execution input/output artifact lineage."""
+        output_artifacts_by_workitem: dict[str, list[str]] = {}
+        for artifact in state.artifacts:
+            output_artifacts_by_workitem.setdefault(artifact.workitem_id, []).append(artifact.id)
+        lines: list[str] = []
+        for execution in state.executions:
+            lines.append(
+                f"- workitem={execution.workitem_id} | agent={execution.agent_id} | "
+                f"status={execution.status.value} | backend={execution.source_backend or '-'} | "
+                f"input_artifacts={self._join_or_dash(execution.input_artifact_ids)} | "
+                f"output_artifacts={self._join_or_dash(output_artifacts_by_workitem.get(execution.workitem_id, []))} | "
+                f"changed_files={self._join_or_dash(execution.changed_files)} | "
+                f"validation={execution.validation_success if execution.validation_success is not None else '-'}"
+            )
+        return lines
+
+    def _join_or_dash(self, values: list[str]) -> str:
+        """Return a readable comma-separated list or dash."""
+        return ", ".join(values) if values else "-"
 
     def _requirement_coverage_traceability_lines(self, state: SharedProjectState) -> list[str]:
         """Render requirement-to-validation traceability for human reports."""
