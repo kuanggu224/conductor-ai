@@ -75,6 +75,11 @@ class RunManifestWriter:
         log_path = str(self._log_path(state.project.id, state.project.project_root))
         report_path_text = str(Path(report_path))
         executions = [self._execution_record(state, execution, cli_config) for execution in state.executions]
+        cli_runs = [
+            record for record in executions if str(record.get("source_backend", "")).startswith(("agent_cli/", "cli/"))
+        ]
+        llm_runs = self._llm_runs(state, executions)
+        collaboration_runs = self._collaboration_runs(state)
         requirement_evaluations = self._requirement_evaluations(state)
         requirement_coverage_results = self._requirement_coverage_results(state)
         task_center = TaskCenterService(_ManifestStateStore(state))
@@ -87,7 +92,7 @@ class RunManifestWriter:
             probe_llm=False,
         ).to_dict()
         manifest = RunManifest(
-            schema_version="1.17",
+            schema_version="1.18",
             run_id=f"{state.project.id}:{generated_at}",
             project_id=state.project.id,
             generated_at=generated_at,
@@ -113,18 +118,28 @@ class RunManifestWriter:
                 ),
                 "requirement_coverage_status": self._requirement_coverage_status(requirement_coverage_results),
                 "task_center_summary": task_center.summary(state),
+                "workitem_status_counts": self._workitem_status_counts(state),
+                "execution_status_counts": self._execution_status_counts(executions),
+                "failed_workitem_ids": self._failed_workitem_ids(state),
+                "blocked_reasons": list(state.blockers),
+                "retryable_failure_count": self._retryable_failure_count(state),
+                "non_retryable_failure_count": self._non_retryable_failure_count(state),
+                "cli_run_count": len(cli_runs),
+                "llm_run_count": len(llm_runs),
+                "collaboration_run_count": len(collaboration_runs),
+                "changed_file_count": len(self._changed_files(executions)),
+                "changed_files": self._changed_files(executions),
+                "artifact_file_count": len(artifact_files),
+                "task_prompt_file_count": len(task_prompt_files),
+                "validation_failure_count": self._validation_failure_count(executions),
             },
             run_environment=self._run_environment_snapshot(),
             platform_diagnostics=platform_diagnostics,
             agents=[self._agent_record(state, activation, cli_config) for activation in state.agent_activations],
             executions=executions,
-            cli_runs=[
-                record
-                for record in executions
-                if str(record.get("source_backend", "")).startswith(("agent_cli/", "cli/"))
-            ],
-            llm_runs=self._llm_runs(state, executions),
-            collaboration_runs=self._collaboration_runs(state),
+            cli_runs=cli_runs,
+            llm_runs=llm_runs,
+            collaboration_runs=collaboration_runs,
             requirement_evaluations=requirement_evaluations,
             requirement_coverage_results=requirement_coverage_results,
             workitems=[
@@ -314,6 +329,46 @@ class RunManifestWriter:
         if any(result.get("required_rules") for result in results):
             return "pass"
         return "no_rules"
+
+    def _workitem_status_counts(self, state: SharedProjectState) -> dict[str, int]:
+        """Return WorkItem status counts for quick run audits."""
+        return self._count_values([item.status.value for item in state.workitems])
+
+    def _execution_status_counts(self, executions: list[dict[str, object]]) -> dict[str, int]:
+        """Return Execution status counts for quick run audits."""
+        return self._count_values([str(item.get("status", "")) for item in executions])
+
+    def _failed_workitem_ids(self, state: SharedProjectState) -> list[str]:
+        """Return failed WorkItem ids in manifest order."""
+        return [item.id for item in state.workitems if item.status.value == "failed"]
+
+    def _retryable_failure_count(self, state: SharedProjectState) -> int:
+        """Return retryable failed WorkItem count."""
+        return len([item for item in state.workitems if item.status.value == "failed" and item.retryable])
+
+    def _non_retryable_failure_count(self, state: SharedProjectState) -> int:
+        """Return non-retryable failed WorkItem count."""
+        return len([item for item in state.workitems if item.status.value == "failed" and not item.retryable])
+
+    def _changed_files(self, executions: list[dict[str, object]]) -> list[str]:
+        """Return deduplicated changed files referenced by executions."""
+        changed: list[str] = []
+        for execution in executions:
+            changed.extend([str(item) for item in execution.get("changed_files", []) if item])
+        return self._dedupe(changed)
+
+    def _validation_failure_count(self, executions: list[dict[str, object]]) -> int:
+        """Return executions with explicit failed post-edit validation."""
+        return len([item for item in executions if item.get("validation_success") is False])
+
+    def _count_values(self, values: list[str]) -> dict[str, int]:
+        """Count non-empty string values while preserving first-seen order."""
+        counts: dict[str, int] = {}
+        for value in values:
+            if not value:
+                continue
+            counts[value] = counts.get(value, 0) + 1
+        return counts
 
     def _manifest_path(self, project_id: str, project_root: str | Path | None) -> Path:
         root = (Path(project_root) / ".conductor" / "manifests") if project_root else Path(".conductor") / "manifests"

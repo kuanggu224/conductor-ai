@@ -24,7 +24,7 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     manifest_path = engine.write_run_manifest(state.project.id, report_path)
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-    assert payload["schema_version"] == "1.17"
+    assert payload["schema_version"] == "1.18"
     assert payload["run_id"].startswith(state.project.id)
     assert payload["project_id"] == state.project.id
     assert payload["run_profile"] == "mock"
@@ -86,6 +86,20 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     assert payload["summary"]["execution_count"] == len(state.executions)
     assert "requirement_quality_score" in payload["summary"]
     assert "requirement_coverage_status" in payload["summary"]
+    assert payload["summary"]["workitem_status_counts"]
+    assert payload["summary"]["execution_status_counts"]
+    assert isinstance(payload["summary"]["failed_workitem_ids"], list)
+    assert isinstance(payload["summary"]["blocked_reasons"], list)
+    assert "retryable_failure_count" in payload["summary"]
+    assert "non_retryable_failure_count" in payload["summary"]
+    assert payload["summary"]["cli_run_count"] == len(payload["cli_runs"])
+    assert payload["summary"]["llm_run_count"] == len(payload["llm_runs"])
+    assert payload["summary"]["collaboration_run_count"] == len(payload["collaboration_runs"])
+    assert isinstance(payload["summary"]["changed_files"], list)
+    assert payload["summary"]["changed_file_count"] == len(payload["summary"]["changed_files"])
+    assert payload["summary"]["artifact_file_count"] == len(payload["artifact_files"])
+    assert payload["summary"]["task_prompt_file_count"] == len(payload["task_prompt_files"])
+    assert "validation_failure_count" in payload["summary"]
     assert payload["summary"]["task_center_summary"]["total"] == len(state.task_assignments)
     assert "claimable" in payload["summary"]["task_center_summary"]
     assert "blocked_by_dependencies" in payload["summary"]["task_center_summary"]
@@ -337,6 +351,9 @@ def test_manifest_records_failure_remediation_suggestions(tmp_path) -> None:
 
     assert "Increase the CLI or LLM timeout" in payload["workitems"][0]["remediation_suggestions"][0]
     assert payload["executions"][0]["remediation_suggestions"]
+    assert payload["summary"]["failed_workitem_ids"] == ["workitem-timeout"]
+    assert payload["summary"]["retryable_failure_count"] == 1
+    assert payload["summary"]["non_retryable_failure_count"] == 0
 
 
 def test_manifest_records_codex_model_for_bound_agent(tmp_path) -> None:
@@ -446,6 +463,10 @@ def test_manifest_extracts_cli_runs_from_agent_cli_artifacts(tmp_path) -> None:
     assert payload["executions"][0]["changed_files"] == ["app.py"]
     assert payload["executions"][0]["validation_success"] is True
     assert payload["executions"][0]["cli_stdout_tail"] == "done"
+    assert payload["summary"]["cli_run_count"] == 1
+    assert payload["summary"]["changed_files"] == ["app.py"]
+    assert payload["summary"]["changed_file_count"] == 1
+    assert payload["summary"]["validation_failure_count"] == 0
 
 
 def test_manifest_records_llm_harness_collaboration_runtime(tmp_path) -> None:
