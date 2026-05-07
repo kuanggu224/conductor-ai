@@ -8,6 +8,7 @@ from itertools import count
 from conductor.config.execution import ExecutionScopeConfig
 from conductor.config.system import SystemConfig
 from conductor.domain.models import Stage, WorkItem
+from conductor.testing.coverage import infer_coverage_rules
 
 
 @dataclass(slots=True)
@@ -161,11 +162,16 @@ class Planner:
 
     def _plan_testing_drafts(self, normalized_requirement: str, original_requirement: str) -> list[WorkItemDraft]:
         frontend_only = self._is_frontend_only_requirement(normalized_requirement)
+        coverage_criteria = self._coverage_acceptance_criteria(original_requirement)
         drafts = [
             WorkItemDraft(
                 kind="acceptance_check",
                 description=f"校验交付结果是否满足需求：{original_requirement}",
-                acceptance_criteria=["确认功能闭环", "无阻塞当前交付的关键问题"],
+                acceptance_criteria=[
+                    "确认功能闭环",
+                    "无阻塞当前交付的关键问题",
+                    *coverage_criteria,
+                ],
             )
         ]
         if self._contains_any(normalized_requirement, self.TEST_KEYWORDS):
@@ -193,6 +199,13 @@ class Planner:
                 )
             )
         return drafts
+
+    def _coverage_acceptance_criteria(self, requirement: str) -> list[str]:
+        """Build testing acceptance criteria from inferred requirement concerns."""
+        return [
+            f"Provide validation evidence for frozen requirement: {rule.label}"
+            for rule in infer_coverage_rules(requirement)
+        ]
 
     def _build_workitem(self, stage_name: str, draft: WorkItemDraft) -> WorkItem:
         sequence = next(self._workitem_counter)

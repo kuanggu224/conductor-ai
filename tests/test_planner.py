@@ -48,3 +48,21 @@ def test_planner_skips_backend_and_api_work_for_static_frontend_only_requirement
     assert [item.kind for item in design_workitems] == ["design_overview", "ui_design"]
     assert [item.kind for item in development_workitems] == ["ui_implementation"]
     assert [item.kind for item in testing_workitems] == ["acceptance_check", "ui_validation"]
+
+
+def test_planner_adds_requirement_coverage_criteria_to_acceptance_check() -> None:
+    workflow = WorkflowTemplate()
+    planner = Planner()
+    requirement = (
+        "\u7528\u6237\u53ef\u4ee5\u6dfb\u52a0\u4e66\u7c4d\uff0c"
+        "\u5237\u65b0\u540e\u4fdd\u7559\u6570\u636e\uff0c"
+        "\u5e76\u5bfc\u51fa CSV\u3002"
+    )
+
+    testing_workitems = planner.plan_stage_workitems(workflow.get_next_stage("development"), requirement)
+    acceptance_check = testing_workitems[0]
+
+    assert acceptance_check.kind == "acceptance_check"
+    assert "Provide validation evidence for frozen requirement: add item interaction" in acceptance_check.acceptance_criteria
+    assert "Provide validation evidence for frozen requirement: refresh persistence" in acceptance_check.acceptance_criteria
+    assert "Provide validation evidence for frozen requirement: CSV export/download" in acceptance_check.acceptance_criteria

@@ -3,7 +3,7 @@
 from conductor.controller.lead_controller import LeadController
 from conductor.collaboration.models import Collaboration, CollaborationStatus
 from conductor.collaboration.policy import CollaborationPolicy
-from conductor.domain.models import ProjectStatus, TaskAssignmentStatus, WorkItem, WorkItemStatus
+from conductor.domain.models import Artifact, ProjectStatus, TaskAssignmentStatus, WorkItem, WorkItemStatus
 from conductor.execution.runner import Runner
 from conductor.state.store import InMemoryStateStore
 from conductor.workflow.template import WorkflowTemplate
@@ -367,3 +367,33 @@ def test_feedback_rework_limits_next_testing_scope() -> None:
     testing_items = [item for item in state.workitems if item.stage == "testing"]
     assert [item.kind for item in testing_items] == ["ui_validation"]
     assert state.pending_test_scope == []
+
+
+def test_testing_stage_planning_uses_frozen_requirement_for_coverage_scope() -> None:
+    controller = build_controller()
+    state = controller.initialize_project("Build a simple local app")
+    state.current_stage = "development"
+    state.project.current_stage = "development"
+    state.artifacts = [
+        Artifact(
+            id="artifact-frozen",
+            project_id=state.project.id,
+            workitem_id="workitem-req",
+            agent_id="agent-requirement",
+            kind="frozen_requirement_spec",
+            title="Frozen Requirement",
+            content=(
+                "\u7528\u6237\u53ef\u4ee5\u6dfb\u52a0\u4e66\u7c4d\uff0c"
+                "\u5237\u65b0\u540e\u4fdd\u7559\u6570\u636e\uff0c"
+                "\u5e76\u5bfc\u51fa CSV\u3002"
+            ),
+        )
+    ]
+    controller.state_store.save_state(state)
+
+    state = controller._advance_stage(state)
+    acceptance_check = next(item for item in state.workitems if item.stage == "testing" and item.kind == "acceptance_check")
+
+    assert "Provide validation evidence for frozen requirement: add item interaction" in acceptance_check.acceptance_criteria
+    assert "Provide validation evidence for frozen requirement: refresh persistence" in acceptance_check.acceptance_criteria
+    assert "Provide validation evidence for frozen requirement: CSV export/download" in acceptance_check.acceptance_criteria

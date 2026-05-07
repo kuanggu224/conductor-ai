@@ -417,7 +417,8 @@ class LeadController:
         if next_stage is None:
             raise RuntimeError("advance_stage 时未找到下一阶段")
         latest = self.state_store.get_state(project_id)
-        new_workitems = self.planner.plan_stage_workitems(next_stage, latest.project.goal)
+        planning_requirement = self._planning_requirement_text(latest)
+        new_workitems = self.planner.plan_stage_workitems(next_stage, planning_requirement)
         new_workitems = self._dedupe_new_workitem_ids(latest, new_workitems)
         new_workitems = self._apply_pending_test_scope(latest, next_stage.name, new_workitems)
         new_workitems = self._attach_stage_dependencies(new_workitems, latest.workitems)
@@ -467,6 +468,14 @@ class LeadController:
         )
         self.state_store.save_state(completed_state)
         return completed_state
+
+    def _planning_requirement_text(self, state: SharedProjectState) -> str:
+        """Prefer the frozen requirement baseline when planning downstream stages."""
+        frozen_requirement = next(
+            (artifact for artifact in reversed(state.artifacts) if artifact.kind == "frozen_requirement_spec"),
+            None,
+        )
+        return frozen_requirement.content if frozen_requirement is not None else state.project.goal
 
     def _escalate_project(self, project_id: str) -> SharedProjectState:
         latest = self.state_store.get_state(project_id)
