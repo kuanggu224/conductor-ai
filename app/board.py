@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from contextlib import asynccontextmanager
 from pathlib import Path
 from threading import Lock, Thread
@@ -19,7 +19,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel, StrictBool, StringConstraints
+from pydantic import BaseModel, Field, StrictBool, StringConstraints
 
 from conductor.agents.llm import LLMHTTPConfig
 from conductor.board.service import BoardService
@@ -43,6 +43,7 @@ from conductor.config.llm import (
     save_llm_runtime_config,
 )
 from conductor.controller.engine import ConductorEngine
+from conductor.domain.models import SharedProjectState, TaskAssignment, TaskAssignmentStatus
 from conductor.io.encoding import configure_utf8_stdio
 from conductor.io.requirements import RequirementInputError, load_requirement_text
 from conductor.todo.service import (
@@ -110,6 +111,21 @@ class TodoUpdateRequest(BaseModel):
     title: OptionalTodoTitle = None
     completed: StrictBool | None = None
     content: OptionalTodoContent = None
+
+
+class TaskClaimRequest(BaseModel):
+    """Payload for claiming a task-center assignment."""
+
+    agent_id: TodoTitle
+    claim_reason: TodoContent = ""
+
+
+class TaskReturnRequest(BaseModel):
+    """Payload for returning a task-center assignment."""
+
+    result_summary: TodoContent = ""
+    output_artifact_ids: list[str] = Field(default_factory=list)
+    blocked_reason: TodoContent = ""
 
 
 @dataclass(slots=True)
@@ -472,6 +488,95 @@ def project_detail_api(project_id: str) -> JSONResponse:
 def project_tasks_api(project_id: str, status: str | None = None) -> JSONResponse:
     """Return task center assignments for one project, optionally filtered by status."""
     state = _require_project_state(project_id)
+    return JSONResponse(_task_center_payload(state, status=status))
+
+
+@app.post("/api/projects/{project_id}/tasks/{assignment_id}/claim")
+async def claim_project_task_api(project_id: str, assignment_id: str, payload: TaskClaimRequest) -> JSONResponse:
+    """Claim one queued task-center assignment."""
+    state = _require_project_state(project_id)
+    assignment = _require_task_assignment(state, assignment_id)
+    if assignment.status != TaskAssignmentStatus.QUEUED:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Task assignment is not queued: {assignment.status.value}",
+        )
+    updated = replace(
+        assignment,
+        status=TaskAssignmentStatus.CLAIMED,
+        assigned_agent_id=payload.agent_id,
+        claim_reason=payload.claim_reason,
+        blocked_reason=None,
+    )
+    state = engine.state_store.upsert_task_assignment(project_id, updated)
+    engine.state_store.add_event(project_id, f"TaskCenter: {payload.agent_id} claimed {assignment.workitem_id}")
+    state = _require_project_state(project_id)
+    return JSONResponse(
+        {
+            "project_id": project_id,
+            "task": _task_assignment_payload(updated, state),
+        }
+    )
+
+
+@app.post("/api/projects/{project_id}/tasks/{assignment_id}/complete")
+async def complete_project_task_api(project_id: str, assignment_id: str, payload: TaskReturnRequest) -> JSONResponse:
+    """Return a claimed task-center assignment as completed."""
+    state = _require_project_state(project_id)
+    assignment = _require_task_assignment(state, assignment_id)
+    if assignment.status != TaskAssignmentStatus.CLAIMED:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Task assignment is not claimed: {assignment.status.value}",
+        )
+    updated = replace(
+        assignment,
+        status=TaskAssignmentStatus.COMPLETED,
+        output_artifact_ids=list(payload.output_artifact_ids),
+        result_summary=payload.result_summary,
+        blocked_reason=None,
+    )
+    state = engine.state_store.upsert_task_assignment(project_id, updated)
+    engine.state_store.add_event(project_id, f"TaskCenter: {assignment.workitem_id} returned completed")
+    state = _require_project_state(project_id)
+    return JSONResponse(
+        {
+            "project_id": project_id,
+            "task": _task_assignment_payload(updated, state),
+        }
+    )
+
+
+@app.post("/api/projects/{project_id}/tasks/{assignment_id}/fail")
+async def fail_project_task_api(project_id: str, assignment_id: str, payload: TaskReturnRequest) -> JSONResponse:
+    """Return a claimed task-center assignment as failed."""
+    state = _require_project_state(project_id)
+    assignment = _require_task_assignment(state, assignment_id)
+    if assignment.status != TaskAssignmentStatus.CLAIMED:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Task assignment is not claimed: {assignment.status.value}",
+        )
+    updated = replace(
+        assignment,
+        status=TaskAssignmentStatus.FAILED,
+        output_artifact_ids=list(payload.output_artifact_ids),
+        result_summary=payload.result_summary,
+        blocked_reason=payload.blocked_reason or None,
+    )
+    state = engine.state_store.upsert_task_assignment(project_id, updated)
+    engine.state_store.add_event(project_id, f"TaskCenter: {assignment.workitem_id} returned failed")
+    state = _require_project_state(project_id)
+    return JSONResponse(
+        {
+            "project_id": project_id,
+            "task": _task_assignment_payload(updated, state),
+        }
+    )
+
+
+def _task_center_payload(state: SharedProjectState, status: str | None = None) -> dict[str, object]:
+    """Build the task-center response payload."""
     workitems_by_id = {item.id: item for item in state.workitems}
     artifacts_by_workitem: dict[str, list[dict[str, object]]] = {}
     for artifact in state.artifacts:
@@ -490,31 +595,67 @@ def project_tasks_api(project_id: str, status: str | None = None) -> JSONRespons
         for assignment in state.task_assignments
         if status is None or assignment.status.value == status
     ]
-    return JSONResponse(
-        {
-            "project_id": project_id,
-            "status_filter": status or "",
-            "total": len(assignments),
-            "tasks": [
-                {
-                    "id": assignment.id,
-                    "workitem_id": assignment.workitem_id,
-                    "role": assignment.role,
-                    "status": assignment.status.value,
-                    "assigned_agent_id": assignment.assigned_agent_id or "",
-                    "claim_reason": assignment.claim_reason,
-                    "dependencies": list(assignment.dependencies),
-                    "input_artifact_ids": list(assignment.input_artifact_ids),
-                    "output_artifact_ids": list(assignment.output_artifact_ids),
-                    "result_summary": assignment.result_summary,
-                    "blocked_reason": assignment.blocked_reason or "",
-                    "workitem": _task_workitem_payload(workitems_by_id.get(assignment.workitem_id)),
-                    "artifacts": artifacts_by_workitem.get(assignment.workitem_id, []),
-                }
-                for assignment in assignments
-            ],
-        }
-    )
+    return {
+        "project_id": state.project.id,
+        "status_filter": status or "",
+        "total": len(assignments),
+        "tasks": [
+            _task_assignment_payload(
+                assignment,
+                state,
+                workitem=workitems_by_id.get(assignment.workitem_id),
+                artifacts=artifacts_by_workitem.get(assignment.workitem_id, []),
+            )
+            for assignment in assignments
+        ],
+    }
+
+
+def _task_assignment_payload(
+    assignment: TaskAssignment,
+    state: SharedProjectState,
+    workitem=None,
+    artifacts: list[dict[str, object]] | None = None,
+) -> dict[str, object]:
+    """Build one task-center assignment payload."""
+    if workitem is None:
+        workitem = next((item for item in state.workitems if item.id == assignment.workitem_id), None)
+    if artifacts is None:
+        artifacts = [
+            {
+                "id": artifact.id,
+                "kind": artifact.kind,
+                "title": artifact.title,
+                "path": artifact.path or "",
+                "source_backend": artifact.source_backend,
+                "version": artifact.version,
+            }
+            for artifact in state.artifacts
+            if artifact.workitem_id == assignment.workitem_id
+        ]
+    return {
+        "id": assignment.id,
+        "workitem_id": assignment.workitem_id,
+        "role": assignment.role,
+        "status": assignment.status.value,
+        "assigned_agent_id": assignment.assigned_agent_id or "",
+        "claim_reason": assignment.claim_reason,
+        "dependencies": list(assignment.dependencies),
+        "input_artifact_ids": list(assignment.input_artifact_ids),
+        "output_artifact_ids": list(assignment.output_artifact_ids),
+        "result_summary": assignment.result_summary,
+        "blocked_reason": assignment.blocked_reason or "",
+        "workitem": _task_workitem_payload(workitem),
+        "artifacts": artifacts,
+    }
+
+
+def _require_task_assignment(state: SharedProjectState, assignment_id: str) -> TaskAssignment:
+    """Return an assignment or raise 404."""
+    for assignment in state.task_assignments:
+        if assignment.id == assignment_id:
+            return assignment
+    raise HTTPException(status_code=404, detail=f"Task assignment not found: {assignment_id}")
 
 
 def _task_workitem_payload(workitem) -> dict[str, object]:

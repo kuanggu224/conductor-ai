@@ -106,3 +106,69 @@ def test_project_tasks_api_filters_by_status() -> None:
     assert queued.json()["total"] == 1
     assert completed.status_code == 200
     assert completed.json()["total"] == 0
+
+
+def test_project_task_claim_and_complete_protocol() -> None:
+    client = TestClient(board.app)
+    state = board.engine.create_project(requirement="Build a local reading list", project_root="")
+    assignment_id = state.task_assignments[0].id
+
+    claimed = client.post(
+        f"/api/projects/{state.project.id}/tasks/{assignment_id}/claim",
+        json={"agent_id": "agent-manual", "claim_reason": "manual smoke"},
+    )
+
+    assert claimed.status_code == 200
+    claimed_task = claimed.json()["task"]
+    assert claimed_task["status"] == "claimed"
+    assert claimed_task["assigned_agent_id"] == "agent-manual"
+    assert claimed_task["claim_reason"] == "manual smoke"
+
+    claimed_list = client.get(f"/api/projects/{state.project.id}/tasks?status=claimed")
+    assert claimed_list.status_code == 200
+    assert claimed_list.json()["total"] == 1
+
+    completed = client.post(
+        f"/api/projects/{state.project.id}/tasks/{assignment_id}/complete",
+        json={"result_summary": "finished task", "output_artifact_ids": ["artifact-manual"]},
+    )
+
+    assert completed.status_code == 200
+    completed_task = completed.json()["task"]
+    assert completed_task["status"] == "completed"
+    assert completed_task["result_summary"] == "finished task"
+    assert completed_task["output_artifact_ids"] == ["artifact-manual"]
+
+    completed_list = client.get(f"/api/projects/{state.project.id}/tasks?status=completed")
+    assert completed_list.status_code == 200
+    assert completed_list.json()["total"] == 1
+
+
+def test_project_task_claim_rejects_non_queued_assignment() -> None:
+    client = TestClient(board.app)
+    state = board.engine.create_project(requirement="Build a local reading list", project_root="")
+    assignment_id = state.task_assignments[0].id
+
+    first_claim = client.post(
+        f"/api/projects/{state.project.id}/tasks/{assignment_id}/claim",
+        json={"agent_id": "agent-manual"},
+    )
+    second_claim = client.post(
+        f"/api/projects/{state.project.id}/tasks/{assignment_id}/claim",
+        json={"agent_id": "agent-other"},
+    )
+
+    assert first_claim.status_code == 200
+    assert second_claim.status_code == 409
+
+
+def test_project_task_return_missing_assignment_404() -> None:
+    client = TestClient(board.app)
+    state = board.engine.create_project(requirement="Build a local reading list", project_root="")
+
+    response = client.post(
+        f"/api/projects/{state.project.id}/tasks/task-assignment-missing/complete",
+        json={"result_summary": "done"},
+    )
+
+    assert response.status_code == 404
