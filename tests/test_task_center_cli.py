@@ -96,3 +96,60 @@ def test_task_center_cli_rejects_return_before_claim(tmp_path, capsys) -> None:
 
     assert code == 2
     assert "not claimed" in captured.err
+
+
+def test_task_center_cli_claim_next_selects_available_role_task(tmp_path, capsys) -> None:
+    project_root = tmp_path / "project"
+    state_store = FileStateStore(project_root / ".conductor" / "state")
+    engine = ConductorEngine(
+        log_dir=project_root / ".conductor" / "logs",
+        artifact_dir=project_root / ".conductor" / "artifacts",
+        state_store=state_store,
+    )
+    state = engine.create_project(requirement="Build a local reading list", project_root=str(project_root))
+    role = state.task_assignments[0].role
+
+    code = main(
+        [
+            "claim-next",
+            "--project-root",
+            str(project_root),
+            "--role",
+            role,
+            "--agent-id",
+            "agent-role-worker",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert payload["task"]["role"] == role
+    assert payload["task"]["status"] == "claimed"
+    assert payload["task"]["assigned_agent_id"] == "agent-role-worker"
+
+
+def test_task_center_cli_claim_next_returns_error_when_no_role_task(tmp_path, capsys) -> None:
+    project_root = tmp_path / "project"
+    state_store = FileStateStore(project_root / ".conductor" / "state")
+    engine = ConductorEngine(
+        log_dir=project_root / ".conductor" / "logs",
+        artifact_dir=project_root / ".conductor" / "artifacts",
+        state_store=state_store,
+    )
+    engine.create_project(requirement="Build a local reading list", project_root=str(project_root))
+
+    code = main(
+        [
+            "claim-next",
+            "--project-root",
+            str(project_root),
+            "--role",
+            "missing_role",
+            "--agent-id",
+            "agent-role-worker",
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert code == 2
+    assert "No queued task assignment available for role missing_role" in captured.err

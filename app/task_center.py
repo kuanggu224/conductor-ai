@@ -8,7 +8,7 @@ import sys
 from dataclasses import asdict, replace
 from pathlib import Path
 
-from conductor.domain.models import SharedProjectState, TaskAssignment, TaskAssignmentStatus
+from conductor.domain.models import SharedProjectState, TaskAssignment, TaskAssignmentStatus, WorkItemStatus
 from conductor.io.encoding import configure_utf8_stdio
 from conductor.state.file_store import FileStateStore
 
@@ -32,6 +32,11 @@ def build_parser() -> argparse.ArgumentParser:
     claim_parser.add_argument("assignment_id")
     claim_parser.add_argument("--agent-id", required=True)
     claim_parser.add_argument("--claim-reason", default="")
+
+    claim_next_parser = subparsers.add_parser("claim-next", parents=[common], help="Claim the next queued assignment.")
+    claim_next_parser.add_argument("--agent-id", required=True)
+    claim_next_parser.add_argument("--role", help="Only claim assignments for this role.")
+    claim_next_parser.add_argument("--claim-reason", default="")
 
     complete_parser = subparsers.add_parser("complete", parents=[common], help="Return one claimed assignment as completed.")
     complete_parser.add_argument("assignment_id")
@@ -60,6 +65,16 @@ def main(argv: list[str] | None = None) -> int:
                 store,
                 state,
                 assignment_id=args.assignment_id,
+                agent_id=args.agent_id,
+                claim_reason=args.claim_reason,
+            )
+            payload = _assignment_payload(state, assignment)
+        elif args.command == "claim-next":
+            assignment = _select_next_assignment(state, role=args.role)
+            state, assignment = _claim_assignment(
+                store,
+                state,
+                assignment_id=assignment.id,
                 agent_id=args.agent_id,
                 claim_reason=args.claim_reason,
             )
@@ -154,6 +169,28 @@ def _claim_assignment(
     store.upsert_task_assignment(state.project.id, updated)
     store.add_event(state.project.id, f"TaskCenterCLI: {agent_id} claimed {assignment.workitem_id}")
     return store.get_state(state.project.id), updated
+
+
+def _select_next_assignment(state: SharedProjectState, role: str | None = None) -> TaskAssignment:
+    """Return the first queued assignment whose dependencies are satisfied."""
+    for assignment in state.task_assignments:
+        if assignment.status != TaskAssignmentStatus.QUEUED:
+            continue
+        if role and assignment.role != role:
+            continue
+        if not _dependencies_satisfied(state, assignment):
+            continue
+        return assignment
+    suffix = f" for role {role}" if role else ""
+    raise TaskCenterCommandError(f"No queued task assignment available{suffix}.")
+
+
+def _dependencies_satisfied(state: SharedProjectState, assignment: TaskAssignment) -> bool:
+    """Return whether all referenced WorkItem dependencies are done."""
+    if not assignment.dependencies:
+        return True
+    status_by_workitem = {item.id: item.status for item in state.workitems}
+    return all(status_by_workitem.get(dependency_id) == WorkItemStatus.DONE for dependency_id in assignment.dependencies)
 
 
 def _return_assignment(
