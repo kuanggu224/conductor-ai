@@ -66,7 +66,7 @@ class RunManifestWriter:
         requirement_evaluations = self._requirement_evaluations(state)
         requirement_coverage_results = self._requirement_coverage_results(state)
         manifest = RunManifest(
-            schema_version="1.3",
+            schema_version="1.4",
             run_id=f"{state.project.id}:{generated_at}",
             project_id=state.project.id,
             generated_at=generated_at,
@@ -198,6 +198,16 @@ class RunManifestWriter:
                     "covered_rules": list(coverage.covered_rule_ids),
                     "missing_rules": [rule.rule_id for rule in coverage.missing_rules],
                     "missing_labels": [rule.label for rule in coverage.missing_rules],
+                    "traceability": [
+                        {
+                            "rule_id": item.rule_id,
+                            "label": item.label,
+                            "status": item.status,
+                            "requirement_terms": list(item.requirement_terms),
+                            "evidence_terms": list(item.evidence_terms),
+                        }
+                        for item in coverage.traceability
+                    ],
                     "summary": coverage.summary(),
                 }
             )

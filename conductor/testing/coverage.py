@@ -18,12 +18,24 @@ class CoverageRule:
 
 
 @dataclass(slots=True)
+class CoverageTraceItem:
+    """Trace one requirement concern to validation evidence."""
+
+    rule_id: str
+    label: str
+    status: str
+    requirement_terms: list[str] = field(default_factory=list)
+    evidence_terms: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
 class CoverageResult:
     """Requirement coverage result."""
 
     required_rules: list[CoverageRule] = field(default_factory=list)
     covered_rule_ids: list[str] = field(default_factory=list)
     missing_rules: list[CoverageRule] = field(default_factory=list)
+    traceability: list[CoverageTraceItem] = field(default_factory=list)
 
     @property
     def passed(self) -> bool:
@@ -37,11 +49,23 @@ class CoverageResult:
         covered = ", ".join(rule.label for rule in self.required_rules if rule.rule_id in self.covered_rule_ids) or "-"
         missing = ", ".join(rule.label for rule in self.missing_rules) or "-"
         status = "pass" if self.passed else "missing_coverage"
+        trace_lines = [
+            "| Rule | Status | Requirement Signal | Validation Evidence |",
+            "|---|---|---|---|",
+        ]
+        for item in self.traceability:
+            requirement_terms = ", ".join(item.requirement_terms) or "-"
+            evidence_terms = ", ".join(item.evidence_terms) or "-"
+            trace_lines.append(f"| {item.label} | `{item.status}` | {requirement_terms} | {evidence_terms} |")
         return (
             "## Requirement Coverage\n\n"
             f"- Status: `{status}`\n"
             f"- Covered: {covered}\n"
             f"- Missing: {missing}\n"
+            "\n"
+            "### Requirement Traceability\n"
+            + "\n".join(trace_lines)
+            + "\n"
         )
 
     def summary(self) -> str:
@@ -125,6 +149,16 @@ def evaluate_requirement_coverage(frozen_requirement: Artifact | str | None, val
         required_rules=required_rules,
         covered_rule_ids=covered_rule_ids,
         missing_rules=missing_rules,
+        traceability=[
+            CoverageTraceItem(
+                rule_id=rule.rule_id,
+                label=rule.label,
+                status="covered" if rule.rule_id in covered_rule_ids else "missing",
+                requirement_terms=_matched_terms(rule.requirement_terms, requirement_text),
+                evidence_terms=_matched_terms(rule.evidence_terms, output),
+            )
+            for rule in required_rules
+        ],
     )
 
 
@@ -138,9 +172,16 @@ def infer_coverage_rules(requirement_text: str) -> list[CoverageRule]:
     ]
 
 
+def _matched_terms(terms: tuple[str, ...], text: str) -> list[str]:
+    """Return terms that are present in text, preserving configured order."""
+    normalized = text.lower()
+    return [term for term in terms if term.lower() in normalized]
+
+
 __all__ = [
     "CoverageResult",
     "CoverageRule",
+    "CoverageTraceItem",
     "evaluate_requirement_coverage",
     "infer_coverage_rules",
 ]

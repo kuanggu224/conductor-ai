@@ -21,7 +21,7 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     manifest_path = engine.write_run_manifest(state.project.id, report_path)
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-    assert payload["schema_version"] == "1.3"
+    assert payload["schema_version"] == "1.4"
     assert payload["run_id"].startswith(state.project.id)
     assert payload["project_id"] == state.project.id
     assert payload["run_profile"] == "mock"
@@ -124,6 +124,29 @@ def test_manifest_records_requirement_coverage_results(tmp_path) -> None:
             "covered_rules": ["add_item", "export_csv"],
             "missing_rules": ["persistence"],
             "missing_labels": ["refresh persistence"],
+            "traceability": [
+                {
+                    "rule_id": "add_item",
+                    "label": "add item interaction",
+                    "status": "covered",
+                    "requirement_terms": ["\u6dfb\u52a0"],
+                    "evidence_terms": ["browser form interaction updated visible state"],
+                },
+                {
+                    "rule_id": "persistence",
+                    "label": "refresh persistence",
+                    "status": "missing",
+                    "requirement_terms": ["\u5237\u65b0\u540e", "\u4fdd\u7559\u6570\u636e"],
+                    "evidence_terms": [],
+                },
+                {
+                    "rule_id": "export_csv",
+                    "label": "CSV export/download",
+                    "status": "covered",
+                    "requirement_terms": ["csv", "\u5bfc\u51fa"],
+                    "evidence_terms": ["browser export/download action triggered"],
+                },
+            ],
             "summary": "Requirement coverage missing: refresh persistence",
         }
     ]

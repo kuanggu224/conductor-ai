@@ -33,7 +33,11 @@ def test_requirement_coverage_passes_when_harness_reports_required_evidence() ->
 
     assert result.passed is True
     assert result.missing_rules == []
+    assert [item.status for item in result.traceability] == ["covered", "covered", "covered"]
+    assert result.traceability[1].requirement_terms == ["\u5237\u65b0\u540e", "\u4fdd\u7559\u6570\u636e"]
+    assert result.traceability[1].evidence_terms == ["browser reload preserved submitted values"]
     assert "Status: `pass`" in result.render_markdown()
+    assert "Requirement Traceability" in result.render_markdown()
 
 
 def test_requirement_coverage_fails_missing_persistence_evidence() -> None:
@@ -44,4 +48,7 @@ def test_requirement_coverage_fails_missing_persistence_evidence() -> None:
 
     assert result.passed is False
     assert [rule.rule_id for rule in result.missing_rules] == ["persistence"]
+    assert [item.status for item in result.traceability] == ["covered", "missing"]
+    assert result.traceability[1].requirement_terms == ["\u5237\u65b0\u540e", "\u4fdd\u7559\u6570\u636e"]
+    assert result.traceability[1].evidence_terms == []
     assert result.summary() == "Requirement coverage missing: refresh persistence"
