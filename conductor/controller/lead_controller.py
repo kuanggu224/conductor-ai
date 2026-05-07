@@ -8,6 +8,7 @@ from uuid import uuid4
 from conductor.agents.registry import AgentRegistry
 from conductor.collaboration.models import CollaborationStatus
 from conductor.collaboration.runner import CollaborationRunner
+from conductor.context.builder import ContextBuilder
 from conductor.domain.models import (
     AgentActivation,
     AgentCapabilityStats,
@@ -53,6 +54,7 @@ class LeadController:
         self.router = router or Router(self.registry)
         self.gate_evaluator = gate_evaluator or WorkflowGateEvaluator()
         self.collaboration_runner = collaboration_runner
+        self.context_builder = ContextBuilder()
 
     def initialize_project(self, requirement: str, project_root: str | None = None) -> SharedProjectState:
         """Initialize a project and register its first-stage tasks."""
@@ -275,7 +277,7 @@ class LeadController:
             feedback_from=[failed_workitem.id],
             rework_of=failed_workitem.id,
         )
-        assignments = self._build_task_assignments([rework_item])
+        assignments = self._build_task_assignments([rework_item], latest)
         updated_workitems = [
             replace(item, status=WorkItemStatus.DONE, blocked_reason="需求门禁失败已转入返工 WorkItem")
             if item.id == failed_workitem.id
@@ -422,7 +424,7 @@ class LeadController:
         new_workitems = self._dedupe_new_workitem_ids(latest, new_workitems)
         new_workitems = self._apply_pending_test_scope(latest, next_stage.name, new_workitems)
         new_workitems = self._attach_stage_dependencies(new_workitems, latest.workitems)
-        new_assignments = self._build_task_assignments(new_workitems)
+        new_assignments = self._build_task_assignments(new_workitems, latest)
         updated_project = replace(
             latest.project,
             current_stage=next_stage.name,
@@ -536,7 +538,7 @@ class LeadController:
                 )
             )
 
-        assignments = self._build_task_assignments(rework_items)
+        assignments = self._build_task_assignments(rework_items, latest)
         updated_project = replace(
             latest.project,
             current_stage="development",
@@ -763,11 +765,16 @@ class LeadController:
         )
         self.state_store.save_state(updated)
 
-    def _build_task_assignments(self, workitems: list[WorkItem]) -> list[TaskAssignment]:
+    def _build_task_assignments(
+        self,
+        workitems: list[WorkItem],
+        state: SharedProjectState | None = None,
+    ) -> list[TaskAssignment]:
         """Create Task Center records for WorkItems."""
         assignments: list[TaskAssignment] = []
         for workitem in workitems:
             role = self.router.resolve_role(workitem)
+            input_artifact_ids = self._context_input_artifact_ids(state, workitem)
             assignments.append(
                 TaskAssignment(
                     id=f"assignment-{workitem.id}",
@@ -775,10 +782,22 @@ class LeadController:
                     role=role,
                     claim_reason=f"{workitem.kind} 需要 {role} 处理",
                     dependencies=[*workitem.dependencies],
-                    input_artifact_ids=[*workitem.input_artifact_ids],
+                    input_artifact_ids=input_artifact_ids,
                 )
             )
         return assignments
+
+    def _context_input_artifact_ids(
+        self,
+        state: SharedProjectState | None,
+        workitem: WorkItem,
+    ) -> list[str]:
+        """Return explicit WorkItem inputs plus artifacts selected by ContextBuilder."""
+        artifact_ids = [*workitem.input_artifact_ids]
+        if state is not None:
+            context = self.context_builder.build(state=state, workitem=workitem)
+            artifact_ids.extend(context.artifact_ids)
+        return list(dict.fromkeys(artifact_ids))
 
     def _attach_stage_dependencies(self, new_workitems: list[WorkItem], existing_workitems: list[WorkItem]) -> list[WorkItem]:
         """Attach linear stage dependencies to newly planned WorkItems."""
@@ -825,12 +844,10 @@ class LeadController:
     def _claim_assignment(self, project_id: str, workitem: WorkItem, agent_id: str) -> None:
         """Mark a Task Center assignment as claimed by an Agent."""
         latest = self.state_store.get_state(project_id)
-        input_artifact_ids = [
-            artifact.id for artifact in latest.artifacts if artifact.workitem_id in set(workitem.dependencies)
-        ]
+        input_artifact_ids = self._context_input_artifact_ids(latest, workitem)
         assignment = self._assignment_for(latest, workitem.id)
         if assignment is None:
-            assignment = self._build_task_assignments([workitem])[0]
+            assignment = self._build_task_assignments([workitem], latest)[0]
             self.state_store.upsert_task_assignment(project_id, assignment)
         self.state_store.upsert_task_assignment(
             project_id,
@@ -851,7 +868,7 @@ class LeadController:
         if self._assignment_for(latest, workitem_id) is None:
             workitem = next((item for item in latest.workitems if item.id == workitem_id), None)
             if workitem is not None:
-                self.state_store.upsert_task_assignment(project_id, self._build_task_assignments([workitem])[0])
+                self.state_store.upsert_task_assignment(project_id, self._build_task_assignments([workitem], latest)[0])
         self.state_store.update_task_assignment(
             project_id,
             workitem_id,

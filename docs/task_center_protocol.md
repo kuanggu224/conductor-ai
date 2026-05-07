@@ -125,6 +125,11 @@ Task payloads include:
 - `output_artifact_ids`
 - `result_summary`
 - `blocked_reason`
+
+`input_artifact_ids` is not limited to direct WorkItem dependencies. For
+controller-created assignments it also includes the ContextBuilder-selected
+upstream artifacts, such as requirement baselines and design documents that the
+agent should read before execution.
 - `workitem`
 - `artifacts`
 

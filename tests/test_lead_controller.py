@@ -261,10 +261,22 @@ def test_next_stage_workitems_depend_on_previous_stage() -> None:
 
     development_items = [item for item in state.workitems if item.stage == "development"]
     design_ids = {item.id for item in state.workitems if item.stage == "design"}
+    requirement_artifact_ids = {
+        artifact.id for artifact in state.artifacts if artifact.kind in {"requirement_spec", "frozen_requirement_spec"}
+    }
+    design_artifact_ids = {artifact.id for artifact in state.artifacts if artifact.workitem_id in design_ids}
+    development_assignments = [
+        assignment
+        for assignment in state.task_assignments
+        if assignment.workitem_id in {item.id for item in development_items}
+    ]
 
     assert development_items
     assert all(set(item.dependencies) == design_ids for item in development_items)
     assert all(assignment.dependencies for assignment in state.task_assignments if assignment.workitem_id in {item.id for item in development_items})
+    assert development_assignments
+    assert all(requirement_artifact_ids.intersection(assignment.input_artifact_ids) for assignment in development_assignments)
+    assert all(design_artifact_ids.intersection(assignment.input_artifact_ids) for assignment in development_assignments)
 
 
 def test_dependency_failure_blocks_downstream_workitem() -> None:
