@@ -40,6 +40,9 @@ def test_project_log_store_writes_structured_state_events_and_report(tmp_path) -
     assert report_path.exists()
     report = report_path.read_text(encoding="utf-8")
     assert "## Activated Agents" in report
+    assert "## Task Center" in report
+    assert "claimable=" in report
+    assert "unmet_dependencies=" in report
     assert "## Event Timeline" in report
 
 

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from conductor.domain.models import SharedProjectState
+from conductor.task_center.service import TaskCenterService
 from conductor.testing.coverage import evaluate_requirement_coverage
 
 
@@ -151,6 +152,12 @@ class ProjectLogStore:
             for criterion in item.acceptance_criteria:
                 lines.append(f"  - acceptance: {criterion}")
 
+        lines.extend(["", "## Task Center"])
+        if state.task_assignments:
+            lines.extend(self._task_center_lines(state))
+        else:
+            lines.append("- None")
+
         lines.extend(["", "## Artifacts"])
         if state.artifacts:
             for artifact in state.artifacts:
@@ -179,6 +186,20 @@ class ProjectLogStore:
             )
         lines.append("")
         return "\n".join(lines)
+
+    def _task_center_lines(self, state: SharedProjectState) -> list[str]:
+        """Render Task Center assignment readiness for human reports."""
+        task_center = TaskCenterService(_ReportStateStore(state))
+        lines: list[str] = []
+        for assignment in state.task_assignments:
+            unmet = task_center.unmet_dependency_ids(state, assignment)
+            unmet_text = ", ".join(unmet) if unmet else "-"
+            lines.append(
+                f"- {assignment.id} | workitem={assignment.workitem_id} | role={assignment.role} | "
+                f"status={assignment.status.value} | agent={assignment.assigned_agent_id or '-'} | "
+                f"claimable={str(task_center.claimable(state, assignment)).lower()} | unmet_dependencies={unmet_text}"
+            )
+        return lines
 
     def _requirement_coverage_traceability_lines(self, state: SharedProjectState) -> list[str]:
         """Render requirement-to-validation traceability for human reports."""
@@ -270,3 +291,15 @@ class ProjectLogStore:
             if cleaned.startswith(prefix):
                 return cleaned
         return ""
+
+
+class _ReportStateStore:
+    """Read-only adapter for report-time Task Center calculations."""
+
+    def __init__(self, state: SharedProjectState) -> None:
+        self.state = state
+
+    def get_state(self, project_id: str) -> SharedProjectState:
+        if self.state.project.id != project_id:
+            raise KeyError(project_id)
+        return self.state
