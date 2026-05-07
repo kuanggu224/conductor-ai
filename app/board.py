@@ -43,6 +43,7 @@ from conductor.config.llm import (
     save_llm_runtime_config,
 )
 from conductor.controller.engine import ConductorEngine
+from conductor.diagnostics import build_platform_diagnostics
 from conductor.domain.models import SharedProjectState, TaskAssignment
 from conductor.io.encoding import configure_utf8_stdio
 from conductor.io.requirements import RequirementInputError, load_requirement_text
@@ -794,6 +795,18 @@ def llm_settings_api() -> JSONResponse:
     """Return LLM settings."""
     config = load_llm_runtime_config()
     return JSONResponse(asdict(config))
+
+
+@app.get("/api/diagnostics")
+def diagnostics_api(probe_llm: bool = False) -> JSONResponse:
+    """Return current CLI, LLM, config, and encoding diagnostics."""
+    diagnostics = build_platform_diagnostics(
+        cli_config=load_cli_selection_config(),
+        project_root=ROOT_DIR,
+        llm_runtime_config=load_llm_runtime_config(),
+        probe_llm=probe_llm,
+    )
+    return JSONResponse(diagnostics.to_dict())
 
 
 @app.post("/api/settings/llm")

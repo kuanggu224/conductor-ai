@@ -66,6 +66,26 @@ def test_cli_settings_api_returns_discovered_tools() -> None:
     assert "role_cli_options" in payload
 
 
+def test_diagnostics_api_returns_platform_health_snapshot(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "conductor.diagnostics.discover_cli_tools",
+        lambda: [type("Tool", (), {"name": "codex", "available": True})()],
+    )
+    client = TestClient(board.app)
+
+    response = client.get("/api/diagnostics")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "ok" in payload
+    assert "project_root" in payload
+    assert "config_paths" in payload
+    assert "available_cli_names" in payload
+    assert "role_bindings" in payload
+    assert "llm_backends" in payload
+    assert payload["llm_backends"][0]["server_status"] == "not_checked"
+
+
 def test_project_detail_api_returns_404_for_missing_project() -> None:
     client = TestClient(board.app)
 

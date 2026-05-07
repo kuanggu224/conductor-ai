@@ -73,6 +73,24 @@ Task payloads expose `claimable` and `unmet_dependency_ids`. Summaries expose
 and `blocked_by_dependencies`. Run manifests and project reports also include
 Task Center readiness for audit and replay.
 
+## Diagnostics
+
+Use diagnostics before real CLI or LLM-backed runs to verify local bindings and
+runtime configuration:
+
+```bash
+python -m app.run_project --diagnose
+python -m app.run_project --diagnose --diagnose-llm
+```
+
+Board exposes the same health snapshot for frontends:
+
+- `GET /api/diagnostics`
+- `GET /api/diagnostics?probe_llm=true`
+
+The default API call is read-only and does not touch network services. The
+`probe_llm=true` variant checks enabled OpenAI-compatible model endpoints.
+
 ### Windows PowerShell UTF-8
 
 If Chinese text appears as mojibake when reading logs or reports in PowerShell,
