@@ -7,6 +7,7 @@ import sys
 import json
 import re
 import os
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 
