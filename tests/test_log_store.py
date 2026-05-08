@@ -1,5 +1,7 @@
 """Log persistence tests."""
 
+import json
+
 from conductor.config.cli import CLISelectionConfig
 from conductor.controller.engine import ConductorEngine
 from conductor.domain.models import Artifact, Execution, ExecutionStatus, Project, ProjectStatus, SharedProjectState, WorkItem, WorkItemStatus
@@ -41,6 +43,8 @@ def test_project_log_store_writes_structured_state_events_and_report(tmp_path) -
     assert "workitem_counts" in entries[0].metadata
     assert report_path.exists()
     report = report_path.read_text(encoding="utf-8")
+    assert "## Preflight Gate" in report
+    assert "- Not recorded" in report
     assert "## Activated Agents" in report
     assert "## Task Center" in report
     assert "- Summary: total=" in report
@@ -148,3 +152,41 @@ def test_project_report_includes_failure_remediation_suggestions(tmp_path) -> No
 
     assert "remediation:" in report
     assert "Increase the CLI or LLM timeout" in report
+
+
+def test_project_report_includes_preflight_gate_summary(tmp_path) -> None:
+    store = ProjectLogStore(tmp_path)
+    project_root = tmp_path / "project"
+    gate_path = project_root / ".conductor" / "diagnostics" / "run-preflight" / "preflight-gate.json"
+    gate_path.parent.mkdir(parents=True)
+    gate_path.write_text(
+        json.dumps(
+            {
+                "ok": False,
+                "preflight_gate": {
+                    "errors": ["local LLM preflight failed"],
+                    "diagnostics_path": str(gate_path),
+                },
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    state = SharedProjectState(
+        project=Project(
+            id="project-preflight-report",
+            goal="report preflight gate",
+            current_stage="requirement",
+            project_root=str(project_root),
+        ),
+        project_status=ProjectStatus.IN_PROGRESS,
+        current_stage="requirement",
+    )
+
+    report = store.render_project_report(state, [])
+
+    assert "## Preflight Gate" in report
+    assert f"- Path: {gate_path}" in report
+    assert "- Status: fail" in report
+    assert "- Error: local LLM preflight failed" in report

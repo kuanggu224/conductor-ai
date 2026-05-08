@@ -288,6 +288,7 @@ Manifest 现在能正确显示：
 - `run_environment.command_argv` 会脱敏 `key`、`token`、`secret`、`password` 相关参数。
 - 如果存在运行前 preflight gate 文件，Manifest 会索引 `files.preflight_gate`，并汇总 `summary.preflight_gate_ok` 与 `summary.preflight_gate_errors`。
 - summary 聚合：状态计数、失败 WorkItem、可重试/不可重试失败数、CLI/LLM/collaboration 运行数、变更文件数、artifact 文件数、验证失败数。
+- 项目 Markdown Report 会展示 `## Preflight Gate` 小节，包含 gate 文件路径、通过/失败状态和错误摘要。
 
 示例真实项目：
 

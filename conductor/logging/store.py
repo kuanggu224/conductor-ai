@@ -132,8 +132,13 @@ class ProjectLogStore:
             f"- Executions: {len(state.executions)}",
             f"- Artifacts: {len(state.artifacts)}",
             "",
-            "## Activated Agents",
+            "## Preflight Gate",
         ]
+        lines.extend(self._preflight_gate_lines(state))
+        lines.extend([
+            "",
+            "## Activated Agents",
+        ])
         if state.agent_activations:
             for activation in state.agent_activations:
                 kinds = ", ".join(activation.related_workitem_kinds) or "-"
@@ -251,6 +256,33 @@ class ProjectLogStore:
                     summary=execution.failure_summary or execution.cli_stderr_tail or execution.cli_stdout_tail,
                 )
                 lines.append(f"  - remediation: {'; '.join(suggestions)}")
+        return lines
+
+    def _preflight_gate_lines(self, state: SharedProjectState) -> list[str]:
+        """Render persisted run preflight gate evidence for human reports."""
+        project_root = state.project.project_root
+        if not project_root:
+            return ["- Not recorded"]
+        gate_path = Path(project_root) / ".conductor" / "diagnostics" / "run-preflight" / "preflight-gate.json"
+        if not gate_path.exists():
+            return ["- Not recorded"]
+        try:
+            payload = json.loads(gate_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            return [f"- Path: {gate_path}", f"- Status: unreadable", f"- Error: {error}"]
+        ok = payload.get("ok") if isinstance(payload, dict) else None
+        gate_payload = payload.get("preflight_gate", {}) if isinstance(payload, dict) else {}
+        errors = gate_payload.get("errors", []) if isinstance(gate_payload, dict) else []
+        if not isinstance(errors, list):
+            errors = [str(errors)]
+        lines = [
+            f"- Path: {gate_path}",
+            f"- Status: {'pass' if ok is True else 'fail' if ok is False else 'unknown'}",
+        ]
+        if errors:
+            lines.extend(f"- Error: {error}" for error in errors)
+        else:
+            lines.append("- Errors: none")
         return lines
 
     def _join_or_dash(self, values: list[str]) -> str:
