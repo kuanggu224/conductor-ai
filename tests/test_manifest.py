@@ -206,6 +206,48 @@ def test_manifest_does_not_persist_llm_api_keys(tmp_path) -> None:
     assert "api_key" not in cloud
 
 
+def test_manifest_redacts_secret_command_arguments(tmp_path, monkeypatch) -> None:
+    secret = "sk-argv-secret"
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "python",
+            "-m",
+            "app.run_project",
+            "--llm-api-key",
+            secret,
+            "--cloud-token=tok-secret",
+            "--requirement",
+            "Build a local reading list",
+        ],
+    )
+    engine = ConductorEngine(
+        log_dir=tmp_path / "logs",
+        artifact_dir=tmp_path / "artifacts",
+        cli_selection_config=CLISelectionConfig(),
+        run_profile=RunProfile.MOCK,
+    )
+    state = engine.create_project("Build a local reading list", project_root=str(tmp_path / "project"))
+    report_path = engine.write_project_report(state.project.id)
+
+    manifest_path = engine.write_run_manifest(state.project.id, report_path)
+    manifest_text = manifest_path.read_text(encoding="utf-8")
+    payload = json.loads(manifest_text)
+
+    assert secret not in manifest_text
+    assert "tok-secret" not in manifest_text
+    assert payload["run_environment"]["command_argv"] == [
+        "python",
+        "-m",
+        "app.run_project",
+        "--llm-api-key",
+        "<redacted>",
+        "--cloud-token=<redacted>",
+        "--requirement",
+        "Build a local reading list",
+    ]
+
+
 def test_manifest_records_artifact_lineage_metadata(tmp_path) -> None:
     from dataclasses import replace
     from conductor.domain.models import Artifact

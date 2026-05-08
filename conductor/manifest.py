@@ -61,6 +61,8 @@ class RunManifest:
 class RunManifestWriter:
     """Write project run manifests under the project .conductor directory."""
 
+    SECRET_ARG_MARKERS = ("key", "token", "secret", "password")
+
     def write(
         self,
         state: SharedProjectState,
@@ -245,10 +247,38 @@ class RunManifestWriter:
             "system": platform.system(),
             "machine": platform.machine(),
             "process_cwd": str(Path.cwd()),
-            "command_argv": list(sys.argv),
+            "command_argv": self._redacted_command_argv(list(sys.argv)),
             "path_entries_count": len([entry for entry in path_value.split(os.pathsep) if entry]),
             "environment": environment,
         }
+
+    def _redacted_command_argv(self, argv: list[str]) -> list[str]:
+        """Return command argv with secret argument values redacted."""
+        redacted: list[str] = []
+        redact_next = False
+        for item in argv:
+            if redact_next:
+                redacted.append("<redacted>")
+                redact_next = False
+                continue
+            if "=" in item:
+                name, _ = item.split("=", 1)
+                if self._is_secret_arg_name(name):
+                    redacted.append(f"{name}=<redacted>")
+                    continue
+                redacted.append(item)
+                continue
+            redacted.append(item)
+            if self._is_secret_arg_name(item):
+                redact_next = True
+        return redacted
+
+    def _is_secret_arg_name(self, name: str) -> bool:
+        """Return whether a command argument name likely carries a secret value."""
+        normalized = name.strip().lower().replace("_", "-")
+        if not normalized.startswith("-"):
+            return False
+        return any(marker in normalized for marker in self.SECRET_ARG_MARKERS)
 
     def _requirement_evaluations(self, state: SharedProjectState) -> list[dict[str, object]]:
         """Evaluate requirement-stage artifacts and embed quality scores in the manifest."""
