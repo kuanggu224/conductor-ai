@@ -102,7 +102,7 @@ class RunManifestWriter:
             probe_llm=False,
         ).to_dict()
         manifest = RunManifest(
-            schema_version="1.23",
+            schema_version="1.24",
             run_id=f"{state.project.id}:{generated_at}",
             project_id=state.project.id,
             generated_at=generated_at,
@@ -551,6 +551,7 @@ class RunManifestWriter:
             "execution_command": list(execution.execution_command),
             "execution_exit_code": execution.execution_exit_code,
             "execution_duration_ms": execution.execution_duration_ms,
+            "prompt_hash": execution.prompt_hash,
             "input_artifact_ids": list(execution.input_artifact_ids),
             "changed_files": list(execution.changed_files),
             "validation_command": list(execution.validation_command),
@@ -645,6 +646,7 @@ class RunManifestWriter:
                         "agent_id": record.get("agent_id", ""),
                         "source_backend": source_backend,
                         "model": record.get("model") or self._model_from_source_backend(source_backend),
+                        "prompt_hash": record.get("prompt_hash", ""),
                         "output_files": record.get("artifact_files", []),
                         "status": record.get("status", ""),
                     }

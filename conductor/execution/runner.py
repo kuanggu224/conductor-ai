@@ -54,6 +54,7 @@ class WorkItemRunResult:
     execution_command: list[str] | None = None
     execution_exit_code: int | None = None
     execution_duration_ms: int | None = None
+    prompt_hash: str = ""
     changed_files: list[str] | None = None
     validation_command: list[str] | None = None
     validation_exit_code: int | None = None
@@ -155,6 +156,7 @@ class Runner:
             execution_command=[*(run_result.execution_command or [])],
             execution_exit_code=run_result.execution_exit_code,
             execution_duration_ms=run_result.execution_duration_ms,
+            prompt_hash=run_result.prompt_hash,
             input_artifact_ids=input_artifact_ids,
             changed_files=[*(run_result.changed_files or [])],
             validation_command=[*(run_result.validation_command or [])],
@@ -289,6 +291,7 @@ class Runner:
                         execution_command=list(cli_execution.redacted_command),
                         execution_exit_code=cli_execution.result.exit_code,
                         execution_duration_ms=cli_execution.result.duration_ms,
+                        prompt_hash=cli_execution.prompt_hash,
                     )
                 if cli_execution.cli_name == "opencode":
                     self.state_store.add_event(
@@ -310,6 +313,7 @@ class Runner:
                         execution_command=list(cli_execution.redacted_command),
                         execution_exit_code=cli_execution.result.exit_code,
                         execution_duration_ms=cli_execution.result.duration_ms,
+                        prompt_hash=cli_execution.prompt_hash,
                     )
                 cli_stdout = (cli_execution.result.stdout or "").strip()
                 if cli_execution.result.success and cli_stdout:
@@ -322,6 +326,7 @@ class Runner:
                         execution_command=list(cli_execution.redacted_command),
                         execution_exit_code=cli_execution.result.exit_code,
                         execution_duration_ms=cli_execution.result.duration_ms,
+                        prompt_hash=cli_execution.prompt_hash,
                     )
                 if "Unsupported reasoning_effort type" in cli_stdout:
                     self.state_store.add_event(
@@ -477,6 +482,7 @@ class Runner:
                 execution_command=list(cli_execution.redacted_command),
                 execution_exit_code=cli_result.exit_code,
                 execution_duration_ms=cli_result.duration_ms,
+                prompt_hash=cli_execution.prompt_hash,
                 changed_files=changed_files,
                 cli_stdout_tail=self._tail(cli_stdout),
                 cli_stderr_tail=self._tail(cli_stderr),
@@ -505,6 +511,7 @@ class Runner:
                 execution_command=list(cli_execution.redacted_command),
                 execution_exit_code=cli_result.exit_code,
                 execution_duration_ms=cli_result.duration_ms,
+                prompt_hash=cli_execution.prompt_hash,
                 changed_files=[],
                 cli_stdout_tail=self._tail(cli_stdout),
                 cli_stderr_tail=self._tail(cli_stderr),
@@ -540,6 +547,7 @@ class Runner:
             execution_command=list(cli_execution.redacted_command),
             execution_exit_code=cli_result.exit_code,
             execution_duration_ms=cli_result.duration_ms,
+            prompt_hash=cli_execution.prompt_hash,
             changed_files=changed_files,
             validation_command=validation_command,
             validation_exit_code=validation_result.exit_code,
@@ -610,9 +618,10 @@ class Runner:
         if self.llm_harness is None or self.llm_harness_config is None:
             return self._real_backend_required_result(workitem, agent, "LLMHarness is not configured")
         output_path = f".conductor/llm_outputs/{workitem.id}.md"
+        prompt = self._build_llm_harness_document_prompt(project_id, workitem, agent)
         result = self.llm_harness.run(
             LLMHarnessRequest(
-                prompt=self._build_llm_harness_document_prompt(project_id, workitem, agent),
+                prompt=prompt,
                 system_prompt=(
                     "You are a non-interactive software planning agent. "
                     "Return only the requested Markdown artifact. Do not ask questions."
@@ -639,6 +648,7 @@ class Runner:
                 source_backend="llm_harness",
                 succeeded=False,
                 failure=configuration_required(f"LLMHarness failed: {result.error}"),
+                prompt_hash=self._prompt_hash(prompt),
             )
         missing_sections = self._missing_llm_harness_sections(result.content, workitem)
         if missing_sections:
@@ -648,6 +658,7 @@ class Runner:
                 source_backend="llm_harness",
                 succeeded=False,
                 failure=configuration_required(reason),
+                prompt_hash=self._prompt_hash(prompt),
             )
         scope_result = self._evaluate_scope_contract(project_id, result.content)
         if not scope_result.passed:
@@ -658,10 +669,12 @@ class Runner:
                 failure=FailureDecision(FailureType.VALIDATION_FAILED, True, scope_result.summary()),
                 model=self.llm_harness_config.model_name,
                 working_directory=project_root,
+                prompt_hash=self._prompt_hash(prompt),
             )
         return WorkItemRunResult(
             content=result.content,
             source_backend=f"llm_harness/{self.llm_harness_config.model_name}",
+            prompt_hash=self._prompt_hash(prompt),
         )
 
     def _run_llm_code_harness(
@@ -675,10 +688,12 @@ class Runner:
         if self.llm_harness is None or self.llm_harness_config is None:
             return self._real_backend_required_result(workitem, agent, "LLMHarness is not configured for code")
         result = None
+        prompt = ""
         for attempt in range(1, 3):
+            prompt = self._build_llm_code_prompt(project_id, workitem, agent)
             result = self.llm_harness.run(
                 LLMHarnessRequest(
-                    prompt=self._build_llm_code_prompt(project_id, workitem, agent),
+                    prompt=prompt,
                     system_prompt=(
                         "You are a non-interactive coding agent. Return only file blocks matching the requested format. "
                         "Do not include markdown fences or explanation."
@@ -715,6 +730,7 @@ class Runner:
                 failure=FailureDecision(FailureType.TRANSIENT, True, f"LLMHarness code generation failed: {result.error}"),
                 model=self.llm_harness_config.model_name,
                 working_directory=project_root,
+                prompt_hash=self._prompt_hash(prompt),
             )
         if not result.content.strip():
             return WorkItemRunResult(
@@ -724,6 +740,7 @@ class Runner:
                 failure=FailureDecision(FailureType.TRANSIENT, True, "LLMHarness code generation returned empty content"),
                 model=self.llm_harness_config.model_name,
                 working_directory=project_root,
+                prompt_hash=self._prompt_hash(prompt),
             )
         try:
             generated_files = self._extract_generated_files(result.content)
@@ -749,6 +766,7 @@ class Runner:
                     failure=FailureDecision(FailureType.VALIDATION_FAILED, True, scope_result.summary()),
                     model=self.llm_harness_config.model_name,
                     working_directory=project_root,
+                    prompt_hash=self._prompt_hash(prompt),
                     changed_files=[],
                     cli_stdout_tail=self._tail(result.content),
                 )
@@ -771,6 +789,7 @@ class Runner:
                 failure=configuration_required(str(error)),
                 model=self.llm_harness_config.model_name,
                 working_directory=project_root,
+                prompt_hash=self._prompt_hash(prompt),
                 cli_stdout_tail=self._tail(result.content),
             )
         if not changed_files:
@@ -791,6 +810,7 @@ class Runner:
                 failure=no_code_changes(),
                 model=self.llm_harness_config.model_name,
                 working_directory=project_root,
+                prompt_hash=self._prompt_hash(prompt),
                 changed_files=[],
                 cli_stdout_tail=self._tail(result.content),
             )
@@ -846,6 +866,7 @@ class Runner:
             failure=None if validation_passed else validation_failed(validation_result),
             model=self.llm_harness_config.model_name,
             working_directory=project_root,
+            prompt_hash=self._prompt_hash(prompt),
             changed_files=changed_files,
             validation_command=validation_command,
             validation_exit_code=validation_result.exit_code,
@@ -1344,6 +1365,10 @@ class Runner:
         if len(text) <= limit:
             return text
         return text[-limit:]
+
+    def _prompt_hash(self, prompt: str) -> str:
+        """Return a stable non-reversible prompt fingerprint for audit manifests."""
+        return hashlib.sha256(prompt.encode("utf-8")).hexdigest() if prompt else ""
 
     def _should_use_llm(self, workitem: WorkItem, agent: Agent) -> bool:
         """Return whether LLM execution is allowed for this agent and workitem."""

@@ -1,5 +1,7 @@
 """Agent CLI 执行链路测试。"""
 
+import hashlib
+
 from conductor.agents.agent import Agent
 from conductor.agents.profile import build_default_agent_profiles
 from conductor.config.cli import CLISelectionConfig
@@ -90,6 +92,7 @@ def test_runner_uses_bound_agent_cli_for_designer_workitem(monkeypatch) -> None:
     assert execution.status == ExecutionStatus.SUCCESS
     assert execution.execution_command
     assert "<prompt-redacted>" in execution.execution_command
+    assert len(execution.prompt_hash) == 64
     assert execution.execution_exit_code == 0
     assert execution.execution_duration_ms == 25
     assert latest.workitems[0].status == WorkItemStatus.DONE
@@ -174,6 +177,7 @@ def test_codex_code_edit_command_uses_model_and_reasoning(monkeypatch) -> None:
     )
 
     assert execution is not None
+    assert len(execution.prompt_hash) == 64
     command = execution.result
     assert executor.shell_harness.last_request is not None
     request = executor.shell_harness.last_request
@@ -223,6 +227,7 @@ def test_opencode_command_passes_prompt_as_argument(monkeypatch) -> None:
     assert request.command[-1] == "Write DESIGN.md"
     assert execution.redacted_command[-1] == "<prompt-redacted>"
     assert "Write DESIGN.md" not in execution.redacted_command
+    assert execution.prompt_hash == hashlib.sha256("Write DESIGN.md".encode("utf-8")).hexdigest()
     assert request.stdin_text is None
 
 

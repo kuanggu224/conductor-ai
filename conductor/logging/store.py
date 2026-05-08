@@ -156,7 +156,10 @@ class ProjectLogStore:
         for item in state.workitems:
             lines.append(
                 f"- {item.id} | stage={item.stage} | kind={item.kind} | "
-                f"status={item.status.value} | owner={item.owner_agent or '-'}"
+                f"status={item.status.value} | owner={item.owner_agent or '-'} | "
+                f"retry={item.retry_count}/{item.max_retries} | "
+                f"failure_type={item.failure_type or '-'} | retryable={str(item.retryable).lower()} | "
+                f"blocked_reason={item.blocked_reason or '-'}"
             )
             if item.failure_type or item.blocked_reason:
                 suggestions = remediation_suggestions(

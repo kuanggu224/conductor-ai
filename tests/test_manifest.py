@@ -1,5 +1,6 @@
 """Run manifest tests."""
 
+import hashlib
 import json
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
@@ -26,7 +27,7 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     manifest_path = engine.write_run_manifest(state.project.id, report_path)
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-    assert payload["schema_version"] == "1.23"
+    assert payload["schema_version"] == "1.24"
     assert payload["run_id"].startswith(state.project.id)
     assert payload["project_id"] == state.project.id
     assert payload["run_profile"] == "mock"
@@ -56,6 +57,7 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     assert "execution_command" in payload["executions"][0]
     assert "execution_exit_code" in payload["executions"][0]
     assert "execution_duration_ms" in payload["executions"][0]
+    assert "prompt_hash" in payload["executions"][0]
     assert "failure_summary" in payload["executions"][0]
     assert "remediation_suggestions" in payload["executions"][0]
     assert payload["workitems"]
@@ -296,6 +298,43 @@ def test_manifest_redacts_secret_command_arguments(tmp_path, monkeypatch) -> Non
         "--requirement",
         "Build a local reading list",
     ]
+
+
+def test_manifest_records_prompt_hash_without_prompt_text(tmp_path) -> None:
+    from conductor.domain.models import Execution, ExecutionStatus
+
+    prompt = "Sensitive implementation prompt with private context"
+    prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+    engine = ConductorEngine(
+        log_dir=tmp_path / "logs",
+        artifact_dir=tmp_path / "artifacts",
+        cli_selection_config=CLISelectionConfig(),
+        run_profile=RunProfile.MOCK,
+    )
+    state = engine.create_project("Build a local reading list", project_root=str(tmp_path / "project"))
+    state = replace(
+        state,
+        executions=[
+            Execution(
+                workitem_id=state.workitems[0].id,
+                agent_id="agent-requirement-designer",
+                result="ok",
+                status=ExecutionStatus.SUCCESS,
+                execution_command=["codex", "exec", "<prompt-redacted>"],
+                prompt_hash=prompt_hash,
+            )
+        ],
+    )
+    engine.state_store.save_state(state)
+    report_path = engine.write_project_report(state.project.id)
+
+    manifest_path = engine.write_run_manifest(state.project.id, report_path)
+    manifest_text = manifest_path.read_text(encoding="utf-8")
+    payload = json.loads(manifest_text)
+
+    assert prompt not in manifest_text
+    assert payload["executions"][0]["prompt_hash"] == prompt_hash
+    assert payload["executions"][0]["execution_command"] == ["codex", "exec", "<prompt-redacted>"]
 
 
 def test_manifest_records_artifact_lineage_metadata(tmp_path) -> None:
@@ -654,6 +693,7 @@ def test_manifest_extracts_cli_runs_from_agent_cli_artifacts(tmp_path) -> None:
                 execution_command=["codex", "exec", "-"],
                 execution_exit_code=0,
                 execution_duration_ms=123,
+                prompt_hash="a" * 64,
                 changed_files=["app.py"],
                 validation_command=["python", "-m", "pytest", "-q"],
                 validation_exit_code=0,
@@ -700,6 +740,8 @@ def test_manifest_extracts_cli_runs_from_agent_cli_artifacts(tmp_path) -> None:
     assert payload["executions"][0]["execution_command"] == ["codex", "exec", "-"]
     assert payload["executions"][0]["execution_exit_code"] == 0
     assert payload["executions"][0]["execution_duration_ms"] == 123
+    assert payload["executions"][0]["prompt_hash"] == "a" * 64
+    assert payload["cli_runs"][0]["prompt_hash"] == "a" * 64
     assert payload["executions"][0]["input_artifact_ids"] == ["artifact-design"]
     assert payload["executions"][0]["changed_files"] == ["app.py"]
     assert payload["executions"][0]["validation_success"] is True
@@ -742,6 +784,7 @@ def test_manifest_records_llm_harness_collaboration_runtime(tmp_path) -> None:
                 source_backend="llm_harness/qwen/qwen3.6-35b-a3b",
                 model="qwen/qwen3.6-35b-a3b",
                 working_directory=str(tmp_path),
+                prompt_hash="b" * 64,
             )
         ],
         artifacts=[
@@ -837,6 +880,8 @@ def test_manifest_records_llm_harness_collaboration_runtime(tmp_path) -> None:
     assert reviewer["review_count"] == 1
     assert reviewer["model"] == "qwen/qwen3.6-35b-a3b"
     assert len(payload["llm_runs"]) == 4
+    workitem_run = next(run for run in payload["llm_runs"] if run["mode"] == "workitem_execution")
+    assert workitem_run["prompt_hash"] == "b" * 64
     assert any(run["mode"] == "workitem_execution" for run in payload["llm_runs"])
     assert any(run["mode"] == "collaboration_review" for run in payload["llm_runs"])
     assert any(run["mode"] == "collaboration_revision" for run in payload["llm_runs"])

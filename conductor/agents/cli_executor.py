@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,6 +24,7 @@ class AgentCLIExecution:
     request: HarnessRequest
     redacted_command: list[str]
     result: HarnessResult
+    prompt_hash: str = ""
 
 
 class AgentCLIExecutor:
@@ -91,6 +93,7 @@ class AgentCLIExecutor:
             request=request,
             redacted_command=self._redact_prompt_from_command(cli_name, request.command),
             result=self.shell_harness.run(request),
+            prompt_hash=_sha256_text(prompt),
         )
         if self._is_provider_compatibility_failure(execution.result):
             self._disabled_role_bindings.add((agent.role, cli_name))
@@ -212,3 +215,8 @@ class AgentCLIExecutor:
             f"--add-dir '{add_dir}'"
         )
         return ["powershell", "-NoProfile", "-Command", ps_script]
+
+
+def _sha256_text(value: str) -> str:
+    """Return a stable non-reversible prompt fingerprint for audit manifests."""
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()

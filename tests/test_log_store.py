@@ -186,8 +186,42 @@ def test_project_report_includes_failure_remediation_suggestions(tmp_path) -> No
 
     report = store.render_project_report(state, [])
 
+    assert "retry=0/1" in report
+    assert "failure_type=timeout" in report
+    assert "retryable=true" in report
     assert "remediation:" in report
     assert "Increase the CLI or LLM timeout" in report
+
+
+def test_project_report_includes_workitem_retry_and_blocker_details(tmp_path) -> None:
+    store = ProjectLogStore(tmp_path)
+    state = SharedProjectState(
+        project=Project(id="project-retry-report", goal="report retries", current_stage="testing"),
+        project_status=ProjectStatus.IN_PROGRESS,
+        current_stage="testing",
+        workitems=[
+            WorkItem(
+                id="workitem-retry",
+                description="Retry validation",
+                stage="testing",
+                kind="automated_test",
+                status=WorkItemStatus.FAILED,
+                retry_count=2,
+                max_retries=2,
+                blocked_reason="failure_type=validation_failed; retryable=true; summary=pytest failed",
+                failure_type="validation_failed",
+                retryable=True,
+            )
+        ],
+    )
+
+    report = store.render_project_report(state, [])
+
+    assert "workitem-retry | stage=testing | kind=automated_test" in report
+    assert "retry=2/2" in report
+    assert "failure_type=validation_failed" in report
+    assert "retryable=true" in report
+    assert "blocked_reason=failure_type=validation_failed; retryable=true; summary=pytest failed" in report
 
 
 def test_project_report_includes_preflight_gate_summary(tmp_path) -> None:

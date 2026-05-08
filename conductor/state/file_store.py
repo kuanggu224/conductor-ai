@@ -152,6 +152,7 @@ class FileStateStore(InMemoryStateStore):
             execution_command=list(data.get("execution_command", [])),
             execution_exit_code=data.get("execution_exit_code"),
             execution_duration_ms=data.get("execution_duration_ms"),
+            prompt_hash=data.get("prompt_hash", ""),
             input_artifact_ids=list(data.get("input_artifact_ids", [])),
             changed_files=list(data.get("changed_files", [])),
             validation_command=list(data.get("validation_command", [])),

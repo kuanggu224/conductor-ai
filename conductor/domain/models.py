@@ -150,6 +150,7 @@ class Execution:
     execution_command: list[str] = field(default_factory=list)
     execution_exit_code: int | None = None
     execution_duration_ms: int | None = None
+    prompt_hash: str = ""
     input_artifact_ids: list[str] = field(default_factory=list)
     changed_files: list[str] = field(default_factory=list)
     validation_command: list[str] = field(default_factory=list)
