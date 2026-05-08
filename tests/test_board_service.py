@@ -87,6 +87,62 @@ def test_board_service_builds_snapshot_from_state() -> None:
     assert isinstance(snapshot.executions[0].remediation_suggestions, list)
     assert snapshot.preflight_gate.recorded is False
     assert snapshot.preflight_gate.status == "not_recorded"
+    assert snapshot.run_audit.risk_level in {"normal", "medium", "high"}
+    assert isinstance(snapshot.run_audit.failed_workitem_ids, list)
+
+
+def test_board_service_exposes_run_audit_risk_summary(tmp_path) -> None:
+    state = SharedProjectState(
+        project=Project(id="project-audit", goal="audit risk", current_stage="design", project_root=str(tmp_path)),
+        project_status=ProjectStatus.IN_PROGRESS,
+        current_stage="design",
+        blockers=["Scope violation requires review"],
+        workitems=[
+            WorkItem(
+                id="workitem-retry",
+                description="Retried validation",
+                stage="testing",
+                kind="automated_test",
+                status=WorkItemStatus.FAILED,
+                retry_count=2,
+                max_retries=2,
+                failure_type="validation_failed",
+                failure_summary="pytest failed",
+                blocked_reason="failure_type=validation_failed; retryable=true; summary=pytest failed",
+            )
+        ],
+        artifacts=[
+            Artifact(
+                id="artifact-frozen",
+                project_id="project-audit",
+                workitem_id="workitem-req",
+                agent_id="agent-requirement",
+                kind="frozen_requirement_spec",
+                title="Frozen Requirement",
+                content="非目标：不接后端，不做登录。",
+            ),
+            Artifact(
+                id="artifact-design",
+                project_id="project-audit",
+                workitem_id="workitem-design",
+                agent_id="agent-designer",
+                kind="design_overview",
+                title="Design",
+                content="方案：新增 FastAPI endpoint，并实现 login token session 管理。",
+            ),
+        ],
+    )
+
+    snapshot = BoardService().build_snapshot(state)
+
+    assert snapshot.run_audit.retry_history_count == 1
+    assert snapshot.run_audit.retry_attempt_count == 2
+    assert snapshot.run_audit.failed_workitem_ids == ["workitem-retry"]
+    assert snapshot.run_audit.scope_contract_status == "violation"
+    assert snapshot.run_audit.scope_contract_status_label == "范围风险"
+    assert snapshot.run_audit.scope_contract_violation_count == 2
+    assert snapshot.run_audit.risk_level == "high"
+    assert snapshot.run_audit.risk_level_label == "高风险"
 
 
 def test_board_service_extracts_code_execution_reports() -> None:

@@ -182,6 +182,7 @@ type BoardSnapshot = {
   project_agents: BoardProjectAgentView[]
 
   preflight_gate: BoardPreflightGateView
+  run_audit: BoardRunAuditView
   execution_runtime: BoardExecutionRuntimeView
   design_collaboration: BoardDesignCollaborationView
 }
@@ -221,6 +222,26 @@ type BoardPreflightGateView = {
 
 该字段来自 `<project_root>/.conductor/diagnostics/run-preflight/preflight-gate.json`，
 用于在 Board 中展示运行前环境检查是否通过、对应项目目录，以及失败时的错误摘要。
+
+
+### 4.2.2 BoardRunAuditView
+
+```ts
+type BoardRunAuditView = {
+  retry_history_count: number
+  retry_attempt_count: number
+  failed_workitem_ids: string[]
+  scope_contract_status: "not_evaluated" | "pass" | "violation"
+  scope_contract_status_label: string
+  scope_contract_violation_count: number
+  risk_level: "normal" | "medium" | "high"
+  risk_level_label: string
+}
+```
+
+该字段是 Board 侧运行风险摘要，来源于当前 state 的 WorkItem 重试/失败信息、
+冻结需求范围契约检查和 blockers。它不替代 Manifest 的完整 `retry_history`
+与 `scope_contract_results`，只用于页面高层状态展示。
 
 
 ### 4.3 BoardWorkItemView

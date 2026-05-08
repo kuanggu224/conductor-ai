@@ -143,6 +143,7 @@ templates/board.html       当前 Board 页面
 - `python -m app.run_project` 已加入运行前 preflight gate；真实 Agent/LLMHarness 执行前会先检查所选后端，不满足条件时在创建项目之前失败。
 - preflight gate 结果会写入 `<project_root>/.conductor/diagnostics/run-preflight/preflight-gate.json`，便于失败后审计和排查。
 - Board Snapshot 已暴露 `preflight_gate`，项目列表摘要也暴露 `preflight_gate_status`，前端可展示 gate 状态、文件路径、错误摘要和修复建议。
+- Board Snapshot 已暴露 `run_audit`，前端可展示重试次数、失败 WorkItem、范围契约状态和高层风险等级。
 - `python -m app.run_project --preflight-only` 可只执行本次 run profile 的 gate 并退出，不创建项目，适合真实运行前做环境验收。
 - `--skip-preflight-gate` 可用于受控离线测试或故意跳过环境检查的场景。
 - 平台负责写入受控 artifact 文件。
