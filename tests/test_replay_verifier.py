@@ -361,6 +361,33 @@ def test_verify_manifest_cli_writes_output_file(tmp_path, capsys) -> None:
     assert report["project_id"] == "project-1"
 
 
+def test_verify_manifest_cli_can_fail_on_warnings(tmp_path, capsys) -> None:
+    manifest_path = _write_manifest(tmp_path, {"artifact_files": [str(tmp_path / "missing.md")]})
+
+    exit_code = verify_manifest_main([str(manifest_path), "--fail-on-warnings"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 2
+    payload = json.loads(captured.out)
+    assert payload["passed"] is True
+    assert payload["warning_count"] > 0
+
+
+def test_verify_manifest_cli_output_summary_respects_fail_on_warnings(tmp_path, capsys) -> None:
+    manifest_path = _write_manifest(tmp_path, {"artifact_files": [str(tmp_path / "missing.md")]})
+    output_path = tmp_path / "audit" / "manifest-verification.json"
+
+    exit_code = verify_manifest_main([str(manifest_path), "--fail-on-warnings", "--output", str(output_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 2
+    summary = json.loads(captured.out)
+    assert summary["ok"] is False
+    assert summary["warning_count"] > 0
+    report = json.loads(output_path.read_text(encoding="utf-8"))
+    assert report["passed"] is True
+
+
 def test_verify_manifest_cli_exits_two_for_invalid_manifest(tmp_path, capsys) -> None:
     manifest_path = _write_manifest(tmp_path, {"project_id": ""})
 

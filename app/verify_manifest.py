@@ -20,6 +20,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Only verify manifest self-consistency; do not check referenced files exist.",
     )
+    parser.add_argument(
+        "--fail-on-warnings",
+        action="store_true",
+        help="Exit with code 2 when warnings are present. Useful for CI or production gates.",
+    )
     parser.add_argument("--output", help="Write the JSON verification report to this file.")
     return parser
 
@@ -29,6 +34,7 @@ def main(argv: list[str] | None = None) -> int:
     result = verify_manifest(args.manifest, check_files=not args.skip_file_checks)
     payload = result.to_dict()
     rendered = json.dumps(payload, ensure_ascii=False, indent=2)
+    ok = result.passed and (not args.fail_on_warnings or not result.warnings)
     if args.output:
         output_path = Path(args.output).expanduser().resolve()
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -36,7 +42,7 @@ def main(argv: list[str] | None = None) -> int:
         print(
             json.dumps(
                 {
-                    "ok": result.passed,
+                    "ok": ok,
                     "output_path": str(output_path),
                     "project_id": result.project_id,
                     "error_count": len(result.errors),
@@ -46,9 +52,9 @@ def main(argv: list[str] | None = None) -> int:
                 indent=2,
             )
         )
-        return 0 if result.passed else 2
+        return 0 if ok else 2
     print(rendered)
-    return 0 if result.passed else 2
+    return 0 if ok else 2
 
 
 if __name__ == "__main__":

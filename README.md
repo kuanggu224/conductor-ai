@@ -205,7 +205,9 @@ Run manifests can be checked without replaying Agent execution:
 python -m app.verify_manifest C:\path\to\project\.conductor\manifests\project-id.manifest.json
 ```
 
-Use `--output` to persist the verification report.
+Use `--output` to persist the verification report. Use `--fail-on-warnings`
+when a CI or production gate should fail on warnings such as missing referenced
+files, non-current schema versions, or unindexed returned artifacts.
 
 The verifier checks schema basics, summary counts, `resume_cursor` references,
 WorkItem/Execution/Artifact/TaskAssignment links, sensitive provider credential
@@ -287,14 +289,14 @@ The default flow is:
 7. Let `LeadController` decide the next action
 
 Current targeted verification for the manifest verifier:
-`14 passed` with `python -m pytest tests\test_replay_verifier.py -q`.
+`16 passed` with `python -m pytest tests\test_replay_verifier.py -q`.
 
 Current targeted verification for read-only replay trace:
-`19 passed` with `python -m pytest tests\test_replay_trace.py tests\test_replay_verifier.py -q`.
+`21 passed` with `python -m pytest tests\test_replay_trace.py tests\test_replay_verifier.py -q`.
 
 Current full verification after preflight gate, diagnostics, manifest hardening,
 task-center recovery work, and manifest verification:
-`399 passed` with `python -m pytest -q`.
+`401 passed` with `python -m pytest -q`.
 
 ## Project Layout
 
