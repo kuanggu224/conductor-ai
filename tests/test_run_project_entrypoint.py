@@ -8,6 +8,7 @@ from app.run_project import _build_cli_config, _run_preflight_gate, _resolve_pro
 from conductor.agents.llm import LLMHTTPConfig
 from conductor.config.execution import resolve_run_profile
 from conductor.config.llm import LLMRuntimeConfig, LLMUsagePolicy
+from conductor.state.file_store import FileStateStore
 
 
 def test_run_project_parser_accepts_requirement_file() -> None:
@@ -116,6 +117,50 @@ def test_run_project_parser_accepts_preflight_only() -> None:
     args = build_parser().parse_args(["--run-profile", "design_cli_only", "--preflight-only"])
 
     assert args.preflight_only is True
+
+
+def test_run_project_parser_accepts_resume_project_id() -> None:
+    args = build_parser().parse_args(["--project-root", "demo", "--resume-project-id", "project-123"])
+
+    assert args.resume_project_id == "project-123"
+
+
+def test_run_project_can_resume_existing_project(tmp_path, capsys) -> None:
+    first_exit = run_project.main(
+        [
+            "--project-root",
+            str(tmp_path),
+            "--requirement",
+            "Build a small reading list",
+            "--max-steps",
+            "0",
+            "--skip-preflight-gate",
+        ]
+    )
+    first_payload = json.loads(capsys.readouterr().out)
+
+    second_exit = run_project.main(
+        [
+            "--project-root",
+            str(tmp_path),
+            "--resume-project-id",
+            first_payload["project_id"],
+            "--max-steps",
+            "1",
+            "--skip-preflight-gate",
+        ]
+    )
+    second_payload = json.loads(capsys.readouterr().out)
+    resumed_state = FileStateStore(tmp_path / ".conductor" / "state").get_state(first_payload["project_id"])
+
+    assert first_exit == 1
+    assert second_exit == 1
+    assert second_payload["project_id"] == first_payload["project_id"]
+    assert second_payload["resumed"] is True
+    assert second_payload["status"] == "in_progress"
+    assert len(first_payload["workitems"]) == 1
+    assert len(resumed_state.executions) == 1
+    assert second_payload["manifest_path"].endswith(f"{first_payload['project_id']}.manifest.json")
 
 
 def test_run_project_preflight_only_can_skip_without_requirement(tmp_path, capsys) -> None:

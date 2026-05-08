@@ -40,7 +40,13 @@ The repository is configured for local, deterministic execution.
 
 ```bash
 python -m pytest -q
+python -m app.run_project --project-root <project-root> --requirement "Build a reading list"
+python -m app.run_project --project-root <project-root> --resume-project-id <project-id>
 ```
+
+`--resume-project-id` loads the existing `.conductor/state/<project-id>.state.json`
+under the resolved project root and continues the controller-driven flow instead
+of creating a new project.
 
 ## Task Center
 

@@ -92,6 +92,10 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Run the current run-profile preflight gate and exit without creating a project.",
     )
+    parser.add_argument(
+        "--resume-project-id",
+        help="Resume an existing project from --project-root/.conductor/state instead of creating a new project.",
+    )
     return parser
 
 
@@ -165,12 +169,6 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(gate_payload, ensure_ascii=False, indent=2))
             return 2
 
-    requirement = load_requirement_text(
-        requirement=args.requirement,
-        requirement_file=args.requirement_file,
-        requirement_json_file=args.requirement_json_file,
-        json_key=args.requirement_json_key,
-    )
     engine = ConductorEngine(
         log_dir=project_root / ".conductor" / "logs",
         artifact_dir=project_root / ".conductor" / "artifacts",
@@ -183,7 +181,16 @@ def main(argv: list[str] | None = None) -> int:
         require_real_code_outputs=run_profile.require_real_code_outputs,
         llm_harness_backend=args.llm_harness,
     )
-    state = engine.create_project(requirement=requirement, project_root=str(project_root))
+    if args.resume_project_id:
+        state = engine.get_project(args.resume_project_id)
+    else:
+        requirement = load_requirement_text(
+            requirement=args.requirement,
+            requirement_file=args.requirement_file,
+            requirement_json_file=args.requirement_json_file,
+            json_key=args.requirement_json_key,
+        )
+        state = engine.create_project(requirement=requirement, project_root=str(project_root))
     state = engine.run_project(state.project.id, max_steps=args.max_steps)
     report_path = engine.write_project_report(state.project.id)
     manifest_path = engine.write_run_manifest(state.project.id, report_path=report_path)
@@ -193,6 +200,7 @@ def main(argv: list[str] | None = None) -> int:
         "current_stage": state.current_stage,
         "project_root": state.project.project_root,
         "run_profile": run_profile.profile.value,
+        "resumed": bool(args.resume_project_id),
         "report_path": str(report_path),
         "manifest_path": str(manifest_path),
         "workitems": [asdict(item) for item in state.workitems],
