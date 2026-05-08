@@ -118,6 +118,42 @@ def test_project_report_includes_requirement_coverage_traceability(tmp_path) -> 
     assert "CSV export/download: `covered`" in report
 
 
+def test_project_report_includes_scope_contract_audit(tmp_path) -> None:
+    store = ProjectLogStore(tmp_path)
+    state = SharedProjectState(
+        project=Project(id="project-scope", goal="scope audit", current_stage="design"),
+        project_status=ProjectStatus.IN_PROGRESS,
+        current_stage="design",
+        artifacts=[
+            Artifact(
+                id="artifact-frozen",
+                project_id="project-scope",
+                workitem_id="workitem-req",
+                agent_id="agent-requirement",
+                kind="frozen_requirement_spec",
+                title="Frozen Requirement",
+                content="非目标：不接后端，不做登录。",
+            ),
+            Artifact(
+                id="artifact-design",
+                project_id="project-scope",
+                workitem_id="workitem-design",
+                agent_id="agent-designer",
+                kind="design_overview",
+                title="Design",
+                content="方案：新增 FastAPI endpoint，并实现 login token session 管理。",
+            ),
+        ],
+    )
+
+    report = store.render_project_report(state, [])
+
+    assert "## Scope Contract Audit" in report
+    assert "Artifact `artifact-design` (design_overview): violation" in report
+    assert "no backend/api" in report
+    assert "no login/auth" in report
+
+
 def test_project_report_includes_failure_remediation_suggestions(tmp_path) -> None:
     store = ProjectLogStore(tmp_path)
     state = SharedProjectState(

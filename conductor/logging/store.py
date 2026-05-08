@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from conductor.artifacts.scope_contract import evaluate_scope_contract
+from conductor.artifacts.store import ArtifactStore
 from conductor.domain.models import SharedProjectState
 from conductor.execution.failure_policy import remediation_suggestions
 from conductor.preflight_gate import read_preflight_gate
@@ -192,6 +194,10 @@ class ProjectLogStore:
         coverage_lines = self._requirement_coverage_traceability_lines(state)
         lines.extend(coverage_lines or ["- Not evaluated"])
 
+        lines.extend(["", "## Scope Contract Audit"])
+        scope_lines = self._scope_contract_lines(state)
+        lines.extend(scope_lines or ["- Not evaluated"])
+
         lines.extend(["", "## Blockers"])
         if state.blockers:
             lines.extend(f"- {blocker}" for blocker in state.blockers)
@@ -319,6 +325,28 @@ class ProjectLogStore:
                 lines.append(
                     f"  - {item.label}: `{item.status}` | requirement={requirement_terms} | evidence={evidence_terms}"
                 )
+        return lines
+
+    def _scope_contract_lines(self, state: SharedProjectState) -> list[str]:
+        """Render downstream scope-contract checks against the frozen requirement."""
+        frozen_requirement = next(
+            (artifact for artifact in reversed(state.artifacts) if artifact.kind == "frozen_requirement_spec"),
+            None,
+        )
+        if frozen_requirement is None:
+            return []
+        artifact_store = ArtifactStore()
+        skipped_kinds = {"requirement_spec", "frozen_requirement_spec", "collaboration_review"}
+        lines: list[str] = []
+        for artifact in state.artifacts:
+            if artifact.kind in skipped_kinds:
+                continue
+            contract = evaluate_scope_contract(frozen_requirement, artifact_store.read_content(artifact))
+            status = "pass" if contract.passed else "violation"
+            rule_ids = ", ".join(rule.rule_id for rule in contract.rules) or "-"
+            lines.append(f"- Artifact `{artifact.id}` ({artifact.kind}): {status} | rules={rule_ids}")
+            for violation in contract.violations:
+                lines.append(f"  - {violation.label}: {violation.evidence}")
         return lines
 
     def classify_event(self, message: str) -> str:

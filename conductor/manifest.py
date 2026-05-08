@@ -10,6 +10,8 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from conductor.artifacts.scope_contract import evaluate_scope_contract
+from conductor.artifacts.store import ArtifactStore
 from conductor.config.cli import CLISelectionConfig
 from conductor.config.execution import RunProfile
 from conductor.config.llm import LLMRuntimeConfig
@@ -47,8 +49,10 @@ class RunManifest:
     cli_runs: list[dict[str, object]]
     llm_runs: list[dict[str, object]]
     collaboration_runs: list[dict[str, object]]
+    retry_history: list[dict[str, object]]
     requirement_evaluations: list[dict[str, object]]
     requirement_coverage_results: list[dict[str, object]]
+    scope_contract_results: list[dict[str, object]]
     workitems: list[dict[str, object]]
     task_assignments: list[dict[str, object]]
     artifacts: list[dict[str, object]]
@@ -83,8 +87,10 @@ class RunManifestWriter:
         ]
         llm_runs = self._llm_runs(state, executions)
         collaboration_runs = self._collaboration_runs(state)
+        retry_history = self._retry_history(state)
         requirement_evaluations = self._requirement_evaluations(state)
         requirement_coverage_results = self._requirement_coverage_results(state)
+        scope_contract_results = self._scope_contract_results(state)
         task_center = TaskCenterService(_ManifestStateStore(state))
         artifact_files = [artifact.path or "" for artifact in state.artifacts if artifact.path]
         task_prompt_files = self._dedupe([assignment.prompt_file for assignment in state.task_assignments])
@@ -96,7 +102,7 @@ class RunManifestWriter:
             probe_llm=False,
         ).to_dict()
         manifest = RunManifest(
-            schema_version="1.22",
+            schema_version="1.23",
             run_id=f"{state.project.id}:{generated_at}",
             project_id=state.project.id,
             generated_at=generated_at,
@@ -121,6 +127,10 @@ class RunManifestWriter:
                     default=0,
                 ),
                 "requirement_coverage_status": self._requirement_coverage_status(requirement_coverage_results),
+                "scope_contract_status": self._scope_contract_status(scope_contract_results),
+                "scope_contract_violation_count": sum(
+                    len(item.get("violations", [])) for item in scope_contract_results
+                ),
                 "task_center_summary": task_center.summary(state),
                 "workitem_status_counts": self._workitem_status_counts(state),
                 "execution_status_counts": self._execution_status_counts(executions),
@@ -128,6 +138,8 @@ class RunManifestWriter:
                 "blocked_reasons": list(state.blockers),
                 "retryable_failure_count": self._retryable_failure_count(state),
                 "non_retryable_failure_count": self._non_retryable_failure_count(state),
+                "retry_history_count": len(retry_history),
+                "retry_attempt_count": sum(int(item.get("retry_count", 0)) for item in retry_history),
                 "cli_run_count": len(cli_runs),
                 "llm_run_count": len(llm_runs),
                 "collaboration_run_count": len(collaboration_runs),
@@ -147,8 +159,10 @@ class RunManifestWriter:
             cli_runs=cli_runs,
             llm_runs=llm_runs,
             collaboration_runs=collaboration_runs,
+            retry_history=retry_history,
             requirement_evaluations=requirement_evaluations,
             requirement_coverage_results=requirement_coverage_results,
+            scope_contract_results=scope_contract_results,
             workitems=[
                 {
                     "id": item.id,
@@ -156,6 +170,9 @@ class RunManifestWriter:
                     "kind": item.kind,
                     "status": item.status.value,
                     "owner_agent": item.owner_agent or "",
+                    "retry_count": item.retry_count,
+                    "max_retries": item.max_retries,
+                    "blocked_reason": item.blocked_reason or "",
                     "failure_type": item.failure_type,
                     "retryable": item.retryable,
                     "failure_summary": item.failure_summary,
@@ -369,6 +386,52 @@ class RunManifestWriter:
             return "pass"
         return "no_rules"
 
+    def _scope_contract_results(self, state: SharedProjectState) -> list[dict[str, object]]:
+        """Evaluate downstream artifacts against frozen requirement hard exclusions."""
+        frozen_requirement = next(
+            (artifact for artifact in reversed(state.artifacts) if artifact.kind == "frozen_requirement_spec"),
+            None,
+        )
+        if frozen_requirement is None:
+            return []
+        artifact_store = ArtifactStore()
+        skipped_kinds = {"requirement_spec", "frozen_requirement_spec", "collaboration_review"}
+        results: list[dict[str, object]] = []
+        for artifact in state.artifacts:
+            if artifact.kind in skipped_kinds:
+                continue
+            contract = evaluate_scope_contract(frozen_requirement, artifact_store.read_content(artifact))
+            results.append(
+                {
+                    "artifact_id": artifact.id,
+                    "workitem_id": artifact.workitem_id,
+                    "kind": artifact.kind,
+                    "path": artifact.path or "",
+                    "passed": contract.passed,
+                    "rule_ids": [rule.rule_id for rule in contract.rules],
+                    "violations": [
+                        {
+                            "rule_id": violation.rule_id,
+                            "label": violation.label,
+                            "evidence": violation.evidence,
+                        }
+                        for violation in contract.violations
+                    ],
+                    "summary": contract.summary(),
+                }
+            )
+        return results
+
+    def _scope_contract_status(self, results: list[dict[str, object]]) -> str:
+        """Return a compact manifest summary status for downstream scope checks."""
+        if not results:
+            return "not_evaluated"
+        if any(not result.get("passed") for result in results):
+            return "violation"
+        if any(result.get("rule_ids") for result in results):
+            return "pass"
+        return "no_rules"
+
     def _workitem_status_counts(self, state: SharedProjectState) -> dict[str, int]:
         """Return WorkItem status counts for quick run audits."""
         return self._count_values([item.status.value for item in state.workitems])
@@ -388,6 +451,57 @@ class RunManifestWriter:
     def _non_retryable_failure_count(self, state: SharedProjectState) -> int:
         """Return non-retryable failed WorkItem count."""
         return len([item for item in state.workitems if item.status.value == "failed" and not item.retryable])
+
+    def _retry_history(self, state: SharedProjectState) -> list[dict[str, object]]:
+        """Return structured retry and exhausted-failure evidence per WorkItem."""
+        history: list[dict[str, object]] = []
+        for item in state.workitems:
+            should_record = item.retry_count > 0 or item.status.value == "failed" or bool(item.blocked_reason)
+            if not should_record:
+                continue
+            related_events = [
+                event
+                for event in state.recent_events
+                if item.id in event and self._looks_like_retry_or_failure_event(event)
+            ]
+            related_gate_history = [
+                gate for gate in state.gate_history if gate.startswith(f"{item.stage}:")
+            ]
+            history.append(
+                {
+                    "workitem_id": item.id,
+                    "stage": item.stage,
+                    "kind": item.kind,
+                    "status": item.status.value,
+                    "owner_agent": item.owner_agent or "",
+                    "retry_count": item.retry_count,
+                    "max_retries": item.max_retries,
+                    "retry_exhausted": item.retry_count >= item.max_retries and item.status.value == "failed",
+                    "retryable": item.retryable,
+                    "failure_type": item.failure_type,
+                    "failure_summary": item.failure_summary,
+                    "blocked_reason": item.blocked_reason or "",
+                    "related_events": related_events,
+                    "related_gate_history": related_gate_history,
+                }
+            )
+        return history
+
+    def _looks_like_retry_or_failure_event(self, event: str) -> bool:
+        """Return whether an event is useful for retry audit trails."""
+        normalized = event.lower()
+        markers = [
+            "retry",
+            "重试",
+            "failed",
+            "failure",
+            "失败",
+            "blocked",
+            "阻塞",
+            "gate",
+            "门禁",
+        ]
+        return any(marker in normalized for marker in markers)
 
     def _changed_files(self, executions: list[dict[str, object]]) -> list[str]:
         """Return deduplicated changed files referenced by executions."""

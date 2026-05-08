@@ -272,7 +272,7 @@ Static Web Harness 能检查：
 - log path
 - report path
 
-当前 schema：`1.22`
+当前 schema：`1.23`
 
 Manifest 现在能正确显示：
 
@@ -290,8 +290,10 @@ Manifest 现在能正确显示：
 - `llm_runtime_config` 只记录 key 是否存在，不记录真实 API key。
 - `run_environment.command_argv` 会脱敏 `key`、`token`、`secret`、`password` 相关参数。
 - 如果存在运行前 preflight gate 文件，Manifest 会索引 `files.preflight_gate`，并汇总 `summary.preflight_gate_ok`、`summary.preflight_gate_errors` 与 `summary.preflight_gate_recommendations`。
+- `retry_history` 会结构化记录发生过重试、失败或阻塞的 WorkItem，包括 retry count、max retries、是否耗尽、failure type、相关事件和阶段 gate history。
+- `scope_contract_results` 会审计下游 artifact 是否违反冻结需求里的硬性非目标/范围排除，并汇总 `summary.scope_contract_status` 与 `summary.scope_contract_violation_count`。
 - summary 聚合：状态计数、失败 WorkItem、可重试/不可重试失败数、CLI/LLM/collaboration 运行数、变更文件数、artifact 文件数、验证失败数。
-- 项目 Markdown Report 会展示 `## Preflight Gate` 小节，包含 gate 文件路径、通过/失败状态、错误摘要和修复建议。
+- 项目 Markdown Report 会展示 `## Preflight Gate` 和 `## Scope Contract Audit` 小节，包含 gate 文件路径、修复建议和冻结需求范围审计结果。
 
 示例真实项目：
 
@@ -326,7 +328,7 @@ python -m pytest -q
 最近一次验证结果：
 
 ```text
-352 passed
+355 passed
 ```
 
 ### 4.2 运行 Board
@@ -491,7 +493,6 @@ Manifest 已能记录主要运行事实和审计摘要，并已完成 LLM 配置
 - cost
 - prompt hash
 - model context length
-- per-step retry history
 - replay/resume cursor
 
 ### 6.5 任务中心仍是轻量实现

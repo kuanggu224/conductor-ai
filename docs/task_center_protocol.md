@@ -289,7 +289,7 @@ Summary payloads include:
 
 ## Audit Outputs
 
-Run Manifest schema `1.22` records:
+Run Manifest schema `1.23` records:
 
 - `task_assignments[].claimable`
 - `task_assignments[].unmet_dependency_ids`
@@ -302,9 +302,15 @@ Run Manifest schema `1.22` records:
 - `task_assignments[].returned_at`
 - `task_assignments[].prompt_file`
 - `workitems[].remediation_suggestions`
+- `workitems[].retry_count`
+- `workitems[].max_retries`
+- `workitems[].blocked_reason`
 - `executions[].remediation_suggestions`
 - `executions[].execution_command`
 - `executions[].execution_exit_code`
+- `scope_contract_results[]`
+- `summary.scope_contract_status`
+- `summary.scope_contract_violation_count`
 - `executions[].execution_duration_ms`
 - `artifacts[].workitem_id`
 - `artifacts[].title`
@@ -314,10 +320,13 @@ Run Manifest schema `1.22` records:
 - `artifacts[].collaboration_session_id`
 - `task_prompt_files`
 - `files.task_prompts`
+- `retry_history[]`
 - `summary.task_center_summary`
 - `summary.workitem_status_counts`
 - `summary.execution_status_counts`
 - `summary.failed_workitem_ids`
+- `summary.retry_history_count`
+- `summary.retry_attempt_count`
 - `summary.blocked_reasons`
 - `summary.retryable_failure_count`
 - `summary.non_retryable_failure_count`

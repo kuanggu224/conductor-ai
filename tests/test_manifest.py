@@ -26,7 +26,7 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     manifest_path = engine.write_run_manifest(state.project.id, report_path)
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-    assert payload["schema_version"] == "1.22"
+    assert payload["schema_version"] == "1.23"
     assert payload["run_id"].startswith(state.project.id)
     assert payload["project_id"] == state.project.id
     assert payload["run_profile"] == "mock"
@@ -39,9 +39,11 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     assert payload["executions"]
     assert "llm_runs" in payload
     assert "collaboration_runs" in payload
+    assert "retry_history" in payload
     assert "team_plan" in payload["collaboration_runs"][0]
     assert "requirement_evaluations" in payload
     assert "requirement_coverage_results" in payload
+    assert "scope_contract_results" in payload
     assert payload["requirement_evaluations"]
     assert payload["requirement_evaluations"][0]["kind"] == "requirement_spec"
     assert "score" in payload["requirement_evaluations"][0]
@@ -58,6 +60,9 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     assert "remediation_suggestions" in payload["executions"][0]
     assert payload["workitems"]
     assert "failure_type" in payload["workitems"][0]
+    assert "retry_count" in payload["workitems"][0]
+    assert "max_retries" in payload["workitems"][0]
+    assert "blocked_reason" in payload["workitems"][0]
     assert "remediation_suggestions" in payload["workitems"][0]
     assert "acceptance_criteria" in payload["workitems"][0]
     assert isinstance(payload["workitems"][0]["acceptance_criteria"], list)
@@ -92,12 +97,16 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     assert payload["summary"]["execution_count"] == len(state.executions)
     assert "requirement_quality_score" in payload["summary"]
     assert "requirement_coverage_status" in payload["summary"]
+    assert "scope_contract_status" in payload["summary"]
+    assert "scope_contract_violation_count" in payload["summary"]
     assert payload["summary"]["workitem_status_counts"]
     assert payload["summary"]["execution_status_counts"]
     assert isinstance(payload["summary"]["failed_workitem_ids"], list)
     assert isinstance(payload["summary"]["blocked_reasons"], list)
     assert "retryable_failure_count" in payload["summary"]
     assert "non_retryable_failure_count" in payload["summary"]
+    assert "retry_history_count" in payload["summary"]
+    assert "retry_attempt_count" in payload["summary"]
     assert payload["summary"]["cli_run_count"] == len(payload["cli_runs"])
     assert payload["summary"]["llm_run_count"] == len(payload["llm_runs"])
     assert payload["summary"]["collaboration_run_count"] == len(payload["collaboration_runs"])
@@ -436,6 +445,54 @@ def test_manifest_records_requirement_coverage_results(tmp_path) -> None:
     ]
 
 
+def test_manifest_records_scope_contract_violations_for_downstream_artifacts(tmp_path) -> None:
+    from conductor.domain.models import Artifact
+
+    engine = ConductorEngine(
+        log_dir=tmp_path / "logs",
+        artifact_dir=tmp_path / "artifacts",
+        cli_selection_config=CLISelectionConfig(),
+        run_profile=RunProfile.MOCK,
+    )
+    state = engine.create_project("非目标：不接后端，不做登录。", project_root=str(tmp_path / "project"))
+    state = replace(
+        state,
+        artifacts=[
+            Artifact(
+                id="artifact-frozen",
+                project_id=state.project.id,
+                workitem_id="workitem-requirement",
+                agent_id="agent-requirement",
+                kind="frozen_requirement_spec",
+                title="Frozen Requirement",
+                content="非目标：不接后端，不做登录。",
+            ),
+            Artifact(
+                id="artifact-design",
+                project_id=state.project.id,
+                workitem_id="workitem-design",
+                agent_id="agent-designer",
+                kind="design_overview",
+                title="Design",
+                content="方案：新增 FastAPI endpoint，并实现 login token session 管理。",
+            ),
+        ],
+    )
+    engine.state_store.save_state(state)
+    report_path = engine.write_project_report(state.project.id)
+
+    manifest_path = engine.write_run_manifest(state.project.id, report_path)
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert payload["summary"]["scope_contract_status"] == "violation"
+    assert payload["summary"]["scope_contract_violation_count"] == 2
+    assert payload["scope_contract_results"][0]["artifact_id"] == "artifact-design"
+    assert {item["rule_id"] for item in payload["scope_contract_results"][0]["violations"]} == {
+        "no_login",
+        "no_backend",
+    }
+
+
 def test_manifest_records_failure_remediation_suggestions(tmp_path) -> None:
     from conductor.domain.models import Execution, ExecutionStatus, WorkItem, WorkItemStatus
 
@@ -482,6 +539,62 @@ def test_manifest_records_failure_remediation_suggestions(tmp_path) -> None:
     assert payload["summary"]["failed_workitem_ids"] == ["workitem-timeout"]
     assert payload["summary"]["retryable_failure_count"] == 1
     assert payload["summary"]["non_retryable_failure_count"] == 0
+
+
+def test_manifest_records_retry_history_for_retried_workitems(tmp_path) -> None:
+    from conductor.domain.models import WorkItem, WorkItemStatus
+
+    engine = ConductorEngine(
+        log_dir=tmp_path / "logs",
+        artifact_dir=tmp_path / "artifacts",
+        cli_selection_config=CLISelectionConfig(),
+        run_profile=RunProfile.MOCK,
+    )
+    state = engine.create_project("Build retry audit", project_root=str(tmp_path / "project"))
+    retried_workitem = WorkItem(
+        id="workitem-retry",
+        description="Retry failed validation",
+        stage="testing",
+        kind="automated_test",
+        status=WorkItemStatus.FAILED,
+        owner_agent="agent-tester",
+        retry_count=2,
+        max_retries=2,
+        blocked_reason="failure_type=validation_failed; retryable=true; summary=pytest failed",
+        failure_type="validation_failed",
+        retryable=True,
+        failure_summary="pytest failed",
+    )
+    state = replace(
+        state,
+        current_stage="testing",
+        workitems=[retried_workitem],
+        recent_events=[
+            "WorkItem workitem-retry 进入重试，第 1 次",
+            "WorkItem workitem-retry failed: pytest failed",
+            "Unrelated event",
+        ],
+        gate_history=["testing:retry", "testing:escalate", "development:pass"],
+    )
+    engine.state_store.save_state(state)
+    report_path = engine.write_project_report(state.project.id)
+
+    manifest_path = engine.write_run_manifest(state.project.id, report_path)
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert payload["summary"]["retry_history_count"] == 1
+    assert payload["summary"]["retry_attempt_count"] == 2
+    assert payload["workitems"][0]["retry_count"] == 2
+    assert payload["workitems"][0]["max_retries"] == 2
+    retry_record = payload["retry_history"][0]
+    assert retry_record["workitem_id"] == "workitem-retry"
+    assert retry_record["retry_exhausted"] is True
+    assert retry_record["failure_type"] == "validation_failed"
+    assert retry_record["related_events"] == [
+        "WorkItem workitem-retry 进入重试，第 1 次",
+        "WorkItem workitem-retry failed: pytest failed",
+    ]
+    assert retry_record["related_gate_history"] == ["testing:retry", "testing:escalate"]
 
 
 def test_manifest_records_codex_model_for_bound_agent(tmp_path) -> None:
