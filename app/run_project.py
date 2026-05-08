@@ -16,6 +16,7 @@ from conductor.controller.engine import ConductorEngine
 from conductor.diagnostics import build_platform_diagnostics, build_requirement_llm_preflight_probe
 from conductor.io.encoding import configure_utf8_stdio
 from conductor.io.requirements import load_requirement_text
+from conductor.preflight_gate import write_preflight_gate_payload
 from conductor.state.file_store import FileStateStore
 
 configure_utf8_stdio()
@@ -280,9 +281,7 @@ def _run_preflight_gate(
         },
         "diagnostics": diagnostics.to_dict(),
     }
-    diagnostics_path = _preflight_gate_payload_path(project_root)
-    payload["preflight_gate"]["diagnostics_path"] = str(diagnostics_path)
-    _write_preflight_gate_payload(diagnostics_path, payload)
+    write_preflight_gate_payload(project_root, payload)
     return payload
 
 
@@ -314,18 +313,6 @@ def _preflight_gate_errors(
                 f"LLMHarness backend `{llm_harness_backend}` is not ready: {backend.recommendation}"
             )
     return list(dict.fromkeys(error for error in errors if error))
-
-
-def _preflight_gate_payload_path(project_root: Path) -> Path:
-    """Return the audit path for the run preflight gate result."""
-    return project_root / ".conductor" / "diagnostics" / "run-preflight" / "preflight-gate.json"
-
-
-def _write_preflight_gate_payload(diagnostics_path: Path, payload: dict[str, object]) -> Path:
-    """Persist the run preflight gate result for audit and troubleshooting."""
-    diagnostics_path.parent.mkdir(parents=True, exist_ok=True)
-    diagnostics_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    return diagnostics_path
 
 
 def _build_system_config(args) -> SystemConfig:

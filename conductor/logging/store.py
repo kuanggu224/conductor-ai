@@ -10,6 +10,7 @@ from typing import Any
 
 from conductor.domain.models import SharedProjectState
 from conductor.execution.failure_policy import remediation_suggestions
+from conductor.preflight_gate import read_preflight_gate
 from conductor.task_center.service import TaskCenterService
 from conductor.testing.coverage import evaluate_requirement_coverage
 
@@ -260,27 +261,15 @@ class ProjectLogStore:
 
     def _preflight_gate_lines(self, state: SharedProjectState) -> list[str]:
         """Render persisted run preflight gate evidence for human reports."""
-        project_root = state.project.project_root
-        if not project_root:
+        snapshot = read_preflight_gate(state.project.project_root)
+        if not snapshot.recorded:
             return ["- Not recorded"]
-        gate_path = Path(project_root) / ".conductor" / "diagnostics" / "run-preflight" / "preflight-gate.json"
-        if not gate_path.exists():
-            return ["- Not recorded"]
-        try:
-            payload = json.loads(gate_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as error:
-            return [f"- Path: {gate_path}", f"- Status: unreadable", f"- Error: {error}"]
-        ok = payload.get("ok") if isinstance(payload, dict) else None
-        gate_payload = payload.get("preflight_gate", {}) if isinstance(payload, dict) else {}
-        errors = gate_payload.get("errors", []) if isinstance(gate_payload, dict) else []
-        if not isinstance(errors, list):
-            errors = [str(errors)]
         lines = [
-            f"- Path: {gate_path}",
-            f"- Status: {'pass' if ok is True else 'fail' if ok is False else 'unknown'}",
+            f"- Path: {snapshot.path}",
+            f"- Status: {snapshot.status}",
         ]
-        if errors:
-            lines.extend(f"- Error: {error}" for error in errors)
+        if snapshot.errors:
+            lines.extend(f"- Error: {error}" for error in snapshot.errors)
         else:
             lines.append("- Errors: none")
         return lines
