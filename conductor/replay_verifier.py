@@ -319,6 +319,11 @@ class ManifestVerifier:
 
         workitem_ids = self._ids_with_duplicate_check("workitems", workitems, result)
         artifact_ids = self._ids_with_duplicate_check("artifacts", artifacts, result)
+        workitem_statuses = {
+            str(item.get("id", "")): str(item.get("status", ""))
+            for item in workitems
+            if isinstance(item, dict) and str(item.get("id", ""))
+        }
 
         for index, agent in enumerate(self._list(payload.get("agents"))):
             if not isinstance(agent, dict):
@@ -415,6 +420,7 @@ class ManifestVerifier:
             )
             if workitem_id and workitem_id not in workitem_ids:
                 result.errors.append(f"task assignment references unknown WorkItem: {workitem_id}")
+            self._verify_task_assignment_workitem_status(assignment, workitem_statuses, result)
             for dependency_id in self._string_list(assignment.get("dependencies", [])):
                 if dependency_id not in workitem_ids:
                     result.errors.append(
@@ -521,6 +527,28 @@ class ManifestVerifier:
                     f"collaboration_runs[{index}].reviews[{review_index}].agent_id",
                     result,
                 )
+
+    def _verify_task_assignment_workitem_status(
+        self,
+        assignment: dict[str, Any],
+        workitem_statuses: dict[str, str],
+        result: ManifestVerificationResult,
+    ) -> None:
+        assignment_id = str(assignment.get("id", ""))
+        workitem_id = str(assignment.get("workitem_id", ""))
+        assignment_status = str(assignment.get("status", ""))
+        expected_workitem_statuses = {
+            "queued": "pending",
+            "claimed": "running",
+            "blocked": "failed",
+        }
+        expected_status = expected_workitem_statuses.get(assignment_status)
+        actual_status = workitem_statuses.get(workitem_id)
+        if expected_status and actual_status and actual_status != expected_status:
+            result.warnings.append(
+                f"task assignment {assignment_id} status {assignment_status} references WorkItem {workitem_id} "
+                f"with status {actual_status}, expected {expected_status}"
+            )
 
     def _warn_non_list_fields(
         self,
