@@ -183,6 +183,39 @@ def test_preflight_gate_allows_ready_llm_harness(monkeypatch, tmp_path) -> None:
     assert (tmp_path / ".conductor" / "diagnostics" / "run-preflight" / "preflight-gate.json").exists()
 
 
+def test_preflight_gate_ignores_irrelevant_cloud_warning_when_local_harness_is_selected(monkeypatch, tmp_path) -> None:
+    run_profile = resolve_run_profile("design_cli_only")
+    llm_runtime_config = LLMRuntimeConfig(
+        local=LLMHTTPConfig(base_url="http://127.0.0.1:1234/v1", model_name="local-model", enabled=True),
+        cloud=LLMHTTPConfig(base_url="https://example.com/v1", model_name="cloud-model", enabled=True),
+        usage=LLMUsagePolicy(runner_enabled=False),
+    )
+
+    monkeypatch.setattr(
+        run_project,
+        "build_platform_diagnostics",
+        lambda **_: fake_diagnostics(
+            "local",
+            "ready",
+            warnings=["Cloud LLM `cloud-model` is enabled but API key is missing."],
+            extra_backends=[("cloud", "failed", "Fill the cloud API key")],
+        ),
+    )
+
+    payload = _run_preflight_gate(
+        cli_config=_build_cli_config(None, run_profile),
+        llm_runtime_config=llm_runtime_config,
+        project_root=tmp_path,
+        run_profile=run_profile,
+        agent_cli=None,
+        llm_harness_backend="local",
+    )
+
+    assert payload["ok"] is True
+    assert payload["preflight_gate"]["errors"] == []
+    assert not any("API key" in item for item in payload["preflight_gate"]["recommendations"])
+
+
 def test_preflight_gate_blocks_failed_llm_harness(monkeypatch, tmp_path) -> None:
     run_profile = resolve_run_profile("design_cli_only")
     llm_runtime_config = LLMRuntimeConfig(
@@ -210,15 +243,34 @@ def test_preflight_gate_blocks_failed_llm_harness(monkeypatch, tmp_path) -> None
     assert any("preflight failed" in error for error in payload["preflight_gate"]["errors"])
 
 
-def fake_diagnostics(backend: str, health_status: str, warnings: list[str] | None = None):
+def fake_diagnostics(
+    backend: str,
+    health_status: str,
+    warnings: list[str] | None = None,
+    extra_backends: list[tuple[str, str, str]] | None = None,
+):
+    backends = [
+        SimpleNamespace(
+            backend=backend,
+            health_status=health_status,
+            recommendation="diagnostic recommendation",
+        )
+    ]
+    for item_backend, item_status, item_recommendation in extra_backends or []:
+        backends.append(
+            SimpleNamespace(
+                backend=item_backend,
+                health_status=item_status,
+                recommendation=item_recommendation,
+            )
+        )
     return SimpleNamespace(
         warnings=warnings or [],
-        llm_backends=[
-            SimpleNamespace(
-                backend=backend,
-                health_status=health_status,
-                recommendation="diagnostic recommendation",
-            )
-        ],
-        to_dict=lambda: {"llm_backends": [{"backend": backend, "health_status": health_status}]},
+        llm_backends=backends,
+        to_dict=lambda: {
+            "llm_backends": [
+                {"backend": item.backend, "health_status": item.health_status}
+                for item in backends
+            ]
+        },
     )

@@ -276,6 +276,7 @@ def _run_preflight_gate(
         errors=errors,
         agent_cli=agent_cli,
         llm_harness_backend=llm_harness_backend,
+        runner_enabled=llm_runtime_config.usage.runner_enabled,
     )
     payload = {
         "ok": not errors,
@@ -307,7 +308,14 @@ def _preflight_gate_errors(
         errors.append(
             "Run profile requires real outputs, but no Agent CLI, LLMHarness backend, or LLM runner is configured."
         )
-    errors.extend(diagnostics.warnings)
+    errors.extend(
+        _preflight_gate_relevant_warnings(
+            diagnostics=diagnostics,
+            agent_cli=agent_cli,
+            llm_harness_backend=llm_harness_backend,
+            runner_enabled=runner_enabled,
+        )
+    )
     if llm_harness_backend:
         backend = next(
             (item for item in diagnostics.llm_backends if item.backend == llm_harness_backend),
@@ -328,6 +336,7 @@ def _preflight_gate_recommendations(
     errors: list[str],
     agent_cli: str | None,
     llm_harness_backend: str | None,
+    runner_enabled: bool,
 ) -> list[str]:
     """Return concise next actions for failed or risky preflight gates."""
     recommendations: list[str] = []
@@ -340,16 +349,47 @@ def _preflight_gate_recommendations(
     if llm_harness_backend:
         recommendations.append("Run `python -m app.diagnostics --preflight-llm` and verify base URL, model, key, and quota.")
     for backend in getattr(diagnostics, "llm_backends", []):
+        if llm_harness_backend and getattr(backend, "backend", "") != llm_harness_backend:
+            continue
         recommendation = getattr(backend, "recommendation", "")
         health_status = getattr(backend, "health_status", "")
         if recommendation and health_status in {"failed", "warning", "unreadable"}:
             recommendations.append(recommendation)
-    for warning in getattr(diagnostics, "warnings", []):
+    for warning in _preflight_gate_relevant_warnings(
+        diagnostics=diagnostics,
+        agent_cli=agent_cli,
+        llm_harness_backend=llm_harness_backend,
+        runner_enabled=runner_enabled,
+    ):
         if "API key is missing" in warning:
             recommendations.append("Fill the missing API key in `.conductor/llm.config.json` or the Board LLM settings page.")
         if "not available on PATH" in warning:
             recommendations.append("Install the selected CLI or remove it from the selected CLI bindings.")
     return list(dict.fromkeys(item for item in recommendations if item))
+
+
+def _preflight_gate_relevant_warnings(
+    *,
+    diagnostics,
+    agent_cli: str | None,
+    llm_harness_backend: str | None,
+    runner_enabled: bool,
+) -> list[str]:
+    """Filter diagnostics warnings to the backend selected for this run."""
+    warnings = list(getattr(diagnostics, "warnings", []))
+    if runner_enabled and not llm_harness_backend:
+        return warnings
+    relevant: list[str] = []
+    for warning in warnings:
+        if agent_cli and (f"`{agent_cli}`" in warning or f" {agent_cli}" in warning):
+            relevant.append(warning)
+            continue
+        if llm_harness_backend and warning.startswith(f"{llm_harness_backend} LLM"):
+            relevant.append(warning)
+            continue
+        if llm_harness_backend == "cloud" and "Cloud LLM" in warning:
+            relevant.append(warning)
+    return relevant
 
 
 def _build_system_config(args) -> SystemConfig:
