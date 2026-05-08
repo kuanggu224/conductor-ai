@@ -212,6 +212,7 @@ type BoardPreflightGateView = {
   recorded: boolean
   status: "not_recorded" | "pass" | "fail" | "unknown" | "unreadable"
   status_label: string
+  project_root: string
   path: string
   errors: string[]
   recommendations: string[]
@@ -219,7 +220,7 @@ type BoardPreflightGateView = {
 ```
 
 该字段来自 `<project_root>/.conductor/diagnostics/run-preflight/preflight-gate.json`，
-用于在 Board 中展示运行前环境检查是否通过，以及失败时的错误摘要。
+用于在 Board 中展示运行前环境检查是否通过、对应项目目录，以及失败时的错误摘要。
 
 
 ### 4.3 BoardWorkItemView

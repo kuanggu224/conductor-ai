@@ -290,6 +290,7 @@ class BoardService:
             recorded=snapshot.recorded,
             status=snapshot.status,
             status_label=snapshot.status_label,
+            project_root=snapshot.project_root,
             path=snapshot.path,
             errors=snapshot.errors,
             recommendations=snapshot.recommendations,

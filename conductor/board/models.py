@@ -168,6 +168,7 @@ class BoardPreflightGateView:
     recorded: bool = False
     status: str = "not_recorded"
     status_label: str = "未记录"
+    project_root: str = ""
     path: str = ""
     errors: list[str] = field(default_factory=list)
     recommendations: list[str] = field(default_factory=list)

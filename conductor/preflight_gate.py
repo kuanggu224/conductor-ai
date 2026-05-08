@@ -12,6 +12,7 @@ class PreflightGateSnapshot:
     """Normalized view of a persisted preflight gate payload."""
 
     recorded: bool = False
+    project_root: str = ""
     path: str = ""
     ok: bool | None = None
     errors: list[str] = field(default_factory=list)
@@ -28,6 +29,7 @@ def preflight_gate_path(project_root: str | Path) -> Path:
 def write_preflight_gate_payload(project_root: str | Path, payload: dict[str, object]) -> Path:
     """Persist one preflight gate payload and stamp its diagnostics path."""
     path = preflight_gate_path(project_root)
+    payload.setdefault("project_root", str(Path(project_root).expanduser().resolve()))
     gate_payload = payload.setdefault("preflight_gate", {})
     if isinstance(gate_payload, dict):
         gate_payload["diagnostics_path"] = str(path)
@@ -41,6 +43,7 @@ def read_preflight_gate(project_root: str | Path | None) -> PreflightGateSnapsho
     if not project_root:
         return PreflightGateSnapshot()
     path = preflight_gate_path(project_root)
+    resolved_project_root = str(Path(project_root).expanduser().resolve())
     if not path.exists():
         return PreflightGateSnapshot()
     try:
@@ -48,6 +51,7 @@ def read_preflight_gate(project_root: str | Path | None) -> PreflightGateSnapsho
     except (OSError, json.JSONDecodeError) as error:
         return PreflightGateSnapshot(
             recorded=True,
+            project_root=resolved_project_root,
             path=str(path),
             ok=False,
             errors=[f"Unable to read preflight gate: {error}"],
@@ -57,6 +61,7 @@ def read_preflight_gate(project_root: str | Path | None) -> PreflightGateSnapsho
     if not isinstance(payload, dict):
         return PreflightGateSnapshot(
             recorded=True,
+            project_root=resolved_project_root,
             path=str(path),
             ok=None,
             errors=["Preflight gate payload is not a JSON object."],
@@ -72,9 +77,13 @@ def read_preflight_gate(project_root: str | Path | None) -> PreflightGateSnapsho
         recommendations = [str(recommendations)]
     ok = payload.get("ok")
     normalized_ok = ok if isinstance(ok, bool) else None
+    snapshot_project_root = payload.get("project_root")
+    if not isinstance(snapshot_project_root, str) or not snapshot_project_root:
+        snapshot_project_root = resolved_project_root
     status, status_label = _status_for_ok(normalized_ok)
     return PreflightGateSnapshot(
         recorded=True,
+        project_root=snapshot_project_root,
         path=str(path),
         ok=normalized_ok,
         errors=[str(error) for error in errors],
