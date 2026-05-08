@@ -38,6 +38,7 @@ def test_audit_bundle_verifier_accepts_run_project_bundle(tmp_path, capsys) -> N
     assert result.errors == []
     assert result.project_id == payload["project_id"]
     assert result.files == bundle["files"]
+    assert result.checksums == bundle["checksums"]
 
 
 def test_audit_bundle_verifier_rejects_missing_component_file(tmp_path, capsys) -> None:
@@ -144,6 +145,7 @@ def test_verify_audit_bundle_cli_exits_zero_for_valid_bundle(tmp_path, capsys) -
     payload = json.loads(captured.out)
     assert payload["passed"] is True
     assert payload["files"]["manifest"]
+    assert payload["checksums"]["manifest"]
 
 
 def test_verify_audit_bundle_cli_writes_output_file(tmp_path, capsys) -> None:

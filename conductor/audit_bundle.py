@@ -23,6 +23,7 @@ class AuditBundleVerificationResult:
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     files: dict[str, str] = field(default_factory=dict)
+    checksums: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -34,6 +35,7 @@ class AuditBundleVerificationResult:
             "errors": list(self.errors),
             "warnings": list(self.warnings),
             "files": dict(self.files),
+            "checksums": dict(self.checksums),
         }
 
 
@@ -53,6 +55,7 @@ class AuditBundleVerifier:
 
         result.project_id = str(payload.get("project_id", ""))
         result.files = self._file_index(payload)
+        result.checksums = self._checksum_index(payload)
         self._verify_required_fields(payload, result)
         self._verify_summary(payload, result)
         if check_files:
@@ -82,6 +85,16 @@ class AuditBundleVerifier:
             field_name: str(files.get(field_name, ""))
             for field_name in self.REQUIRED_FILE_FIELDS
             if str(files.get(field_name, ""))
+        }
+
+    def _checksum_index(self, payload: dict[str, Any]) -> dict[str, str]:
+        checksums = payload.get("checksums")
+        if not isinstance(checksums, dict):
+            return {}
+        return {
+            field_name: str(checksums.get(field_name, ""))
+            for field_name in self.REQUIRED_FILE_FIELDS
+            if str(checksums.get(field_name, ""))
         }
 
     def _verify_required_fields(self, payload: dict[str, Any], result: AuditBundleVerificationResult) -> None:
