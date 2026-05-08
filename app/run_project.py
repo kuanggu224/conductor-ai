@@ -296,6 +296,8 @@ def main(argv: list[str] | None = None) -> int:
         "artifacts": [asdict(item) for item in state.artifacts],
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2))
+    if audit_bundle_verification_payload and audit_bundle_verification_payload.get("passed") is not True:
+        return 2
     return 0 if state.project_status.value == "completed" else 1
 
 

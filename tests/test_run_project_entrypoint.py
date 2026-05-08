@@ -329,6 +329,31 @@ def test_run_project_can_write_audit_bundle(tmp_path, capsys) -> None:
     assert len(bundle["checksums"]["replay_trace"]) == 64
 
 
+def test_run_project_returns_two_when_audit_bundle_verification_fails(monkeypatch, tmp_path, capsys) -> None:
+    monkeypatch.setattr(
+        run_project,
+        "verify_audit_bundle",
+        lambda _: SimpleNamespace(to_dict=lambda: {"passed": False, "errors": ["audit failed"]}),
+    )
+
+    exit_code = run_project.main(
+        [
+            "--project-root",
+            str(tmp_path),
+            "--requirement",
+            "Build a small reading list",
+            "--max-steps",
+            "1",
+            "--skip-preflight-gate",
+            "--write-audit-bundle",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 2
+    assert payload["audit_bundle_verification"]["passed"] is False
+
+
 def test_run_project_resolves_relative_audit_bundle_output_under_project_root(tmp_path, capsys) -> None:
     exit_code = run_project.main(
         [

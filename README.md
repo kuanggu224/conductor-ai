@@ -232,7 +232,8 @@ Use `--write-audit-bundle` to write both the manifest verification report and
 the replay trace in one project run. It also writes an audit bundle index JSON
 that points to the manifest, report, verification report, and replay trace, with
 SHA-256 checksums for each component. The final `run_project` JSON includes
-`audit_bundle_verification` immediately after the bundle is written.
+`audit_bundle_verification` immediately after the bundle is written. If that
+verification fails, `run_project` exits with code `2`.
 
 Verify an audit bundle index:
 
@@ -317,7 +318,7 @@ Current targeted verification for read-only replay trace:
 
 Current full verification after preflight gate, diagnostics, manifest hardening,
 task-center recovery work, and manifest verification:
-`420 passed` with `python -m pytest -q`.
+`421 passed` with `python -m pytest -q`.
 
 ## Project Layout
 
