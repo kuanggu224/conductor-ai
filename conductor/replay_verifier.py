@@ -230,6 +230,7 @@ class ManifestVerifier:
         self._verify_requirement_quality_score(summary, self._list(payload.get("requirement_evaluations")), result)
         self._verify_requirement_coverage_status(summary, self._list(payload.get("requirement_coverage_results")), result)
         self._verify_scope_contract_summary(summary, self._list(payload.get("scope_contract_results")), result)
+        self._verify_llm_context_windows(summary, self._list(payload.get("llm_runs")), result)
 
         changed_files = self._list(summary.get("changed_files"))
         if "changed_files" in summary and not isinstance(summary.get("changed_files"), list):
@@ -438,6 +439,47 @@ class ManifestVerifier:
         if any(bool(self._string_list(record.get("rule_ids", []))) for record in records):
             return "pass"
         return "no_rules"
+
+    def _verify_llm_context_windows(
+        self,
+        summary: dict[str, Any],
+        llm_runs: list[Any],
+        result: ManifestVerificationResult,
+    ) -> None:
+        if "llm_context_windows" not in summary:
+            return
+        context_windows = summary.get("llm_context_windows")
+        if not isinstance(context_windows, list):
+            result.errors.append("summary.llm_context_windows must be a list")
+            return
+        context_by_model: dict[str, int | None] = {}
+        for index, record in enumerate(context_windows):
+            if not isinstance(record, dict):
+                result.errors.append(f"summary.llm_context_windows[{index}] must be an object")
+                continue
+            model = str(record.get("model", ""))
+            if not model:
+                continue
+            context_length = record.get("context_length")
+            if context_length is not None and not isinstance(context_length, int):
+                result.errors.append(f"summary.llm_context_windows[{index}].context_length must be an integer or null")
+                continue
+            if model in context_by_model and context_by_model[model] != context_length:
+                result.errors.append(f"summary.llm_context_windows contains conflicting context_length for model: {model}")
+            context_by_model[model] = context_length
+
+        for index, run in enumerate(llm_runs):
+            if not isinstance(run, dict):
+                continue
+            model = str(run.get("model", ""))
+            if not model or model not in context_by_model:
+                continue
+            expected = context_by_model[model]
+            actual = run.get("context_length")
+            if actual != expected:
+                result.errors.append(
+                    f"llm_runs[{index}].context_length={actual} does not match summary.llm_context_windows[{model}]={expected}"
+                )
 
     def _verify_task_center_summary(
         self,

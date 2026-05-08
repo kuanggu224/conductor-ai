@@ -910,6 +910,85 @@ def test_manifest_verifier_accepts_scope_contract_status_without_results(tmp_pat
     assert result.passed is True
 
 
+def test_manifest_verifier_rejects_llm_context_window_mismatch(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "summary": {
+                "final_status": "completed",
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 1,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+                "llm_context_windows": [
+                    {
+                        "backend": "local",
+                        "model": "qwen2.5",
+                        "context_length": 32768,
+                    }
+                ],
+            },
+            "llm_runs": [
+                {
+                    "mode": "workitem_execution",
+                    "workitem_id": "workitem-1",
+                    "agent_id": "agent-1",
+                    "model": "qwen2.5",
+                    "context_length": 8192,
+                    "token_usage": {},
+                    "output_files": [],
+                }
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert "llm_runs[0].context_length=8192 does not match summary.llm_context_windows[qwen2.5]=32768" in result.errors
+
+
+def test_manifest_verifier_rejects_malformed_llm_context_windows(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "summary": {
+                "final_status": "completed",
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+                "llm_context_windows": [
+                    {
+                        "backend": "local",
+                        "model": "qwen2.5",
+                        "context_length": "32768",
+                    }
+                ],
+            },
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert "summary.llm_context_windows[0].context_length must be an integer or null" in result.errors
+
+
 def test_manifest_verifier_rejects_summary_changed_files_mismatch_executions(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,
