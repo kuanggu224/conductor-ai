@@ -516,6 +516,100 @@ def test_manifest_verifier_warns_for_claimed_assignment_with_pending_workitem(tm
     ) in result.warnings
 
 
+def test_manifest_verifier_warns_for_latest_execution_workitem_status_drift(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "status": "in_progress",
+            "final_status": "in_progress",
+            "summary": {
+                "final_status": "in_progress",
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+            },
+            "workitems": [
+                {
+                    "id": "workitem-1",
+                    "stage": "testing",
+                    "kind": "acceptance_check",
+                    "status": "failed",
+                }
+            ],
+            "resume_cursor": {
+                "project_id": "project-1",
+                "project_status": "in_progress",
+                "current_stage": "testing",
+                "next_action": "blocked",
+                "terminal": False,
+                "blocked": False,
+                "completed_workitem_ids": [],
+                "terminal_failed_workitem_ids": ["workitem-1"],
+                "last_execution_workitem_id": "workitem-1",
+            },
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert (
+        "latest execution for WorkItem workitem-1 has status success, "
+        "but WorkItem status is failed, expected done"
+    ) in result.warnings
+
+
+def test_manifest_verifier_uses_latest_execution_for_status_drift(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "summary": {
+                "final_status": "completed",
+                "workitem_count": 1,
+                "execution_count": 2,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+            },
+            "executions": [
+                {
+                    "workitem_id": "workitem-1",
+                    "agent_id": "agent-1",
+                    "status": "failed",
+                    "artifact_ids": ["artifact-1"],
+                    "artifact_files": [],
+                },
+                {
+                    "workitem_id": "workitem-1",
+                    "agent_id": "agent-1",
+                    "status": "success",
+                    "artifact_ids": ["artifact-1"],
+                    "artifact_files": [],
+                },
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert not any("latest execution for WorkItem workitem-1" in warning for warning in result.warnings)
+
+
 def test_manifest_verifier_checks_cli_config_shape_and_bindings(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,

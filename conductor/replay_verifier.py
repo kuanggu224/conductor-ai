@@ -380,6 +380,7 @@ class ManifestVerifier:
             for artifact_id in self._string_list(execution.get("artifact_ids", []) if isinstance(execution, dict) else []):
                 if artifact_id not in artifact_ids:
                     result.errors.append(f"execution references unknown Artifact: {artifact_id}")
+        self._verify_latest_execution_workitem_status(executions, workitem_statuses, result)
 
         for artifact in artifacts:
             if not isinstance(artifact, dict):
@@ -526,6 +527,34 @@ class ManifestVerifier:
                     str(review.get("agent_id", "")),
                     f"collaboration_runs[{index}].reviews[{review_index}].agent_id",
                     result,
+                )
+
+    def _verify_latest_execution_workitem_status(
+        self,
+        executions: list[Any],
+        workitem_statuses: dict[str, str],
+        result: ManifestVerificationResult,
+    ) -> None:
+        latest_by_workitem: dict[str, dict[str, Any]] = {}
+        for execution in executions:
+            if not isinstance(execution, dict):
+                continue
+            workitem_id = str(execution.get("workitem_id", ""))
+            if workitem_id:
+                latest_by_workitem[workitem_id] = execution
+
+        expected_workitem_statuses = {
+            "success": "done",
+            "failed": "failed",
+        }
+        for workitem_id, execution in latest_by_workitem.items():
+            execution_status = str(execution.get("status", ""))
+            expected_status = expected_workitem_statuses.get(execution_status)
+            actual_status = workitem_statuses.get(workitem_id)
+            if expected_status and actual_status and actual_status != expected_status:
+                result.warnings.append(
+                    f"latest execution for WorkItem {workitem_id} has status {execution_status}, "
+                    f"but WorkItem status is {actual_status}, expected {expected_status}"
                 )
 
     def _verify_task_assignment_workitem_status(
