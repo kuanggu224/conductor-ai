@@ -128,6 +128,10 @@ class AuditBundleVerifier:
                 passed_field="passed",
             )
 
+        replay_trace_path = self._resolve_component_path(str(files.get("replay_trace", "")), bundle_path)
+        if replay_trace_path.exists():
+            self._verify_replay_trace(replay_trace_path, result)
+
     def _verify_component_json(
         self,
         path: Path,
@@ -148,6 +152,20 @@ class AuditBundleVerifier:
             result.errors.append(f"{component_name}.project_id does not match audit bundle project_id")
         if payload.get(passed_field) is not True:
             result.errors.append(f"{component_name}.{passed_field} must be true")
+
+    def _verify_replay_trace(self, path: Path, result: AuditBundleVerificationResult) -> None:
+        if path.suffix.lower() == ".json":
+            self._verify_component_json(path, result, component_name="replay_trace", passed_field="passed")
+            return
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            result.errors.append(f"replay_trace cannot be read: {exc}")
+            return
+        if f"# Replay Trace: {result.project_id}" not in text:
+            result.errors.append("replay_trace project_id does not match audit bundle project_id")
+        if "- Verification: `passed`" not in text:
+            result.errors.append("replay_trace verification marker must be passed")
 
     def _resolve_component_path(self, raw_path: str, bundle_path: Path) -> Path:
         path = Path(raw_path)

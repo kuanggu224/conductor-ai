@@ -77,6 +77,37 @@ def test_audit_bundle_verifier_reruns_manifest_verification(tmp_path, capsys) ->
     assert any("manifest verification: project_id must be non-empty" in error for error in result.errors)
 
 
+def test_audit_bundle_verifier_rejects_mismatched_replay_trace(tmp_path, capsys) -> None:
+    payload, bundle_path = _write_project_audit_bundle(tmp_path, capsys)
+    bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+    replay_trace_path = Path(bundle["files"]["replay_trace"])
+    replay_trace_path.write_text(
+        "# Replay Trace: other-project\n\n- Verification: `passed`\n",
+        encoding="utf-8",
+    )
+
+    result = verify_audit_bundle(bundle_path)
+
+    assert result.passed is False
+    assert result.project_id == payload["project_id"]
+    assert "replay_trace project_id does not match audit bundle project_id" in result.errors
+
+
+def test_audit_bundle_verifier_rejects_failed_replay_trace_marker(tmp_path, capsys) -> None:
+    payload, bundle_path = _write_project_audit_bundle(tmp_path, capsys)
+    bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+    replay_trace_path = Path(bundle["files"]["replay_trace"])
+    replay_trace_path.write_text(
+        f"# Replay Trace: {payload['project_id']}\n\n- Verification: `failed`\n",
+        encoding="utf-8",
+    )
+
+    result = verify_audit_bundle(bundle_path)
+
+    assert result.passed is False
+    assert "replay_trace verification marker must be passed" in result.errors
+
+
 def test_verify_audit_bundle_cli_exits_zero_for_valid_bundle(tmp_path, capsys) -> None:
     _, bundle_path = _write_project_audit_bundle(tmp_path, capsys)
 
