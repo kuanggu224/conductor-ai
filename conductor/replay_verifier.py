@@ -232,6 +232,21 @@ class ManifestVerifier:
         workitem_ids = self._ids_with_duplicate_check("workitems", workitems, result)
         artifact_ids = self._ids_with_duplicate_check("artifacts", artifacts, result)
 
+        for workitem in workitems:
+            if not isinstance(workitem, dict):
+                continue
+            workitem_id = str(workitem.get("id", ""))
+            for artifact_id in self._string_list(workitem.get("input_artifact_ids", [])):
+                if artifact_id not in artifact_ids:
+                    result.errors.append(
+                        f"workitem {workitem_id} input_artifact_ids references unknown Artifact: {artifact_id}"
+                    )
+            for artifact_id in self._string_list(workitem.get("output_artifact_ids", [])):
+                if artifact_id not in artifact_ids:
+                    result.warnings.append(
+                        f"workitem {workitem_id} output_artifact_ids is not indexed in artifacts: {artifact_id}"
+                    )
+
         for execution in executions:
             workitem_id = str(execution.get("workitem_id", "")) if isinstance(execution, dict) else ""
             if workitem_id and workitem_id not in workitem_ids:

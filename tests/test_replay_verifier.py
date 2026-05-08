@@ -261,6 +261,50 @@ def test_manifest_verifier_warns_for_unindexed_task_assignment_output_artifacts(
     )
 
 
+def test_manifest_verifier_rejects_unknown_workitem_input_artifacts(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "workitems": [
+                {
+                    "id": "workitem-1",
+                    "stage": "testing",
+                    "kind": "acceptance_check",
+                    "status": "done",
+                    "input_artifact_ids": ["missing-artifact"],
+                }
+            ]
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert "workitem workitem-1 input_artifact_ids references unknown Artifact: missing-artifact" in result.errors
+
+
+def test_manifest_verifier_warns_for_unindexed_workitem_output_artifacts(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "workitems": [
+                {
+                    "id": "workitem-1",
+                    "stage": "testing",
+                    "kind": "acceptance_check",
+                    "status": "done",
+                    "output_artifact_ids": ["artifact-external"],
+                }
+            ]
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert "workitem workitem-1 output_artifact_ids is not indexed in artifacts: artifact-external" in result.warnings
+
+
 def test_manifest_verifier_warns_for_unresolved_artifact_lineage(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,
