@@ -211,6 +211,7 @@ Context responses from `context` and `/context` include:
 - `project_goal`
 - `project_root`
 - `execution_brief`
+- `frozen_requirement_baseline`
 - `assignment`
 - `workitem`
 - `input_artifacts`
@@ -221,7 +222,9 @@ artifact file path when available. Use CLI `--no-content` or API
 `?include_content=false` when only metadata is needed.
 `execution_brief` is a compact instruction block for external workers. It
 summarizes the project, assignment, acceptance criteria, input artifacts, and
-return protocol.
+return protocol. When a `frozen_requirement_spec` is present, it is repeated in
+`frozen_requirement_baseline` and called out in the brief as the controlling
+contract for design, implementation, and testing.
 CLI `context --format markdown` renders the same payload as a human-readable
 task prompt for coding agents.
 API `/context?format=markdown` returns the same prompt as `text/markdown`.

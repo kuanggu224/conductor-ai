@@ -36,6 +36,7 @@ class TaskContextBuilder:
             for artifact_id in assignment.input_artifact_ids
             if (artifact := artifacts_by_id.get(artifact_id)) is not None
         ]
+        frozen_requirement_baseline = self._frozen_requirement_baseline(input_artifacts)
         output_artifacts = [
             self._artifact_payload(artifact, include_content=False, max_content_chars=max_content_chars)
             for artifact in state.artifacts
@@ -46,7 +47,8 @@ class TaskContextBuilder:
             "project_id": state.project.id,
             "project_goal": state.project.goal,
             "project_root": state.project.project_root,
-            "execution_brief": self._execution_brief(state, assignment, input_artifacts),
+            "execution_brief": self._execution_brief(state, assignment, input_artifacts, frozen_requirement_baseline),
+            "frozen_requirement_baseline": frozen_requirement_baseline,
             "assignment": {
                 **asdict(assignment),
                 "status": assignment.status.value,
@@ -64,6 +66,7 @@ class TaskContextBuilder:
         workitem = _dict_payload(payload.get("workitem"))
         input_artifacts = _list_payload(payload.get("input_artifacts"))
         output_artifacts = _list_payload(payload.get("output_artifacts"))
+        frozen_requirement_baseline = _dict_payload(payload.get("frozen_requirement_baseline"))
         acceptance_criteria = _list_payload(workitem.get("acceptance_criteria"))
 
         lines = [
@@ -96,6 +99,9 @@ class TaskContextBuilder:
             "",
             "### Acceptance Criteria",
             *_bullet_lines(acceptance_criteria),
+            "",
+            "## Frozen Requirement Baseline",
+            *self._frozen_requirement_markdown(frozen_requirement_baseline),
             "",
             "## Execution Brief",
             _fenced(str(payload.get("execution_brief", "") or "")),
@@ -154,19 +160,43 @@ class TaskContextBuilder:
             lines.append("")
         return lines[:-1] if lines and lines[-1] == "" else lines
 
+    def _frozen_requirement_baseline(self, input_artifacts: list[dict[str, object]]) -> dict[str, object]:
+        """Return the frozen requirement artifact that controls downstream work."""
+        for artifact in input_artifacts:
+            if artifact.get("kind") == "frozen_requirement_spec":
+                return artifact
+        return {}
+
+    def _frozen_requirement_markdown(self, baseline: dict[str, object]) -> list[str]:
+        """Render the controlling requirement contract section."""
+        if not baseline:
+            return ["- None"]
+        return [
+            "- Treat this frozen requirement as the controlling contract.",
+            "- Do not add features outside this baseline unless the task explicitly asks for requirement rework.",
+            f"- Artifact ID: {baseline.get('id', '')}",
+            f"- Title: {baseline.get('title', '')}",
+            f"- Path: {baseline.get('path', '')}",
+            "- Full content is included again under `Input Artifacts`.",
+        ]
+
     def _execution_brief(
         self,
         state: SharedProjectState,
         assignment: TaskAssignment,
         input_artifacts: list[dict[str, object]],
+        frozen_requirement_baseline: dict[str, object],
     ) -> str:
         criteria = "\n".join(f"- {item}" for item in self._workitem_criteria(state, assignment)) or "- Not specified"
         inputs = "\n".join(f"- {item['id']} ({item['kind']}): {item['title']}" for item in input_artifacts) or "- None"
+        frozen_requirement = self._frozen_requirement_brief(frozen_requirement_baseline)
         return (
             f"Project: {state.project.goal}\n"
             f"TaskAssignment: {assignment.id}\n"
             f"WorkItem: {assignment.workitem_id}\n"
             f"Role: {assignment.role}\n\n"
+            "Frozen Requirement Baseline:\n"
+            f"{frozen_requirement}\n\n"
             "Acceptance Criteria:\n"
             f"{criteria}\n\n"
             "Input Artifacts To Read:\n"
@@ -175,6 +205,16 @@ class TaskContextBuilder:
             "- Complete with a concise result_summary.\n"
             "- Attach output_artifact_content or --output-file when returning substantive work.\n"
             "- Use fail/blocked_reason if the task cannot be completed safely."
+        )
+
+    def _frozen_requirement_brief(self, baseline: dict[str, object]) -> str:
+        """Return a compact baseline instruction for the execution brief."""
+        if not baseline:
+            return "- None"
+        return (
+            f"- {baseline.get('id', '')} ({baseline.get('title', '')})\n"
+            "- This is the controlling contract for design, implementation, and testing.\n"
+            "- Do not expand non-goals or introduce unrelated features."
         )
 
     def _workitem_criteria(self, state: SharedProjectState, assignment: TaskAssignment) -> list[str]:
