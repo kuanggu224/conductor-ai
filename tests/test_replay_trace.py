@@ -155,3 +155,18 @@ def test_replay_manifest_cli_outputs_markdown(tmp_path, capsys) -> None:
     assert exit_code == 0
     assert "# Replay Trace: project-1" in captured.out
     assert "WorkItem workitem-1 reached done" in captured.out
+
+
+def test_replay_manifest_cli_writes_output_file(tmp_path, capsys) -> None:
+    manifest_path = _write_manifest(tmp_path)
+    output_path = tmp_path / "trace" / "project-1.replay.md"
+
+    exit_code = replay_manifest_main([str(manifest_path), "--format", "markdown", "--output", str(output_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    payload = json.loads(captured.out)
+    assert payload["ok"] is True
+    assert payload["output_path"] == str(output_path.resolve())
+    assert output_path.exists()
+    assert "# Replay Trace: project-1" in output_path.read_text(encoding="utf-8")

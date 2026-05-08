@@ -224,6 +224,12 @@ This reconstructs a deterministic Project/WorkItem/Execution/Artifact timeline
 from archived manifest facts. It does not rerun Agent CLI commands and does not
 write project state.
 
+To archive the trace:
+
+```powershell
+python -m app.replay_manifest C:\path\to\project\.conductor\manifests\project-id.manifest.json --format markdown --output C:\path\to\project\.conductor\replay\project-id.replay.md
+```
+
 ### Windows PowerShell UTF-8
 
 If Chinese text appears as mojibake when reading logs or reports in PowerShell,
@@ -263,11 +269,11 @@ Current targeted verification for the manifest verifier:
 `6 passed` with `python -m pytest tests\test_replay_verifier.py -q`.
 
 Current targeted verification for read-only replay trace:
-`10 passed` with `python -m pytest tests\test_replay_trace.py tests\test_replay_verifier.py -q`.
+`11 passed` with `python -m pytest tests\test_replay_trace.py tests\test_replay_verifier.py -q`.
 
 Current full verification after preflight gate, diagnostics, manifest hardening,
 task-center recovery work, and manifest verification:
-`384 passed` with `python -m pytest -q`.
+`385 passed` with `python -m pytest -q`.
 
 ## Project Layout
 
