@@ -204,8 +204,8 @@ The default flow is:
 6. Update shared state
 7. Let `LeadController` decide the next action
 
-Current full verification after LLM settings and manifest redaction hardening:
-`333 passed` with `python -m pytest -q`.
+Current full verification after preflight gate, diagnostics, and manifest hardening:
+`346 passed` with `python -m pytest -q`.
 
 ## Project Layout
 
