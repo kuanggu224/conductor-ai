@@ -288,6 +288,28 @@ def test_manifest_verifier_warns_for_files_artifact_index_mismatch(tmp_path) -> 
     assert any("files.task_prompts entry is not indexed in task_prompt_files" in warning for warning in result.warnings)
 
 
+def test_manifest_verifier_warns_for_top_level_file_indexes_missing_from_files(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "files": {
+                "log": str(tmp_path / "project" / ".conductor" / "logs" / "project-1.jsonl"),
+                "report": str(tmp_path / "project" / ".conductor" / "reports" / "project-1.md"),
+                "manifest": str(tmp_path / "project" / ".conductor" / "manifests" / "project-1.manifest.json"),
+                "artifacts": [],
+                "task_prompts": [],
+                "preflight_gate": "",
+            },
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert any("artifact_files entry is not indexed in files.artifacts" in warning for warning in result.warnings)
+    assert any("task_prompt_files entry is not indexed in files.task_prompts" in warning for warning in result.warnings)
+
+
 def test_manifest_verifier_rejects_unknown_task_assignment_dependencies(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,
