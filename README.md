@@ -120,8 +120,9 @@ persisted `preflight_gate` snapshot for the selected `--project-root`.
 `python -m app.run_project` runs a preflight gate before real Agent execution.
 For `design_cli_only`, `code_cli`, `full_cli`, or explicit `--llm-harness`
 runs, the gate checks the selected CLI/LLM backend and fails before creating a
-project if no real backend is usable. Use `--skip-preflight-gate` only for
-controlled offline tests. Gate results are persisted at
+project if no real backend is usable. Use `--preflight-only` to run the same
+run-profile gate and exit without creating a project. Use
+`--skip-preflight-gate` only for controlled offline tests. Gate results are persisted at
 `.conductor/diagnostics/run-preflight/preflight-gate.json` under the resolved
 project root. Successful run manifests index the same file as
 `files.preflight_gate` and summarize `summary.preflight_gate_ok` /

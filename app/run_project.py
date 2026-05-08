@@ -87,6 +87,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip run preflight gate for controlled tests or intentionally offline runs.",
     )
+    parser.add_argument(
+        "--preflight-only",
+        action="store_true",
+        help="Run the current run-profile preflight gate and exit without creating a project.",
+    )
     return parser
 
 
@@ -118,6 +123,21 @@ def main(argv: list[str] | None = None) -> int:
 
     cli_config = _build_cli_config(agent_cli, run_profile, aspirecode_model=args.aspirecode_model)
     llm_runtime_config = _build_llm_runtime_config(args)
+    if args.preflight_only:
+        if args.skip_preflight_gate:
+            gate_payload = {"ok": True, "skipped": True, "reason": "skip_preflight_gate"}
+        else:
+            gate_payload = _run_preflight_gate(
+                cli_config=cli_config,
+                llm_runtime_config=llm_runtime_config,
+                project_root=project_root,
+                run_profile=run_profile,
+                agent_cli=agent_cli,
+                llm_harness_backend=args.llm_harness,
+            )
+        print(json.dumps(gate_payload, ensure_ascii=False, indent=2))
+        return 0 if gate_payload["ok"] is True else 2
+
     if not args.skip_preflight_gate:
         gate_payload = _run_preflight_gate(
             cli_config=cli_config,

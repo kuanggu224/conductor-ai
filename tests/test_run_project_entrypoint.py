@@ -112,6 +112,53 @@ def test_run_project_parser_accepts_skip_preflight_gate() -> None:
     assert args.skip_preflight_gate is True
 
 
+def test_run_project_parser_accepts_preflight_only() -> None:
+    args = build_parser().parse_args(["--run-profile", "design_cli_only", "--preflight-only"])
+
+    assert args.preflight_only is True
+
+
+def test_run_project_preflight_only_can_skip_without_requirement(tmp_path, capsys) -> None:
+    exit_code = run_project.main(
+        [
+            "--project-root",
+            str(tmp_path),
+            "--preflight-only",
+            "--skip-preflight-gate",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload == {"ok": True, "skipped": True, "reason": "skip_preflight_gate"}
+    assert not (tmp_path / ".conductor" / "state").exists()
+
+
+def test_run_project_preflight_only_blocks_real_profile_without_backend(monkeypatch, tmp_path, capsys) -> None:
+    llm_runtime_config = LLMRuntimeConfig(
+        local=LLMHTTPConfig(base_url="http://127.0.0.1:1234/v1", model_name="local-model", enabled=False),
+        cloud=LLMHTTPConfig(base_url="https://example.com/v1", model_name="cloud-model", enabled=False),
+        usage=LLMUsagePolicy(runner_enabled=False),
+    )
+    monkeypatch.setattr(run_project, "load_llm_runtime_config", lambda: llm_runtime_config)
+
+    exit_code = run_project.main(
+        [
+            "--project-root",
+            str(tmp_path),
+            "--run-profile",
+            "design_cli_only",
+            "--preflight-only",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 2
+    assert payload["ok"] is False
+    assert "requires real outputs" in payload["preflight_gate"]["errors"][0]
+    assert not (tmp_path / ".conductor" / "state").exists()
+
+
 def test_preflight_gate_blocks_real_profile_without_backend(tmp_path) -> None:
     run_profile = resolve_run_profile("design_cli_only")
     llm_runtime_config = LLMRuntimeConfig(
