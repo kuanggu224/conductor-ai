@@ -147,6 +147,8 @@ def test_platform_diagnostics_reports_llm_backend_config_without_probe(monkeypat
     assert cloud.timeout_seconds == 42
     assert cloud.api_key_present is True
     assert cloud.server_status == "not_checked"
+    assert cloud.health_status == "configured"
+    assert "preflight" in cloud.recommendation
     assert "preferred=" in cloud.encoding
     assert "stdout=" in cloud.encoding
 
@@ -191,8 +193,11 @@ def test_platform_diagnostics_can_probe_llm_models_and_preflight(monkeypatch, tm
     assert diagnostics.ok is True
     assert cloud.server_status == "reachable"
     assert cloud.available_models == ["cloud-model", "backup-model"]
+    assert cloud.selected_model_available is True
     assert cloud.context_length == 32768
     assert cloud.preflight_success is True
+    assert cloud.health_status == "ready"
+    assert "ready" in cloud.recommendation
 
 
 def test_platform_diagnostics_does_not_fail_when_models_endpoint_is_missing_but_preflight_passes(
@@ -229,6 +234,39 @@ def test_platform_diagnostics_does_not_fail_when_models_endpoint_is_missing_but_
     assert cloud.model_list_error == "HTTP 404"
     assert cloud.preflight_success is True
     assert cloud.preflight_error == ""
+    assert cloud.health_status == "ready"
+
+
+def test_platform_diagnostics_warns_when_configured_llm_model_is_not_listed(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr("conductor.diagnostics.discover_cli_tools", lambda: [])
+
+    diagnostics = build_platform_diagnostics(
+        cli_config=CLISelectionConfig(),
+        project_root=tmp_path,
+        llm_runtime_config=LLMRuntimeConfig(
+            local=LLMHTTPConfig(
+                base_url="http://127.0.0.1:1234/v1",
+                model_name="missing-model",
+                timeout_seconds=10,
+                enabled=True,
+            ),
+            cloud=LLMHTTPConfig(
+                base_url="https://example.com/v1",
+                model_name="cloud-model",
+                enabled=False,
+            ),
+            usage=LLMUsagePolicy(),
+        ),
+        probe_llm=True,
+        model_probe=lambda *_: ("reachable", ["other-model"], 4096, ""),
+    )
+
+    local = {item.backend: item for item in diagnostics.llm_backends}["local"]
+    assert diagnostics.ok is False
+    assert local.selected_model_available is False
+    assert local.health_status == "warning"
+    assert "Choose one of the listed models" in local.recommendation
+    assert any("missing-model" in warning for warning in diagnostics.warnings)
 
 
 def test_requirement_llm_preflight_probe_selects_backend_config(monkeypatch, tmp_path) -> None:

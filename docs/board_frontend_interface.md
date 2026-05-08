@@ -571,6 +571,9 @@ external worker is stale, and should pass `claim_token` back on
 `GET /api/diagnostics` 默认只读取本地配置和已发现 CLI，不访问网络。
 如需探测已启用的 OpenAI-compatible LLM `/models` 接口，可传 `?probe_llm=true`。
 如需执行轻量 chat-completion 连通性验证，可传 `?preflight_llm=true`。
+LLM 后端诊断项会返回 `health_status`、`recommendation`、`available_models`、
+`selected_model_available`、`context_length`、`timeout_seconds`、`preflight_success`
+等字段，前端可直接用于展示“当前模型是否可用”和“下一步修复建议”。
 
 但这不是当前必须项。
 

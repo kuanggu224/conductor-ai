@@ -61,10 +61,13 @@ class LLMBackendDiagnostic:
     server_status: str = "not_checked"
     context_length: int | None = None
     available_models: list[str] = field(default_factory=list)
+    selected_model_available: bool | None = None
     model_list_error: str = ""
     encoding: str = ""
     preflight_success: bool | None = None
     preflight_error: str = ""
+    health_status: str = "not_checked"
+    recommendation: str = ""
 
 
 @dataclass(slots=True)
@@ -240,12 +243,20 @@ def _build_llm_backend_diagnostics(
             api_key_present=bool(config.api_key),
             encoding=_runtime_encoding_summary(),
         )
+        if not config.enabled:
+            item.health_status = "disabled"
+            item.recommendation = f"Enable the {backend} LLM backend before using it for Agent execution."
+            diagnostics.append(item)
+            continue
+        item.health_status = "configured"
+        item.recommendation = "Run diagnostics with probe_llm and preflight_llm before real Agent execution."
         if probe_llm and config.enabled:
             probe = model_probe or _probe_openai_models
             status, models, context_length, error = probe(config.base_url, config.api_key, config.timeout_seconds)
             item.server_status = status
             item.available_models = models
             item.context_length = context_length
+            item.selected_model_available = config.model_name in models if models else None
             if error:
                 item.model_list_error = error
             if preflight_probe is not None:
@@ -253,6 +264,8 @@ def _build_llm_backend_diagnostics(
                 item.preflight_success = success
                 if preflight_error:
                     item.preflight_error = preflight_error
+            item.health_status = _llm_health_status(item)
+            item.recommendation = _llm_recommendation(item)
         diagnostics.append(item)
     return diagnostics
 
@@ -326,9 +339,53 @@ def _build_warnings(
             warnings.append(f"Cloud LLM `{backend.model}` is enabled but API key is missing.")
         if backend.server_status == "unreachable" and backend.preflight_success is not True:
             warnings.append(f"{backend.backend} LLM server is unreachable: {backend.model_list_error}")
+        if backend.selected_model_available is False:
+            warnings.append(
+                f"{backend.backend} LLM model `{backend.model}` is not listed by the configured endpoint."
+            )
         if backend.preflight_success is False:
             warnings.append(f"{backend.backend} LLM preflight failed: {backend.preflight_error}")
     return warnings
+
+
+def _llm_health_status(backend: LLMBackendDiagnostic) -> str:
+    """Classify one LLM backend into a UI/API friendly health status."""
+    if not backend.enabled:
+        return "disabled"
+    if backend.preflight_success is False:
+        return "failed"
+    if backend.server_status == "unreachable":
+        return "failed"
+    if backend.selected_model_available is False:
+        return "warning"
+    if backend.preflight_success is True:
+        return "ready"
+    if backend.server_status == "reachable":
+        return "reachable"
+    if backend.server_status == "models_unavailable":
+        return "models_unavailable"
+    return "configured"
+
+
+def _llm_recommendation(backend: LLMBackendDiagnostic) -> str:
+    """Return a short remediation hint for one LLM backend."""
+    if not backend.enabled:
+        return f"Enable the {backend.backend} LLM backend before using it for Agent execution."
+    if backend.backend == "cloud" and not backend.api_key_present:
+        return "Fill the cloud API key in local settings before running cloud LLM Agents."
+    if backend.preflight_success is False:
+        return "Check base URL, API key, model name, timeout, and provider quota, then run preflight again."
+    if backend.server_status == "unreachable":
+        return "Check whether the model server is running and reachable from this machine."
+    if backend.selected_model_available is False:
+        return "Choose one of the listed models or update the configured model name."
+    if backend.context_length is not None and backend.context_length < 8192:
+        return "The endpoint is reachable, but context length may be too small for multi-Agent prompts."
+    if backend.preflight_success is True:
+        return "Backend preflight passed and is ready for controlled Agent execution."
+    if backend.server_status == "models_unavailable":
+        return "The /models endpoint is unavailable; rely on preflight to verify this provider."
+    return "Run diagnostics with probe_llm and preflight_llm before real Agent execution."
 
 
 def _runtime_encoding_summary() -> str:

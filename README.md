@@ -112,6 +112,9 @@ The default API call is read-only and does not touch network services or start
 agent CLIs. The `probe_cli=true` variant runs lightweight `--version` checks.
 The `probe_llm=true` variant checks enabled OpenAI-compatible model endpoints.
 The `preflight_llm=true` variant also runs a lightweight chat-completion probe.
+LLM diagnostics include the configured model, timeout, available model list,
+detected context length, whether the selected model is listed, a compact health
+status, and a remediation recommendation.
 
 ### Jiutian LLM Backend
 
