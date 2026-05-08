@@ -403,6 +403,16 @@ class ManifestVerifier:
             if artifact_path and artifact_path not in artifact_files:
                 result.warnings.append(f"artifact path is not indexed in artifact_files: {artifact_path}")
 
+        task_prompt_files = set(self._string_list(payload.get("task_prompt_files", [])))
+        for assignment in self._list(payload.get("task_assignments")):
+            if not isinstance(assignment, dict):
+                continue
+            prompt_file = str(assignment.get("prompt_file", ""))
+            if prompt_file and not self._path_exists(prompt_file, manifest_path, project_root):
+                result.warnings.append(f"task assignment prompt_file does not exist: {prompt_file}")
+            if prompt_file and prompt_file not in task_prompt_files:
+                result.warnings.append(f"task assignment prompt_file is not indexed in task_prompt_files: {prompt_file}")
+
     def _ids_with_duplicate_check(
         self,
         label: str,

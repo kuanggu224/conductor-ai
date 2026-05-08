@@ -310,6 +310,30 @@ def test_manifest_verifier_warns_for_top_level_file_indexes_missing_from_files(t
     assert any("task_prompt_files entry is not indexed in files.task_prompts" in warning for warning in result.warnings)
 
 
+def test_manifest_verifier_warns_for_unindexed_assignment_prompt_file(tmp_path) -> None:
+    prompt_path = tmp_path / "project" / ".conductor" / "task_prompts" / "missing-assignment-prompt.md"
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "task_assignments": [
+                {
+                    "id": "assignment-1",
+                    "workitem_id": "workitem-1",
+                    "role": "tester",
+                    "status": "completed",
+                    "prompt_file": str(prompt_path),
+                }
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert f"task assignment prompt_file does not exist: {prompt_path}" in result.warnings
+    assert f"task assignment prompt_file is not indexed in task_prompt_files: {prompt_path}" in result.warnings
+
+
 def test_manifest_verifier_rejects_unknown_task_assignment_dependencies(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,
