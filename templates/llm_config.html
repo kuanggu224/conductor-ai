@@ -141,7 +141,7 @@
             </div>
         </section>
 
-        <form method="post" action="/settings/llm">
+        <form id="llm-settings-form" method="post" action="/settings/llm">
             <div class="grid">
                 <section class="panel">
                     <h2>本地模型</h2>
@@ -169,6 +169,10 @@
                         <input type="checkbox" name="local_enabled" {% if config.local.enabled %}checked{% endif %}>
                         启用本地模型
                     </label>
+                    <div class="actions">
+                        <button id="test-local-llm" type="button" data-preflight-backend="local">测试本地连接</button>
+                        <span id="local_preflight_status" class="chip">未测试</span>
+                    </div>
                 </section>
 
                 <section class="panel">
@@ -197,6 +201,10 @@
                         <input type="checkbox" name="cloud_enabled" {% if config.cloud.enabled %}checked{% endif %}>
                         启用云端模型
                     </label>
+                    <div class="actions">
+                        <button id="test-cloud-llm" type="button" data-preflight-backend="cloud">测试云端连接</button>
+                        <span id="cloud_preflight_status" class="chip">未测试</span>
+                    </div>
                 </section>
             </div>
 
@@ -229,6 +237,45 @@
                 document.getElementById(`${target}_base_url`).value = option.dataset.baseUrl || "";
                 document.getElementById(`${target}_model`).value = option.dataset.model || "";
                 document.getElementById(`${target}_timeout`).value = option.dataset.timeout || "";
+            });
+        }
+
+        function buildBackendPayload(target) {
+            return {
+                preset_id: document.getElementById(`${target}_preset_id`).value,
+                base_url: document.getElementById(`${target}_base_url`).value,
+                model_name: document.getElementById(`${target}_model`).value,
+                api_key: document.getElementById(`${target}_api_key`).value,
+                timeout_seconds: Number(document.getElementById(`${target}_timeout`).value || "30"),
+                enabled: document.querySelector(`input[name="${target}_enabled"]`)?.checked || false,
+            };
+        }
+
+        for (const button of document.querySelectorAll("[data-preflight-backend]")) {
+            button.addEventListener("click", async () => {
+                const backend = button.dataset.preflightBackend;
+                const status = document.getElementById(`${backend}_preflight_status`);
+                status.textContent = "测试中...";
+                button.disabled = true;
+                try {
+                    const response = await fetch("/api/settings/llm/preflight", {
+                        method: "POST",
+                        headers: {"Content-Type": "application/json"},
+                        body: JSON.stringify({
+                            backend,
+                            local: buildBackendPayload("local"),
+                            cloud: buildBackendPayload("cloud"),
+                        }),
+                    });
+                    const payload = await response.json();
+                    status.textContent = payload.success
+                        ? `连接成功：${payload.model || backend}`
+                        : `连接失败：${payload.error || response.status}`;
+                } catch (error) {
+                    status.textContent = `连接失败：${error}`;
+                } finally {
+                    button.disabled = false;
+                }
             });
         }
     </script>

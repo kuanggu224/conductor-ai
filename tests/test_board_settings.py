@@ -20,6 +20,8 @@ def test_llm_settings_page_renders() -> None:
     assert response.status_code == 200
     assert "LLM 设置" in response.text
     assert "Jiutian" in response.text
+    assert 'id="test-cloud-llm"' in response.text
+    assert "/api/settings/llm/preflight" in response.text
 
 
 def test_save_llm_settings_writes_config(monkeypatch, tmp_path) -> None:
