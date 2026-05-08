@@ -145,6 +145,54 @@ def test_replay_trace_builds_deterministic_events(tmp_path) -> None:
     assert trace.events[4].metadata["next_action"] == "complete"
 
 
+def test_replay_trace_includes_artifact_lineage(tmp_path) -> None:
+    manifest_path = _write_manifest(tmp_path)
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    artifact_dir = manifest_path.parent.parent / "artifacts"
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    input_path = artifact_dir / "artifact-input.md"
+    output_path = artifact_dir / "artifact-output.md"
+    input_path.write_text("input", encoding="utf-8")
+    output_path.write_text("output", encoding="utf-8")
+    payload["summary"]["artifact_count"] = 2
+    payload["summary"]["artifact_file_count"] = 2
+    payload["executions"][0]["artifact_ids"] = ["artifact-output"]
+    payload["executions"][0]["artifact_files"] = [str(output_path)]
+    payload["artifacts"] = [
+        {
+            "id": "artifact-input",
+            "project_id": "project-1",
+            "workitem_id": "workitem-1",
+            "title": "Input",
+            "kind": "design_overview",
+            "agent_id": "agent-designer",
+            "path": str(input_path),
+        },
+        {
+            "id": "artifact-output",
+            "project_id": "project-1",
+            "workitem_id": "workitem-1",
+            "title": "Output",
+            "kind": "implementation_report",
+            "agent_id": "agent-worker",
+            "path": str(output_path),
+            "derived_from": ["artifact-input"],
+        },
+    ]
+    payload["artifact_files"] = [str(input_path), str(output_path)]
+    payload["files"]["artifacts"] = [str(input_path), str(output_path)]
+    manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    trace = build_manifest_replay_trace(manifest_path)
+    artifact_events = [event for event in trace.events if event.event_type == "artifact"]
+    markdown = trace.to_markdown()
+
+    assert trace.passed is True
+    assert artifact_events[-1].metadata["derived_from"] == ["artifact-input"]
+    assert "artifacts=artifact-output" in markdown
+    assert "derived_from=artifact-input" in markdown
+
+
 def test_replay_trace_refuses_invalid_manifest(tmp_path) -> None:
     manifest_path = _write_manifest(tmp_path, {"project_id": ""})
 

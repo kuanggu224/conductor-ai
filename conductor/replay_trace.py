@@ -87,6 +87,8 @@ class ManifestReplayTrace:
                 f"stage={event.stage}" if event.stage else "",
                 f"workitem={event.workitem_id}" if event.workitem_id else "",
                 f"agent={event.agent_id}" if event.agent_id else "",
+                f"artifacts={', '.join(event.artifact_ids)}" if event.artifact_ids else "",
+                _event_lineage_detail(event),
             ]
             detail_text = ", ".join(item for item in details if item)
             lines.append(f"{event.index}. {event.message}")
@@ -238,6 +240,7 @@ class ManifestReplayTraceBuilder:
                     "path": str(artifact.get("path", "")),
                     "version": artifact.get("version", 1),
                     "parent_artifact_id": str(artifact.get("parent_artifact_id", "")),
+                    "derived_from": self._string_list(artifact.get("derived_from", [])),
                     "review_of": str(artifact.get("review_of", "")),
                     "collaboration_session_id": str(artifact.get("collaboration_session_id", "")),
                 },
@@ -289,6 +292,29 @@ class ManifestReplayTraceBuilder:
         if not isinstance(value, list):
             return []
         return [str(item) for item in value if str(item)]
+
+
+def _event_lineage_detail(event: ReplayTraceEvent) -> str:
+    """Render compact artifact lineage metadata for Markdown traces."""
+    if event.event_type != "artifact":
+        return ""
+    derived_from = _string_list(event.metadata.get("derived_from", []))
+    parent_artifact_id = str(event.metadata.get("parent_artifact_id", ""))
+    review_of = str(event.metadata.get("review_of", ""))
+    parts = []
+    if derived_from:
+        parts.append(f"derived_from={', '.join(derived_from)}")
+    if parent_artifact_id:
+        parts.append(f"parent={parent_artifact_id}")
+    if review_of:
+        parts.append(f"review_of={review_of}")
+    return "; ".join(parts)
+
+
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if str(item)]
 
 
 def build_manifest_replay_trace(
