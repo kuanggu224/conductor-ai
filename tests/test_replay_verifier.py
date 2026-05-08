@@ -903,6 +903,55 @@ def test_manifest_verifier_rejects_malformed_agent_index(tmp_path) -> None:
     assert "agents contains a non-object record" in result.errors
 
 
+def test_manifest_verifier_warns_for_agent_record_link_breaks(tmp_path) -> None:
+    missing_output = tmp_path / "missing-agent-output.md"
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "agents": [
+                {
+                    "agent_id": "agent-1",
+                    "role": "tester",
+                    "workitem_ids": ["missing-workitem"],
+                    "artifact_ids": ["missing-artifact"],
+                    "output_files": [str(missing_output)],
+                }
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert "agents[0] workitem_ids references unknown WorkItem: missing-workitem" in result.warnings
+    assert "agents[0] artifact_ids references unknown Artifact: missing-artifact" in result.warnings
+    assert f"agents[0].output_files entry does not exist: {missing_output}" in result.warnings
+
+
+def test_manifest_verifier_warns_for_malformed_agent_record_lists(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "agents": [
+                {
+                    "agent_id": "agent-1",
+                    "role": "tester",
+                    "workitem_ids": "workitem-1",
+                    "artifact_ids": "artifact-1",
+                    "output_files": "artifact-1.md",
+                }
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert "agents[0] workitem_ids must be a list" in result.warnings
+    assert "agents[0] artifact_ids must be a list" in result.warnings
+    assert "agents[0] output_files must be a list" in result.warnings
+
+
 def test_manifest_verifier_rejects_unknown_task_assignment_dependencies(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,

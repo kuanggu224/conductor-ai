@@ -243,6 +243,22 @@ class ManifestVerifier:
         workitem_ids = self._ids_with_duplicate_check("workitems", workitems, result)
         artifact_ids = self._ids_with_duplicate_check("artifacts", artifacts, result)
 
+        for index, agent in enumerate(self._list(payload.get("agents"))):
+            if not isinstance(agent, dict):
+                continue
+            self._warn_non_list_fields(
+                agent,
+                f"agents[{index}]",
+                ("workitem_ids", "artifact_ids", "output_files"),
+                result,
+            )
+            for workitem_id in self._string_list(agent.get("workitem_ids", [])):
+                if workitem_id not in workitem_ids:
+                    result.warnings.append(f"agents[{index}] workitem_ids references unknown WorkItem: {workitem_id}")
+            for artifact_id in self._string_list(agent.get("artifact_ids", [])):
+                if artifact_id not in artifact_ids:
+                    result.warnings.append(f"agents[{index}] artifact_ids references unknown Artifact: {artifact_id}")
+
         for workitem in workitems:
             if not isinstance(workitem, dict):
                 continue
@@ -585,6 +601,13 @@ class ManifestVerifier:
                         result.warnings.append(
                             f"collaboration_runs[{index}].{section_name}[{item_index}].output_path does not exist: {output_path}"
                         )
+
+        for index, agent in enumerate(self._list(payload.get("agents"))):
+            if not isinstance(agent, dict):
+                continue
+            for raw_path in self._string_list(agent.get("output_files", [])):
+                if raw_path and not self._path_exists(raw_path, manifest_path, project_root):
+                    result.warnings.append(f"agents[{index}].output_files entry does not exist: {raw_path}")
 
     def _ids_with_duplicate_check(
         self,
