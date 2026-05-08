@@ -242,7 +242,8 @@ python -m app.verify_audit_bundle C:\path\to\project\.conductor\replay\project-i
 The audit bundle verifier checks the bundle index and reruns manifest
 verification, so it can detect stale or corrupted bundle components. It also
 checks replay trace identity/pass markers and supports `--fail-on-warnings` for
-CI gates. Current audit bundle schema is `1.0`.
+CI gates. Its JSON result includes the resolved bundle component file index.
+Current audit bundle schema is `1.0`.
 
 To write the replay trace as part of a project run:
 

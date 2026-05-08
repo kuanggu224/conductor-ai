@@ -22,6 +22,7 @@ class AuditBundleVerificationResult:
     passed: bool = False
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    files: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -32,6 +33,7 @@ class AuditBundleVerificationResult:
             "warning_count": len(self.warnings),
             "errors": list(self.errors),
             "warnings": list(self.warnings),
+            "files": dict(self.files),
         }
 
 
@@ -50,6 +52,7 @@ class AuditBundleVerifier:
             return result
 
         result.project_id = str(payload.get("project_id", ""))
+        result.files = self._file_index(payload)
         self._verify_required_fields(payload, result)
         self._verify_summary(payload, result)
         if check_files:
@@ -70,6 +73,16 @@ class AuditBundleVerifier:
             result.errors.append("audit bundle root must be a JSON object")
             return None
         return payload
+
+    def _file_index(self, payload: dict[str, Any]) -> dict[str, str]:
+        files = payload.get("files")
+        if not isinstance(files, dict):
+            return {}
+        return {
+            field_name: str(files.get(field_name, ""))
+            for field_name in self.REQUIRED_FILE_FIELDS
+            if str(files.get(field_name, ""))
+        }
 
     def _verify_required_fields(self, payload: dict[str, Any], result: AuditBundleVerificationResult) -> None:
         for field_name in self.REQUIRED_TOP_LEVEL_FIELDS:

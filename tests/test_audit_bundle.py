@@ -30,12 +30,14 @@ def _write_project_audit_bundle(tmp_path: Path, capsys) -> tuple[dict[str, objec
 
 def test_audit_bundle_verifier_accepts_run_project_bundle(tmp_path, capsys) -> None:
     payload, bundle_path = _write_project_audit_bundle(tmp_path, capsys)
+    bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
 
     result = verify_audit_bundle(bundle_path)
 
     assert result.passed is True
     assert result.errors == []
     assert result.project_id == payload["project_id"]
+    assert result.files == bundle["files"]
 
 
 def test_audit_bundle_verifier_rejects_missing_component_file(tmp_path, capsys) -> None:
@@ -141,6 +143,7 @@ def test_verify_audit_bundle_cli_exits_zero_for_valid_bundle(tmp_path, capsys) -
     assert exit_code == 0
     payload = json.loads(captured.out)
     assert payload["passed"] is True
+    assert payload["files"]["manifest"]
 
 
 def test_verify_audit_bundle_cli_writes_output_file(tmp_path, capsys) -> None:
