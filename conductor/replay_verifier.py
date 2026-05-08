@@ -238,6 +238,7 @@ class ManifestVerifier:
         task_assignments = self._list(payload.get("task_assignments"))
         retry_history = self._list(payload.get("retry_history"))
         collaboration_runs = self._list(payload.get("collaboration_runs"))
+        agent_ids = self._agent_ids(payload, result)
 
         workitem_ids = self._ids_with_duplicate_check("workitems", workitems, result)
         artifact_ids = self._ids_with_duplicate_check("artifacts", artifacts, result)
@@ -277,6 +278,7 @@ class ManifestVerifier:
                 )
             if workitem_id and workitem_id not in workitem_ids:
                 result.errors.append(f"execution references unknown WorkItem: {workitem_id}")
+            self._warn_unknown_agent(agent_ids, str(execution.get("agent_id", "")) if isinstance(execution, dict) else "", f"execution for {workitem_id}", result)
             for artifact_id in self._string_list(execution.get("artifact_ids", []) if isinstance(execution, dict) else []):
                 if artifact_id not in artifact_ids:
                     result.errors.append(f"execution references unknown Artifact: {artifact_id}")
@@ -288,6 +290,7 @@ class ManifestVerifier:
             artifact_workitem_id = str(artifact.get("workitem_id", ""))
             if artifact_workitem_id and artifact_workitem_id not in workitem_ids:
                 result.errors.append(f"artifact references unknown WorkItem: {artifact_workitem_id}")
+            self._warn_unknown_agent(agent_ids, str(artifact.get("agent_id", "")), f"artifact {artifact_id}", result)
             artifact_project_id = str(artifact.get("project_id", ""))
             if artifact_project_id and artifact_project_id != project_id:
                 result.errors.append(f"artifact.project_id does not match manifest.project_id: {artifact.get('id', '')}")
@@ -310,6 +313,7 @@ class ManifestVerifier:
                 continue
             assignment_id = str(assignment.get("id", ""))
             workitem_id = str(assignment.get("workitem_id", ""))
+            self._warn_unknown_agent(agent_ids, str(assignment.get("assigned_agent_id", "")), f"task assignment {assignment_id}", result)
             self._warn_non_list_fields(
                 assignment,
                 f"task assignment {assignment_id}",
@@ -374,6 +378,19 @@ class ManifestVerifier:
                 result.warnings.append(
                     f"collaboration_runs[{index}] final_artifact_id is not indexed in artifacts: {final_artifact_id}"
                 )
+            self._warn_unknown_agent(
+                agent_ids,
+                str(collaboration.get("lead_agent_id", "")),
+                f"collaboration_runs[{index}].lead_agent_id",
+                result,
+            )
+            for reviewer_agent_id in self._string_list(collaboration.get("reviewer_agent_ids", [])):
+                self._warn_unknown_agent(
+                    agent_ids,
+                    reviewer_agent_id,
+                    f"collaboration_runs[{index}].reviewer_agent_ids",
+                    result,
+                )
             reviews = self._list(collaboration.get("reviews", []))
             draft_versions = self._list(collaboration.get("draft_versions", []))
             review_ids = {str(review.get("id", "")) for review in reviews if isinstance(review, dict) and review.get("id")}
@@ -385,6 +402,12 @@ class ManifestVerifier:
             for draft_index, draft in enumerate(draft_versions):
                 if not isinstance(draft, dict):
                     continue
+                self._warn_unknown_agent(
+                    agent_ids,
+                    str(draft.get("author_agent_id", "")),
+                    f"collaboration_runs[{index}].draft_versions[{draft_index}].author_agent_id",
+                    result,
+                )
                 self._warn_non_list_fields(
                     draft,
                     f"collaboration_runs[{index}].draft_versions[{draft_index}]",
@@ -396,6 +419,15 @@ class ManifestVerifier:
                         result.warnings.append(
                             f"collaboration_runs[{index}].draft_versions[{draft_index}] references unknown review_id: {review_id}"
                         )
+            for review_index, review in enumerate(reviews):
+                if not isinstance(review, dict):
+                    continue
+                self._warn_unknown_agent(
+                    agent_ids,
+                    str(review.get("agent_id", "")),
+                    f"collaboration_runs[{index}].reviews[{review_index}].agent_id",
+                    result,
+                )
 
     def _warn_non_list_fields(
         self,
@@ -576,6 +608,43 @@ class ManifestVerifier:
         for record_id in sorted(duplicates):
             result.errors.append(f"{label} contains duplicate id: {record_id}")
         return ids
+
+    def _agent_ids(self, payload: dict[str, Any], result: ManifestVerificationResult) -> set[str]:
+        """Return indexed Agent ids from manifest agents records."""
+        ids: set[str] = set()
+        duplicates: set[str] = set()
+        for agent in self._list(payload.get("agents")):
+            if not isinstance(agent, dict):
+                result.errors.append("agents contains a non-object record")
+                continue
+            agent_id = str(agent.get("agent_id", ""))
+            if not agent_id:
+                result.errors.append("agents contains a record without agent_id")
+                continue
+            if agent_id in ids:
+                duplicates.add(agent_id)
+            ids.add(agent_id)
+        for agent_id in sorted(duplicates):
+            result.errors.append(f"agents contains duplicate agent_id: {agent_id}")
+        return ids
+
+    def _warn_unknown_agent(
+        self,
+        agent_ids: set[str],
+        agent_id: str,
+        owner: str,
+        result: ManifestVerificationResult,
+    ) -> None:
+        """Warn on dangling Agent references when the manifest has an Agent index."""
+        if agent_ids and agent_id and not self._agent_reference_known(agent_ids, agent_id):
+            result.warnings.append(f"{owner} references unknown Agent: {agent_id}")
+
+    def _agent_reference_known(self, agent_ids: set[str], agent_id: str) -> bool:
+        """Return whether an Agent id or specialized review seat is indexed."""
+        if agent_id in agent_ids:
+            return True
+        base_agent_id, separator, _ = agent_id.partition(":")
+        return bool(separator and base_agent_id in agent_ids)
 
     def _id_set(self, records: list[Any]) -> set[str]:
         return {str(record.get("id", "")) for record in records if isinstance(record, dict) and record.get("id")}

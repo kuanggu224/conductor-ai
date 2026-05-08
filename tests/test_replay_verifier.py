@@ -728,6 +728,181 @@ def test_manifest_verifier_warns_for_missing_collaboration_output_paths(tmp_path
     assert f"collaboration_runs[0].draft_versions[0].output_path does not exist: {missing_draft}" in result.warnings
 
 
+def test_manifest_verifier_warns_for_unknown_agent_references_when_agents_are_indexed(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "agents": [
+                {
+                    "agent_id": "agent-known",
+                    "role": "tester",
+                }
+            ],
+            "summary": {
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 1,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+            },
+            "task_assignments": [
+                {
+                    "id": "assignment-1",
+                    "workitem_id": "workitem-1",
+                    "role": "tester",
+                    "status": "completed",
+                    "assigned_agent_id": "agent-missing-assignment",
+                }
+            ],
+            "collaboration_runs": [
+                {
+                    "id": "collaboration-1",
+                    "workitem_id": "workitem-1",
+                    "lead_agent_id": "agent-missing-lead",
+                    "reviewer_agent_ids": ["agent-missing-reviewer"],
+                    "review_count": 1,
+                    "draft_version_count": 1,
+                    "reviews": [
+                        {
+                            "id": "review-1",
+                            "agent_id": "agent-missing-review",
+                        }
+                    ],
+                    "draft_versions": [
+                        {
+                            "version": 1,
+                            "author_agent_id": "agent-missing-author",
+                            "review_ids": ["review-1"],
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert "execution for workitem-1 references unknown Agent: agent-1" in result.warnings
+    assert "artifact artifact-1 references unknown Agent: agent-1" in result.warnings
+    assert "task assignment assignment-1 references unknown Agent: agent-missing-assignment" in result.warnings
+    assert "collaboration_runs[0].lead_agent_id references unknown Agent: agent-missing-lead" in result.warnings
+    assert "collaboration_runs[0].reviewer_agent_ids references unknown Agent: agent-missing-reviewer" in result.warnings
+    assert "collaboration_runs[0].reviews[0].agent_id references unknown Agent: agent-missing-review" in result.warnings
+    assert (
+        "collaboration_runs[0].draft_versions[0].author_agent_id references unknown Agent: agent-missing-author"
+        in result.warnings
+    )
+
+
+def test_manifest_verifier_allows_specialized_agent_seat_references(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "agents": [
+                {
+                    "agent_id": "agent-designer",
+                    "role": "designer",
+                }
+            ],
+            "summary": {
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 1,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+            },
+            "executions": [
+                {
+                    "workitem_id": "workitem-1",
+                    "agent_id": "agent-designer:interaction",
+                    "status": "success",
+                    "artifact_ids": ["artifact-1"],
+                    "artifact_files": [],
+                }
+            ],
+            "artifacts": [
+                {
+                    "id": "artifact-1",
+                    "project_id": "project-1",
+                    "workitem_id": "workitem-1",
+                    "title": "Report",
+                    "kind": "test_report",
+                    "agent_id": "agent-designer:interaction",
+                    "path": str(tmp_path / "project" / ".conductor" / "artifacts" / "artifact-1.md"),
+                }
+            ],
+            "collaboration_runs": [
+                {
+                    "id": "collaboration-1",
+                    "workitem_id": "workitem-1",
+                    "lead_agent_id": "agent-designer:interaction",
+                    "reviewer_agent_ids": ["agent-designer:information_architecture"],
+                    "review_count": 1,
+                    "draft_version_count": 1,
+                    "reviews": [
+                        {
+                            "id": "review-1",
+                            "agent_id": "agent-designer:information_architecture",
+                        }
+                    ],
+                    "draft_versions": [
+                        {
+                            "version": 1,
+                            "author_agent_id": "agent-designer:interaction",
+                            "review_ids": ["review-1"],
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert not any("references unknown Agent" in warning for warning in result.warnings)
+
+
+def test_manifest_verifier_rejects_malformed_agent_index(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "agents": [
+                {
+                    "agent_id": "agent-1",
+                    "role": "tester",
+                },
+                {
+                    "agent_id": "agent-1",
+                    "role": "duplicate",
+                },
+                {},
+                "bad-agent-record",
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert "agents contains duplicate agent_id: agent-1" in result.errors
+    assert "agents contains a record without agent_id" in result.errors
+    assert "agents contains a non-object record" in result.errors
+
+
 def test_manifest_verifier_rejects_unknown_task_assignment_dependencies(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,
