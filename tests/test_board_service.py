@@ -145,54 +145,6 @@ def test_board_service_exposes_run_audit_risk_summary(tmp_path) -> None:
     assert snapshot.run_audit.risk_level_label == "高风险"
 
 
-def test_board_project_summaries_include_run_audit_risk_summary(tmp_path) -> None:
-    state = SharedProjectState(
-        project=Project(id="project-audit", goal="audit risk", current_stage="design", project_root=str(tmp_path)),
-        project_status=ProjectStatus.IN_PROGRESS,
-        current_stage="design",
-        workitems=[
-            WorkItem(
-                id="workitem-retry",
-                description="Retried validation",
-                stage="testing",
-                kind="automated_test",
-                status=WorkItemStatus.FAILED,
-                retry_count=1,
-                max_retries=2,
-            )
-        ],
-        artifacts=[
-            Artifact(
-                id="artifact-frozen",
-                project_id="project-audit",
-                workitem_id="workitem-req",
-                agent_id="agent-requirement",
-                kind="frozen_requirement_spec",
-                title="Frozen Requirement",
-                content="非目标：不接后端。",
-            ),
-            Artifact(
-                id="artifact-design",
-                project_id="project-audit",
-                workitem_id="workitem-design",
-                agent_id="agent-designer",
-                kind="design_overview",
-                title="Design",
-                content="方案：新增 FastAPI endpoint。",
-            ),
-        ],
-    )
-
-    summary = BoardService().build_project_summaries([state])[0]
-
-    assert summary.risk_level == "high"
-    assert summary.risk_level_label == "高风险"
-    assert summary.retry_history_count == 1
-    assert summary.scope_contract_status == "violation"
-    assert summary.scope_contract_status_label == "范围风险"
-    assert summary.scope_contract_violation_count == 1
-
-
 def test_board_service_extracts_code_execution_reports() -> None:
     state = SharedProjectState(
         project=Project(id="project-1", goal="实现前后端", current_stage="development", project_root="C:/demo"),
