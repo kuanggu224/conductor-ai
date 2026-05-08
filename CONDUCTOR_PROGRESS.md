@@ -514,8 +514,9 @@ Manifest 已能记录主要运行事实和审计摘要，并已完成 LLM 配置
 - `python -m app.verify_manifest <manifest> --output <file>` 可将自检报告归档到 JSON 文件。
 - `python -m app.verify_manifest <manifest> --fail-on-warnings` 可把 warning 升级为 CLI 失败，适合 CI/生产门禁；报告内 `passed` 仍表示 hard error 状态。
 - Manifest verifier 已覆盖 artifact lineage warning，`derived_from` 指向缺失 artifact 时会产生 warning，并可通过 `--fail-on-warnings` 升级为失败门禁。
+- Manifest verifier 已覆盖 artifact lineage 自引用 warning，能标记 artifact 自己作为自己的 `parent_artifact_id`、`review_of` 或 `derived_from`。
 - Manifest verifier 已覆盖 WorkItem 级 artifact 引用自检：`input_artifact_ids` 缺失会报 hard error，`output_artifact_ids` 未被 artifacts 索引会报 warning。
-- 针对测试：`python -m pytest tests\test_replay_verifier.py -q`，结果 `20 passed`。
+- 针对测试：`python -m pytest tests\test_replay_verifier.py -q`，结果 `21 passed`。
 - 已补只读 replay trace：`python -m app.replay_manifest <manifest> --format markdown`，从 manifest 还原 Project/WorkItem/TaskAssignment/Execution/Artifact 时间线，不重跑 Agent；支持 `--output` 归档到文件，且不会输出 claim token。
 - Replay trace 的 artifact 事件已暴露 `derived_from`，Markdown 回放也会显示 artifact id 和 lineage 摘要，便于审计修复产物来自哪些输入。
 - 针对测试：`python -m pytest tests\test_replay_trace.py tests\test_replay_verifier.py -q`，结果 `24 passed`。
@@ -528,7 +529,7 @@ Manifest 已能记录主要运行事实和审计摘要，并已完成 LLM 配置
 - 需求评分器已补中文语义 alias 和 `metrics.keyword_matches`，benchmark 报告可看到每个关键词实际命中的表达，便于定位 keyword coverage 误报。
 - 需求评分器已补范围扩张检测，能标记原始需求未要求但文档新增的登录、支付、通知、后台报表等功能；明确写在非目标里的排除项不会被误判。
 - Requirement benchmark Markdown 报告已展示 keyword coverage、缺失关键词、命中 alias 和 scope expansion，方便直接从报告定位评分问题。
-- 当前全量测试：`python -m pytest -q`，结果 `429 passed`。
+- 当前全量测试：`python -m pytest -q`，结果 `430 passed`。
 
 ### 6.5 任务中心仍是轻量实现
 

@@ -330,6 +330,35 @@ def test_manifest_verifier_warns_for_unresolved_artifact_lineage(tmp_path) -> No
     assert "artifact artifact-1 has unresolved derived_from: missing-input-artifact" in result.warnings
 
 
+def test_manifest_verifier_warns_for_self_referential_artifact_lineage(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "artifacts": [
+                {
+                    "id": "artifact-1",
+                    "project_id": "project-1",
+                    "workitem_id": "workitem-1",
+                    "title": "Report",
+                    "kind": "test_report",
+                    "agent_id": "agent-1",
+                    "path": str(tmp_path / "project" / ".conductor" / "artifacts" / "artifact-1.md"),
+                    "parent_artifact_id": "artifact-1",
+                    "review_of": "artifact-1",
+                    "derived_from": ["artifact-1"],
+                }
+            ]
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert "artifact artifact-1 has self-referential parent_artifact_id" in result.warnings
+    assert "artifact artifact-1 has self-referential review_of" in result.warnings
+    assert "artifact artifact-1 has self-referential derived_from" in result.warnings
+
+
 def test_verify_manifest_cli_can_fail_on_unresolved_artifact_lineage_warning(tmp_path, capsys) -> None:
     manifest_path = _write_manifest(
         tmp_path,

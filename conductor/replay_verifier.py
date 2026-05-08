@@ -258,6 +258,7 @@ class ManifestVerifier:
         for artifact in artifacts:
             if not isinstance(artifact, dict):
                 continue
+            artifact_id = str(artifact.get("id", ""))
             artifact_workitem_id = str(artifact.get("workitem_id", ""))
             if artifact_workitem_id and artifact_workitem_id not in workitem_ids:
                 result.errors.append(f"artifact references unknown WorkItem: {artifact_workitem_id}")
@@ -266,10 +267,14 @@ class ManifestVerifier:
                 result.errors.append(f"artifact.project_id does not match manifest.project_id: {artifact.get('id', '')}")
             for field_name in ("parent_artifact_id", "review_of"):
                 linked_id = str(artifact.get(field_name, ""))
-                if linked_id and linked_id not in artifact_ids:
+                if linked_id and linked_id == artifact_id:
+                    result.warnings.append(f"artifact {artifact_id} has self-referential {field_name}")
+                elif linked_id and linked_id not in artifact_ids:
                     result.warnings.append(f"artifact {artifact.get('id', '')} has unresolved {field_name}: {linked_id}")
             for linked_id in self._string_list(artifact.get("derived_from", [])):
-                if linked_id not in artifact_ids:
+                if linked_id == artifact_id:
+                    result.warnings.append(f"artifact {artifact_id} has self-referential derived_from")
+                elif linked_id not in artifact_ids:
                     result.warnings.append(f"artifact {artifact.get('id', '')} has unresolved derived_from: {linked_id}")
 
         for assignment in task_assignments:
