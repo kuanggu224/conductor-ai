@@ -335,7 +335,7 @@ python -m pytest -q
 最近一次验证结果：
 
 ```text
-363 passed
+365 passed
 ```
 
 ### 4.2 运行 Board
