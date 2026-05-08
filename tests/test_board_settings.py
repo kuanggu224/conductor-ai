@@ -9,6 +9,7 @@ from conductor.agents.llm import LLMHTTPConfig
 from conductor.config.cli import load_cli_selection_config
 from conductor.config.execution import load_execution_scope_config
 from conductor.config.llm import LLMRuntimeConfig, LLMUsagePolicy, load_llm_runtime_config
+from conductor.requirement_benchmark import RequirementLLMPreflightResult
 
 
 def test_llm_settings_page_renders() -> None:
@@ -134,6 +135,55 @@ def test_save_llm_settings_api_preserves_existing_api_key_when_blank(monkeypatch
 
     assert response.status_code == 200
     assert captured["config"].cloud.api_key == "sk-cloud-secret"
+
+
+def test_llm_settings_preflight_api_uses_draft_preset_without_exposing_key(monkeypatch) -> None:
+    calls = []
+    monkeypatch.setattr(board, "load_llm_runtime_config", lambda: build_llm_config_with_keys())
+
+    def fake_preflight(*, backend, config, output_dir):
+        calls.append((backend, config.base_url, config.model_name, config.api_key, output_dir))
+        return RequirementLLMPreflightResult(
+            backend=backend,
+            success=True,
+            model=config.model_name,
+            base_url=config.base_url,
+            duration_ms=12,
+            error="",
+            content="conductor-requirement-preflight-ok",
+        )
+
+    monkeypatch.setattr(board, "run_requirement_llm_preflight", fake_preflight)
+    client = TestClient(board.app)
+
+    response = client.post(
+        "/api/settings/llm/preflight",
+        json={
+            "backend": "cloud",
+            "cloud": {
+                "preset_id": "jiutian",
+                "api_key": "",
+            },
+        },
+    )
+
+    payload = response.json()
+    assert response.status_code == 200
+    assert payload["success"] is True
+    assert payload["model"] == "jiutian-lan-comv3"
+    assert "sk-cloud-secret" not in response.text
+    assert calls[0][0] == "cloud"
+    assert calls[0][1] == "https://jiutian.10086.cn/largemodel/moma/api/v3"
+    assert calls[0][2] == "jiutian-lan-comv3"
+    assert calls[0][3] == "sk-cloud-secret"
+
+
+def test_llm_settings_preflight_api_rejects_unknown_backend() -> None:
+    client = TestClient(board.app)
+
+    response = client.post("/api/settings/llm/preflight", json={"backend": "edge"})
+
+    assert response.status_code == 422
 
 
 def test_save_llm_settings_form_preserves_existing_api_key_when_blank(monkeypatch) -> None:

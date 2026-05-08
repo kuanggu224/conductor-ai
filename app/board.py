@@ -49,6 +49,7 @@ from conductor.diagnostics import build_platform_diagnostics, build_requirement_
 from conductor.domain.models import SharedProjectState, TaskAssignment
 from conductor.io.encoding import configure_utf8_stdio
 from conductor.io.requirements import RequirementInputError, load_requirement_text
+from conductor.requirement_benchmark import run_requirement_llm_preflight
 from conductor.task_center.artifacts import create_task_return_artifact
 from conductor.task_center.context import TaskContextBuilder
 from conductor.task_center.prompts import resolve_task_prompt_path, write_task_prompt_file
@@ -297,6 +298,49 @@ def _form_api_key(form: dict[str, list[str]], name: str, current_api_key: str | 
     """Preserve existing API keys when an HTML form leaves the field blank."""
     value = _optional_form_value(form, name)
     return value if value is not None else current_api_key
+
+
+def llm_config_from_settings_payload(payload: dict, existing_config: LLMRuntimeConfig) -> LLMRuntimeConfig:
+    """Build a runtime config from settings JSON, applying presets and key preservation."""
+    local_payload = dict(payload.get("local", {}))
+    cloud_payload = dict(payload.get("cloud", {}))
+    local_preset = get_llm_provider_preset(local_payload.get("preset_id"))
+    cloud_preset = get_llm_provider_preset(cloud_payload.get("preset_id"))
+    return LLMRuntimeConfig(
+        local=LLMHTTPConfig(
+            base_url=str((local_preset.base_url if local_preset else None) or local_payload.get("base_url") or "http://127.0.0.1:11434/v1"),
+            model_name=str((local_preset.model_name if local_preset else None) or local_payload.get("model_name") or "local-demo-model"),
+            api_key=_payload_api_key(local_payload, existing_config.local.api_key),
+            timeout_seconds=float((local_preset.timeout_seconds if local_preset else None) or local_payload.get("timeout_seconds") or 30.0),
+            enabled=bool(local_payload.get("enabled", False)),
+        ),
+        cloud=LLMHTTPConfig(
+            base_url=str((cloud_preset.base_url if cloud_preset else None) or cloud_payload.get("base_url") or "https://api.openai.com/v1"),
+            model_name=str((cloud_preset.model_name if cloud_preset else None) or cloud_payload.get("model_name") or "gpt-demo-model"),
+            api_key=_payload_api_key(cloud_payload, existing_config.cloud.api_key),
+            timeout_seconds=float((cloud_preset.timeout_seconds if cloud_preset else None) or cloud_payload.get("timeout_seconds") or 30.0),
+            enabled=bool(cloud_payload.get("enabled", False)),
+        ),
+        usage=LLMUsagePolicy(
+            runner_enabled=bool(payload.get("usage", {}).get("runner_enabled", False)),
+            runner_allowed_roles=list(payload.get("usage", {}).get("runner_allowed_roles", ["designer", "backend_engineer", "frontend_engineer", "tester"])),
+            runner_allowed_kinds=list(payload.get("usage", {}).get("runner_allowed_kinds", [
+                "design_overview",
+                "ui_design",
+                "api_design",
+                "test_design",
+                "generic_implementation",
+                "api_implementation",
+                "data_implementation",
+                "ui_implementation",
+                "acceptance_check",
+                "automated_test",
+                "api_validation",
+                "ui_validation",
+            ])),
+            preferred_backend=str(payload.get("usage", {}).get("preferred_backend", "cloud")),
+        ),
+    )
 
 
 def get_project_task_status(project_id: str) -> ProjectTaskStatus:
@@ -1135,49 +1179,30 @@ def diagnostics_api(probe_cli: bool = False, probe_llm: bool = False, preflight_
 async def save_llm_settings_api(request: Request) -> JSONResponse:
     """Persist LLM settings from JSON."""
     payload = await request.json()
-    local_payload = dict(payload.get("local", {}))
-    cloud_payload = dict(payload.get("cloud", {}))
     existing_config = load_llm_runtime_config()
-    local_preset = get_llm_provider_preset(local_payload.get("preset_id"))
-    cloud_preset = get_llm_provider_preset(cloud_payload.get("preset_id"))
-    config = LLMRuntimeConfig(
-        local=LLMHTTPConfig(
-            base_url=str((local_preset.base_url if local_preset else None) or local_payload.get("base_url") or "http://127.0.0.1:11434/v1"),
-            model_name=str((local_preset.model_name if local_preset else None) or local_payload.get("model_name") or "local-demo-model"),
-            api_key=_payload_api_key(local_payload, existing_config.local.api_key),
-            timeout_seconds=float((local_preset.timeout_seconds if local_preset else None) or local_payload.get("timeout_seconds") or 30.0),
-            enabled=bool(local_payload.get("enabled", False)),
-        ),
-        cloud=LLMHTTPConfig(
-            base_url=str((cloud_preset.base_url if cloud_preset else None) or cloud_payload.get("base_url") or "https://api.openai.com/v1"),
-            model_name=str((cloud_preset.model_name if cloud_preset else None) or cloud_payload.get("model_name") or "gpt-demo-model"),
-            api_key=_payload_api_key(cloud_payload, existing_config.cloud.api_key),
-            timeout_seconds=float((cloud_preset.timeout_seconds if cloud_preset else None) or cloud_payload.get("timeout_seconds") or 30.0),
-            enabled=bool(cloud_payload.get("enabled", False)),
-        ),
-        usage=LLMUsagePolicy(
-            runner_enabled=bool(payload.get("usage", {}).get("runner_enabled", False)),
-            runner_allowed_roles=list(payload.get("usage", {}).get("runner_allowed_roles", ["designer", "backend_engineer", "frontend_engineer", "tester"])),
-            runner_allowed_kinds=list(payload.get("usage", {}).get("runner_allowed_kinds", [
-                "design_overview",
-                "ui_design",
-                "api_design",
-                "test_design",
-                "generic_implementation",
-                "api_implementation",
-                "data_implementation",
-                "ui_implementation",
-                "acceptance_check",
-                "automated_test",
-                "api_validation",
-                "ui_validation",
-            ])),
-            preferred_backend=str(payload.get("usage", {}).get("preferred_backend", "cloud")),
-        ),
-    )
+    config = llm_config_from_settings_payload(payload, existing_config)
     save_llm_runtime_config(config)
     refresh_engine_llm_backend()
-    return JSONResponse({"saved": True, "config": asdict(config)})
+    return JSONResponse({"saved": True, "config": llm_settings_payload(config)})
+
+
+@app.post("/api/settings/llm/preflight")
+async def llm_settings_preflight_api(request: Request) -> JSONResponse:
+    """Run a lightweight LLM preflight for a saved or draft settings payload."""
+    payload = await request.json()
+    backend = str(payload.get("backend", "cloud"))
+    if backend not in {"local", "cloud"}:
+        raise HTTPException(status_code=422, detail="backend must be local or cloud")
+    existing_config = load_llm_runtime_config()
+    config = llm_config_from_settings_payload(payload, existing_config)
+    llm_config = config.local if backend == "local" else config.cloud
+    llm_config.enabled = True
+    result = run_requirement_llm_preflight(
+        backend=backend,
+        config=llm_config,
+        output_dir=ROOT_DIR / ".conductor" / "diagnostics" / "settings-llm-preflight",
+    )
+    return JSONResponse(asdict(result), status_code=200 if result.success else 502)
 
 
 @app.get("/projects/{project_id}/runtime/stream")

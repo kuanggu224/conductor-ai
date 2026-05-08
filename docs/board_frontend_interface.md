@@ -553,6 +553,7 @@ external worker is stale, and should pass `claim_token` back on
 - `POST /api/settings/cli`
 - `GET /api/settings/llm`
 - `POST /api/settings/llm`
+- `POST /api/settings/llm/preflight`
 - `GET /api/diagnostics`
 - `GET /api/diagnostics?probe_cli=true`
 
@@ -563,6 +564,9 @@ external worker is stale, and should pass `claim_token` back on
 `base_url`、`model_name` 和 `timeout_seconds`，API key 仍由用户本地填写。
 该接口不会返回真实 API key，只返回 `api_key_present`。保存时如果 `api_key`
 字段为空或缺失，后端会保留本地已有 key，避免切换 preset 时误清空密钥。
+`POST /api/settings/llm/preflight` 接收同样的草稿配置结构，并额外接受
+`backend: "local" | "cloud"`；它会用草稿配置执行一次轻量 chat-completion
+连通性验证，但响应中同样不会包含真实 API key。
 
 `GET /api/diagnostics` 默认只读取本地配置和已发现 CLI，不访问网络。
 如需探测已启用的 OpenAI-compatible LLM `/models` 接口，可传 `?probe_llm=true`。
