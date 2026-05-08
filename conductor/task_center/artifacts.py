@@ -30,6 +30,7 @@ def create_task_return_artifact(
         title=title or f"External Result - {assignment.workitem_id}",
         content=content,
         source_backend="task_center/external",
+        derived_from=list(assignment.input_artifact_ids),
     )
     persisted = artifact_store.save_markdown(artifact, project_root=state.project.project_root)
     state_store.add_artifact(state.project.id, persisted)

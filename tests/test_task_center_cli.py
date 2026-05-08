@@ -854,7 +854,19 @@ def test_task_center_cli_complete_can_create_output_artifact_from_file(tmp_path,
         state_store=state_store,
     )
     state = engine.create_project(requirement="Build a local reading list", project_root=str(project_root))
-    assignment_id = state.task_assignments[0].id
+    input_artifact = Artifact(
+        id="artifact-input-baseline",
+        project_id=state.project.id,
+        workitem_id="workitem-upstream",
+        agent_id="agent-upstream",
+        kind="design_overview",
+        title="Input Baseline",
+        content="Input artifact for lineage.",
+    )
+    state = state_store.add_artifact(state.project.id, input_artifact)
+    assignment = replace(state.task_assignments[0], input_artifact_ids=[input_artifact.id])
+    state_store.upsert_task_assignment(state.project.id, assignment)
+    assignment_id = assignment.id
     assert main(["claim", assignment_id, "--project-root", str(project_root), "--agent-id", "agent-external"]) == 0
     claim_payload = json.loads(capsys.readouterr().out)
 
@@ -884,6 +896,7 @@ def test_task_center_cli_complete_can_create_output_artifact_from_file(tmp_path,
     artifact = next(item for item in reloaded.artifacts if item.id == artifact_id)
     assert artifact.kind == "implementation_report"
     assert artifact.source_backend == "task_center/external"
+    assert artifact.derived_from == [input_artifact.id]
     assert "Implemented by external worker" in artifact.content
 
 
