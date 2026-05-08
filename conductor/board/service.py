@@ -306,6 +306,7 @@ class BoardService:
         summaries: list[BoardProjectSummary] = []
         for state in sorted_states:
             preflight_gate = read_preflight_gate(state.project.project_root)
+            run_audit = self._build_run_audit_view(state)
             summaries.append(BoardProjectSummary(
                 project_id=state.project.id,
                 goal=state.project.goal,
@@ -316,6 +317,12 @@ class BoardService:
                 current_stage_label=label_stage(state.current_stage or "-"),
                 preflight_gate_status=preflight_gate.status,
                 preflight_gate_status_label=preflight_gate.status_label,
+                risk_level=run_audit.risk_level,
+                risk_level_label=run_audit.risk_level_label,
+                retry_history_count=run_audit.retry_history_count,
+                scope_contract_status=run_audit.scope_contract_status,
+                scope_contract_status_label=run_audit.scope_contract_status_label,
+                scope_contract_violation_count=run_audit.scope_contract_violation_count,
             ))
         return summaries
 

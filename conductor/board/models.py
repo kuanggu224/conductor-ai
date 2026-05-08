@@ -249,3 +249,9 @@ class BoardProjectSummary:
     current_stage_label: str = ""
     preflight_gate_status: str = "not_recorded"
     preflight_gate_status_label: str = "未记录"
+    risk_level: str = "normal"
+    risk_level_label: str = "正常"
+    retry_history_count: int = 0
+    scope_contract_status: str = "not_evaluated"
+    scope_contract_status_label: str = "未评估"
+    scope_contract_violation_count: int = 0

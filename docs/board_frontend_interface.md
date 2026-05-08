@@ -202,8 +202,16 @@ type BoardProjectSummary = {
   current_stage_label: string
   preflight_gate_status: "not_recorded" | "pass" | "fail" | "unknown" | "unreadable"
   preflight_gate_status_label: string
+  risk_level: "normal" | "medium" | "high"
+  risk_level_label: string
+  retry_history_count: number
+  scope_contract_status: "not_evaluated" | "pass" | "violation"
+  scope_contract_status_label: string
+  scope_contract_violation_count: number
 }
 ```
+
+项目列表摘要会暴露压缩版运行风险，便于侧边栏或任务列表直接标记高风险项目。
 
 
 ### 4.2.1 BoardPreflightGateView

@@ -23,6 +23,9 @@ def test_project_api_returns_snapshot_payload() -> None:
     assert payload["snapshot"]["project_id"] == state.project.id
     assert "design_collaboration" in payload["snapshot"]
     assert "execution_runtime" in payload["snapshot"]
+    assert "run_audit" in payload["snapshot"]
+    assert payload["snapshot"]["run_audit"]["risk_level"] in {"normal", "medium", "high"}
+    assert isinstance(payload["snapshot"]["run_audit"]["failed_workitem_ids"], list)
     assert "task_status" in payload
 
 
