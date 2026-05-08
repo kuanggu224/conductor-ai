@@ -17,6 +17,7 @@ from conductor.diagnostics import build_platform_diagnostics, build_requirement_
 from conductor.io.encoding import configure_utf8_stdio
 from conductor.io.requirements import load_requirement_text
 from conductor.preflight_gate import write_preflight_gate_payload
+from conductor.replay_trace import build_manifest_replay_trace
 from conductor.replay_verifier import verify_manifest
 from conductor.state.file_store import FileStateStore
 from conductor.task_center.service import DEFAULT_STALE_CLAIMED_AFTER_SECONDS, TaskCenterService
@@ -113,6 +114,21 @@ def build_parser() -> argparse.ArgumentParser:
         "--stale-release-reason",
         default="resume stale cleanup",
         help="Release reason recorded when --release-stale-tasks requeues assignments.",
+    )
+    parser.add_argument(
+        "--write-replay-trace",
+        action="store_true",
+        help="After writing the run manifest, also write a read-only replay trace.",
+    )
+    parser.add_argument(
+        "--replay-trace-format",
+        choices=["json", "markdown"],
+        default="markdown",
+        help="Replay trace format used with --write-replay-trace.",
+    )
+    parser.add_argument(
+        "--replay-trace-output",
+        help="Optional replay trace output path. Defaults under .conductor/replay.",
     )
     return parser
 
@@ -222,6 +238,7 @@ def main(argv: list[str] | None = None) -> int:
     report_path = engine.write_project_report(state.project.id)
     manifest_path = engine.write_run_manifest(state.project.id, report_path=report_path)
     manifest_verification = verify_manifest(manifest_path)
+    replay_trace_payload = _write_replay_trace_if_requested(args, project_root, manifest_path)
     payload = {
         "project_id": state.project.id,
         "status": state.project_status.value,
@@ -233,6 +250,7 @@ def main(argv: list[str] | None = None) -> int:
         "report_path": str(report_path),
         "manifest_path": str(manifest_path),
         "manifest_verification": manifest_verification.to_dict(),
+        "replay_trace": replay_trace_payload,
         "workitems": [asdict(item) for item in state.workitems],
         "artifacts": [asdict(item) for item in state.artifacts],
     }
@@ -262,6 +280,32 @@ def _resolve_project_root(project_root: str, project_name: str | None = None) ->
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         return (root / f"project_{timestamp}").resolve()
     return root
+
+
+def _write_replay_trace_if_requested(args, project_root: Path, manifest_path: Path) -> dict[str, object]:
+    """Write an optional replay trace artifact after a project run."""
+    if not getattr(args, "write_replay_trace", False):
+        return {}
+    trace = build_manifest_replay_trace(manifest_path)
+    output_path = (
+        Path(args.replay_trace_output).expanduser().resolve()
+        if getattr(args, "replay_trace_output", None)
+        else _default_replay_trace_path(project_root, trace.project_id, args.replay_trace_format)
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    content = trace.to_markdown() if args.replay_trace_format == "markdown" else json.dumps(trace.to_dict(), ensure_ascii=False, indent=2)
+    output_path.write_text(content, encoding="utf-8")
+    return {
+        "path": str(output_path),
+        "format": args.replay_trace_format,
+        "passed": trace.passed,
+        "event_count": len(trace.events),
+    }
+
+
+def _default_replay_trace_path(project_root: Path, project_id: str, output_format: str) -> Path:
+    suffix = "md" if output_format == "markdown" else "json"
+    return project_root / ".conductor" / "replay" / f"{project_id}.replay.{suffix}"
 
 
 def _build_cli_config(agent_cli: str | None, run_profile, aspirecode_model: str | None = None) -> CLISelectionConfig:

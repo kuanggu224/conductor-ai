@@ -148,6 +148,24 @@ def test_run_project_parser_accepts_release_stale_tasks() -> None:
     assert args.stale_release_reason == "resume cleanup"
 
 
+def test_run_project_parser_accepts_replay_trace_options() -> None:
+    args = build_parser().parse_args(
+        [
+            "--requirement",
+            "demo",
+            "--write-replay-trace",
+            "--replay-trace-format",
+            "json",
+            "--replay-trace-output",
+            "trace.json",
+        ]
+    )
+
+    assert args.write_replay_trace is True
+    assert args.replay_trace_format == "json"
+    assert args.replay_trace_output == "trace.json"
+
+
 def test_run_project_can_resume_existing_project(tmp_path, capsys) -> None:
     first_exit = run_project.main(
         [
@@ -186,6 +204,31 @@ def test_run_project_can_resume_existing_project(tmp_path, capsys) -> None:
     assert second_payload["manifest_path"].endswith(f"{first_payload['project_id']}.manifest.json")
     assert second_payload["manifest_verification"]["passed"] is True
     assert second_payload["manifest_verification"]["error_count"] == 0
+
+
+def test_run_project_can_write_replay_trace(tmp_path, capsys) -> None:
+    exit_code = run_project.main(
+        [
+            "--project-root",
+            str(tmp_path),
+            "--requirement",
+            "Build a small reading list",
+            "--max-steps",
+            "1",
+            "--skip-preflight-gate",
+            "--write-replay-trace",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+    trace_path = tmp_path / ".conductor" / "replay" / f"{payload['project_id']}.replay.md"
+
+    assert exit_code == 1
+    assert payload["replay_trace"]["path"] == str(trace_path)
+    assert payload["replay_trace"]["format"] == "markdown"
+    assert payload["replay_trace"]["passed"] is True
+    assert payload["replay_trace"]["event_count"] > 0
+    assert trace_path.exists()
+    assert "# Replay Trace:" in trace_path.read_text(encoding="utf-8")
 
 
 def test_run_project_can_release_stale_tasks_before_resume(tmp_path, capsys) -> None:

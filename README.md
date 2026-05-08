@@ -214,6 +214,12 @@ archived runs can still be inspected.
 `python -m app.run_project` also includes `manifest_verification` in its final
 JSON payload immediately after writing the run manifest.
 
+To write the replay trace as part of a project run:
+
+```powershell
+python -m app.run_project --requirement-file requirement.txt --project-root C:\path\to\project --write-replay-trace
+```
+
 Build a read-only replay trace from the same manifest:
 
 ```powershell
@@ -273,7 +279,7 @@ Current targeted verification for read-only replay trace:
 
 Current full verification after preflight gate, diagnostics, manifest hardening,
 task-center recovery work, and manifest verification:
-`385 passed` with `python -m pytest -q`.
+`387 passed` with `python -m pytest -q`.
 
 ## Project Layout
 
