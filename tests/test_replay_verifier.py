@@ -261,6 +261,58 @@ def test_manifest_verifier_warns_for_unindexed_task_assignment_output_artifacts(
     )
 
 
+def test_manifest_verifier_warns_for_unresolved_artifact_lineage(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "artifacts": [
+                {
+                    "id": "artifact-1",
+                    "project_id": "project-1",
+                    "workitem_id": "workitem-1",
+                    "title": "Report",
+                    "kind": "test_report",
+                    "agent_id": "agent-1",
+                    "path": str(tmp_path / "project" / ".conductor" / "artifacts" / "artifact-1.md"),
+                    "derived_from": ["missing-input-artifact"],
+                }
+            ]
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert "artifact artifact-1 has unresolved derived_from: missing-input-artifact" in result.warnings
+
+
+def test_verify_manifest_cli_can_fail_on_unresolved_artifact_lineage_warning(tmp_path, capsys) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "artifacts": [
+                {
+                    "id": "artifact-1",
+                    "project_id": "project-1",
+                    "workitem_id": "workitem-1",
+                    "title": "Report",
+                    "kind": "test_report",
+                    "agent_id": "agent-1",
+                    "path": str(tmp_path / "project" / ".conductor" / "artifacts" / "artifact-1.md"),
+                    "derived_from": ["missing-input-artifact"],
+                }
+            ]
+        },
+    )
+
+    exit_code = verify_manifest_main([str(manifest_path), "--fail-on-warnings"])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 2
+    assert payload["passed"] is True
+    assert "artifact artifact-1 has unresolved derived_from: missing-input-artifact" in payload["warnings"]
+
+
 def test_manifest_verifier_reports_missing_files_as_warnings(tmp_path) -> None:
     manifest_path = _write_manifest(tmp_path, {"artifact_files": [str(tmp_path / "missing.md")]})
 

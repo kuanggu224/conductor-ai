@@ -513,7 +513,8 @@ Manifest 已能记录主要运行事实和审计摘要，并已完成 LLM 配置
 - `python -m app.verify_audit_bundle <audit.json|directory>` 可校验单个 audit bundle 或递归校验目录下所有 `*.audit.json`，覆盖 index 结构、schema `1.0`、组件文件存在性、SHA-256、verification/replay 摘要状态和 replay trace 身份/pass 标记，并重新执行 manifest verifier 防止 verification 报告过期；结果会返回组件文件索引、checksum 索引、失败 bundle 数和含 warning bundle 数，支持 `--fail-on-warnings`。
 - `python -m app.verify_manifest <manifest> --output <file>` 可将自检报告归档到 JSON 文件。
 - `python -m app.verify_manifest <manifest> --fail-on-warnings` 可把 warning 升级为 CLI 失败，适合 CI/生产门禁；报告内 `passed` 仍表示 hard error 状态。
-- 针对测试：`python -m pytest tests\test_replay_verifier.py -q`，结果 `16 passed`。
+- Manifest verifier 已覆盖 artifact lineage warning，`derived_from` 指向缺失 artifact 时会产生 warning，并可通过 `--fail-on-warnings` 升级为失败门禁。
+- 针对测试：`python -m pytest tests\test_replay_verifier.py -q`，结果 `18 passed`。
 - 已补只读 replay trace：`python -m app.replay_manifest <manifest> --format markdown`，从 manifest 还原 Project/WorkItem/TaskAssignment/Execution/Artifact 时间线，不重跑 Agent；支持 `--output` 归档到文件，且不会输出 claim token。
 - 针对测试：`python -m pytest tests\test_replay_trace.py tests\test_replay_verifier.py -q`，结果 `21 passed`。
 - Task Center context 已显式暴露 `frozen_requirement_baseline`，Markdown prompt 会单独强调冻结需求是下游设计、开发、测试的控制性合同。
@@ -524,7 +525,7 @@ Manifest 已能记录主要运行事实和审计摘要，并已完成 LLM 配置
 - 需求评分器已补中文语义 alias 和 `metrics.keyword_matches`，benchmark 报告可看到每个关键词实际命中的表达，便于定位 keyword coverage 误报。
 - 需求评分器已补范围扩张检测，能标记原始需求未要求但文档新增的登录、支付、通知、后台报表等功能；明确写在非目标里的排除项不会被误判。
 - Requirement benchmark Markdown 报告已展示 keyword coverage、缺失关键词、命中 alias 和 scope expansion，方便直接从报告定位评分问题。
-- 当前全量测试：`python -m pytest -q`，结果 `424 passed`。
+- 当前全量测试：`python -m pytest -q`，结果 `426 passed`。
 
 ### 6.5 任务中心仍是轻量实现
 
