@@ -10,6 +10,9 @@ _EXPORTS = {
     "AgentConfig": ("conductor.config.system", "AgentConfig"),
     "AgentsConfig": ("conductor.config.system", "AgentsConfig"),
     "CollaborationConfig": ("conductor.config.system", "CollaborationConfig"),
+    "LLMProviderPreset": ("conductor.config.llm", "LLMProviderPreset"),
+    "get_llm_provider_preset": ("conductor.config.llm", "get_llm_provider_preset"),
+    "list_llm_provider_presets": ("conductor.config.llm", "list_llm_provider_presets"),
     "PlannerConfig": ("conductor.config.system", "PlannerConfig"),
     "RoleMappingConfig": ("conductor.config.system", "RoleMappingConfig"),
     "SystemConfig": ("conductor.config.system", "SystemConfig"),
@@ -30,4 +33,3 @@ def __getattr__(name: str):
 
 def __dir__() -> list[str]:
     return sorted({*globals(), *_EXPORTS})
-

@@ -556,6 +556,12 @@ external worker is stale, and should pass `claim_token` back on
 - `GET /api/diagnostics`
 - `GET /api/diagnostics?probe_cli=true`
 
+`GET /api/settings/llm` 会在原有 `local`、`cloud`、`usage` 配置外返回
+`provider_presets`，用于前端提供常用 OpenAI-compatible 端点的一键填充。
+当前内置预设包括 `openai`、`jiutian` 和 `lmstudio`。保存时前端可以在
+`local.preset_id` 或 `cloud.preset_id` 中传入预设 id；后端会使用预设的
+`base_url`、`model_name` 和 `timeout_seconds`，API key 仍由用户本地填写。
+
 `GET /api/diagnostics` 默认只读取本地配置和已发现 CLI，不访问网络。
 如需探测已启用的 OpenAI-compatible LLM `/models` 接口，可传 `?probe_llm=true`。
 如需执行轻量 chat-completion 连通性验证，可传 `?preflight_llm=true`。

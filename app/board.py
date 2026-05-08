@@ -39,6 +39,8 @@ from conductor.config.llm import (
     LLMUsagePolicy,
     LLMRuntimeConfig,
     build_default_hybrid_llm_backend,
+    get_llm_provider_preset,
+    list_llm_provider_presets,
     load_llm_runtime_config,
     save_llm_runtime_config,
 )
@@ -251,6 +253,15 @@ def refresh_engine_cli_config() -> None:
     engine.runner.agent_cli_executor.cli_selection_config = config
     engine.collaboration_runner.cli_selection_config = config
     engine.collaboration_runner.agent_cli_executor.cli_selection_config = config
+
+
+def match_llm_provider_preset_id(base_url: str, model_name: str, backend: str) -> str:
+    """Return the preset id matching a concrete LLM endpoint config."""
+    normalized_base_url = base_url.rstrip("/")
+    for preset in list_llm_provider_presets(backend):
+        if preset.base_url.rstrip("/") == normalized_base_url and preset.model_name == model_name:
+            return preset.id
+    return ""
 
 
 def get_project_task_status(project_id: str) -> ProjectTaskStatus:
@@ -1060,7 +1071,9 @@ async def save_cli_settings_api(request: Request) -> JSONResponse:
 def llm_settings_api() -> JSONResponse:
     """Return LLM settings."""
     config = load_llm_runtime_config()
-    return JSONResponse(asdict(config))
+    payload = asdict(config)
+    payload["provider_presets"] = [asdict(preset) for preset in list_llm_provider_presets()]
+    return JSONResponse(payload)
 
 
 @app.get("/api/diagnostics")
@@ -1089,20 +1102,24 @@ def diagnostics_api(probe_cli: bool = False, probe_llm: bool = False, preflight_
 async def save_llm_settings_api(request: Request) -> JSONResponse:
     """Persist LLM settings from JSON."""
     payload = await request.json()
+    local_payload = dict(payload.get("local", {}))
+    cloud_payload = dict(payload.get("cloud", {}))
+    local_preset = get_llm_provider_preset(local_payload.get("preset_id"))
+    cloud_preset = get_llm_provider_preset(cloud_payload.get("preset_id"))
     config = LLMRuntimeConfig(
         local=LLMHTTPConfig(
-            base_url=str(payload.get("local", {}).get("base_url", "http://127.0.0.1:11434/v1")),
-            model_name=str(payload.get("local", {}).get("model_name", "local-demo-model")),
-            api_key=payload.get("local", {}).get("api_key"),
-            timeout_seconds=float(payload.get("local", {}).get("timeout_seconds", 30.0)),
-            enabled=bool(payload.get("local", {}).get("enabled", False)),
+            base_url=str((local_preset.base_url if local_preset else None) or local_payload.get("base_url") or "http://127.0.0.1:11434/v1"),
+            model_name=str((local_preset.model_name if local_preset else None) or local_payload.get("model_name") or "local-demo-model"),
+            api_key=local_payload.get("api_key"),
+            timeout_seconds=float((local_preset.timeout_seconds if local_preset else None) or local_payload.get("timeout_seconds") or 30.0),
+            enabled=bool(local_payload.get("enabled", False)),
         ),
         cloud=LLMHTTPConfig(
-            base_url=str(payload.get("cloud", {}).get("base_url", "https://api.openai.com/v1")),
-            model_name=str(payload.get("cloud", {}).get("model_name", "gpt-demo-model")),
-            api_key=payload.get("cloud", {}).get("api_key"),
-            timeout_seconds=float(payload.get("cloud", {}).get("timeout_seconds", 30.0)),
-            enabled=bool(payload.get("cloud", {}).get("enabled", False)),
+            base_url=str((cloud_preset.base_url if cloud_preset else None) or cloud_payload.get("base_url") or "https://api.openai.com/v1"),
+            model_name=str((cloud_preset.model_name if cloud_preset else None) or cloud_payload.get("model_name") or "gpt-demo-model"),
+            api_key=cloud_payload.get("api_key"),
+            timeout_seconds=float((cloud_preset.timeout_seconds if cloud_preset else None) or cloud_payload.get("timeout_seconds") or 30.0),
+            enabled=bool(cloud_payload.get("enabled", False)),
         ),
         usage=LLMUsagePolicy(
             runner_enabled=bool(payload.get("usage", {}).get("runner_enabled", False)),
@@ -1241,11 +1258,23 @@ def run_project(project_id: str) -> RedirectResponse:
 @app.get("/settings/llm", response_class=HTMLResponse)
 def llm_settings_page(request: Request, saved: str | None = None) -> HTMLResponse:
     """渲染 LLM 配置页面。"""
+    config = load_llm_runtime_config()
     return templates.TemplateResponse(
         request=request,
         name="llm_config.html",
         context={
-            "config": load_llm_runtime_config(),
+            "config": config,
+            "provider_presets": list_llm_provider_presets(),
+            "local_preset_id": match_llm_provider_preset_id(
+                config.local.base_url,
+                config.local.model_name,
+                "local",
+            ),
+            "cloud_preset_id": match_llm_provider_preset_id(
+                config.cloud.base_url,
+                config.cloud.model_name,
+                "cloud",
+            ),
             "saved": saved == "1",
         },
     )
@@ -1256,19 +1285,21 @@ async def save_llm_settings(request: Request) -> RedirectResponse:
     """保存 LLM 配置并热更新 Agent backend。"""
     body = (await request.body()).decode("utf-8")
     form = parse_qs(body)
+    local_preset = get_llm_provider_preset(_form_value(form, "local_preset_id", ""))
+    cloud_preset = get_llm_provider_preset(_form_value(form, "cloud_preset_id", ""))
     config = LLMRuntimeConfig(
         local=LLMHTTPConfig(
-            base_url=_form_value(form, "local_base_url", "http://127.0.0.1:11434/v1"),
-            model_name=_form_value(form, "local_model", "local-demo-model"),
+            base_url=local_preset.base_url if local_preset else _form_value(form, "local_base_url", "http://127.0.0.1:11434/v1"),
+            model_name=local_preset.model_name if local_preset else _form_value(form, "local_model", "local-demo-model"),
             api_key=_optional_form_value(form, "local_api_key"),
-            timeout_seconds=float(_form_value(form, "local_timeout", "30.0")),
+            timeout_seconds=local_preset.timeout_seconds if local_preset else float(_form_value(form, "local_timeout", "30.0")),
             enabled=_form_checked(form, "local_enabled"),
         ),
         cloud=LLMHTTPConfig(
-            base_url=_form_value(form, "cloud_base_url", "https://api.openai.com/v1"),
-            model_name=_form_value(form, "cloud_model", "gpt-demo-model"),
+            base_url=cloud_preset.base_url if cloud_preset else _form_value(form, "cloud_base_url", "https://api.openai.com/v1"),
+            model_name=cloud_preset.model_name if cloud_preset else _form_value(form, "cloud_model", "gpt-demo-model"),
             api_key=_optional_form_value(form, "cloud_api_key"),
-            timeout_seconds=float(_form_value(form, "cloud_timeout", "30.0")),
+            timeout_seconds=cloud_preset.timeout_seconds if cloud_preset else float(_form_value(form, "cloud_timeout", "30.0")),
             enabled=_form_checked(form, "cloud_enabled"),
         ),
         usage=LLMUsagePolicy(

@@ -3,6 +3,8 @@
 from conductor.config.llm import (
     LLMRuntimeConfig,
     build_default_hybrid_llm_backend,
+    get_llm_provider_preset,
+    list_llm_provider_presets,
     load_llm_runtime_config,
     save_llm_runtime_config,
 )
@@ -122,3 +124,14 @@ def test_default_usage_policy_allows_all_document_agents() -> None:
     ]
     assert "api_implementation" in config.usage.runner_allowed_kinds
     assert "ui_validation" in config.usage.runner_allowed_kinds
+
+
+def test_llm_provider_presets_include_jiutian_cloud() -> None:
+    cloud_presets = list_llm_provider_presets("cloud")
+    jiutian = get_llm_provider_preset("jiutian")
+
+    assert jiutian is not None
+    assert jiutian in cloud_presets
+    assert jiutian.base_url == "https://jiutian.10086.cn/largemodel/moma/api/v3"
+    assert jiutian.model_name == "jiutian-lan-comv3"
+    assert jiutian.timeout_seconds == 120.0

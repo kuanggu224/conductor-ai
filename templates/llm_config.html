@@ -89,7 +89,7 @@
             color: var(--muted);
             font-size: 13px;
         }
-        input {
+        input, select {
             width: 100%;
             border: 1px solid var(--line);
             border-radius: 12px;
@@ -145,6 +145,14 @@
             <div class="grid">
                 <section class="panel">
                     <h2>本地模型</h2>
+                    <label for="local_preset_id">Provider Preset</label>
+                    <select id="local_preset_id" name="local_preset_id" data-target="local">
+                        <option value="">Custom</option>
+                        {% for preset in provider_presets if preset.backend == "local" %}
+                        <option value="{{ preset.id }}" data-base-url="{{ preset.base_url }}" data-model="{{ preset.model_name }}" data-timeout="{{ preset.timeout_seconds }}" {% if local_preset_id == preset.id %}selected{% endif %}>{{ preset.label }}</option>
+                        {% endfor %}
+                    </select>
+
                     <label for="local_base_url">服务地址</label>
                     <input id="local_base_url" name="local_base_url" value="{{ config.local.base_url }}">
 
@@ -165,6 +173,14 @@
 
                 <section class="panel">
                     <h2>云端模型</h2>
+                    <label for="cloud_preset_id">Provider Preset</label>
+                    <select id="cloud_preset_id" name="cloud_preset_id" data-target="cloud">
+                        <option value="">Custom</option>
+                        {% for preset in provider_presets if preset.backend == "cloud" %}
+                        <option value="{{ preset.id }}" data-base-url="{{ preset.base_url }}" data-model="{{ preset.model_name }}" data-timeout="{{ preset.timeout_seconds }}" {% if cloud_preset_id == preset.id %}selected{% endif %}>{{ preset.label }}</option>
+                        {% endfor %}
+                    </select>
+
                     <label for="cloud_base_url">服务地址</label>
                     <input id="cloud_base_url" name="cloud_base_url" value="{{ config.cloud.base_url }}">
 
@@ -204,5 +220,17 @@
             </div>
         </form>
     </div>
+    <script>
+        for (const select of document.querySelectorAll("select[data-target]")) {
+            select.addEventListener("change", () => {
+                const option = select.selectedOptions[0];
+                if (!option || !option.value) return;
+                const target = select.dataset.target;
+                document.getElementById(`${target}_base_url`).value = option.dataset.baseUrl || "";
+                document.getElementById(`${target}_model`).value = option.dataset.model || "";
+                document.getElementById(`${target}_timeout`).value = option.dataset.timeout || "";
+            });
+        }
+    </script>
 </body>
 </html>

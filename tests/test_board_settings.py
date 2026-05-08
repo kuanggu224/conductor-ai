@@ -17,6 +17,7 @@ def test_llm_settings_page_renders() -> None:
 
     assert response.status_code == 200
     assert "LLM 设置" in response.text
+    assert "Jiutian" in response.text
 
 
 def test_save_llm_settings_writes_config(monkeypatch, tmp_path) -> None:
@@ -45,6 +46,45 @@ def test_save_llm_settings_writes_config(monkeypatch, tmp_path) -> None:
     assert Path(config_path).exists()
     assert saved.cloud.model_name == "DeepSeek-R1-0528"
     assert saved.cloud.enabled is True
+
+
+def test_llm_settings_api_exposes_provider_presets() -> None:
+    client = TestClient(board.app)
+
+    response = client.get("/api/settings/llm")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "provider_presets" in payload
+    assert any(item["id"] == "jiutian" for item in payload["provider_presets"])
+
+
+def test_save_llm_settings_api_can_apply_cloud_preset(monkeypatch) -> None:
+    captured = {}
+    monkeypatch.setattr(board, "save_llm_runtime_config", lambda config: captured.setdefault("config", config))
+    monkeypatch.setattr(board, "refresh_engine_llm_backend", lambda: None)
+    client = TestClient(board.app)
+
+    response = client.post(
+        "/api/settings/llm",
+        json={
+            "cloud": {
+                "preset_id": "jiutian",
+                "base_url": "https://wrong.example/v1",
+                "model_name": "wrong-model",
+                "api_key": "sk-demo",
+                "enabled": True,
+            },
+            "usage": {"runner_enabled": True, "preferred_backend": "cloud"},
+        },
+    )
+
+    saved = captured["config"]
+    assert response.status_code == 200
+    assert saved.cloud.base_url == "https://jiutian.10086.cn/largemodel/moma/api/v3"
+    assert saved.cloud.model_name == "jiutian-lan-comv3"
+    assert saved.cloud.timeout_seconds == 120.0
+    assert saved.cloud.api_key == "sk-demo"
 
 
 def test_execution_settings_page_renders() -> None:

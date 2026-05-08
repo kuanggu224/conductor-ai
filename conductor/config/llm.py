@@ -72,6 +72,63 @@ class LLMUsagePolicy:
             self.runner_allowed_kinds = list(DEFAULT_RUNNER_ALLOWED_KINDS)
 
 
+@dataclass(frozen=True, slots=True)
+class LLMProviderPreset:
+    """Reusable OpenAI-compatible endpoint preset."""
+
+    id: str
+    label: str
+    backend: str
+    base_url: str
+    model_name: str
+    timeout_seconds: float = 30.0
+
+
+LLM_PROVIDER_PRESETS = [
+    LLMProviderPreset(
+        id="openai",
+        label="OpenAI Compatible",
+        backend="cloud",
+        base_url="https://api.openai.com/v1",
+        model_name="gpt-demo-model",
+        timeout_seconds=30.0,
+    ),
+    LLMProviderPreset(
+        id="jiutian",
+        label="Jiutian",
+        backend="cloud",
+        base_url="https://jiutian.10086.cn/largemodel/moma/api/v3",
+        model_name="jiutian-lan-comv3",
+        timeout_seconds=120.0,
+    ),
+    LLMProviderPreset(
+        id="lmstudio",
+        label="LM Studio",
+        backend="local",
+        base_url="http://127.0.0.1:1234/v1",
+        model_name="local-model",
+        timeout_seconds=180.0,
+    ),
+]
+
+
+def list_llm_provider_presets(backend: str | None = None) -> list[LLMProviderPreset]:
+    """Return provider presets, optionally filtered by backend."""
+    if backend is None:
+        return list(LLM_PROVIDER_PRESETS)
+    return [preset for preset in LLM_PROVIDER_PRESETS if preset.backend == backend]
+
+
+def get_llm_provider_preset(preset_id: str | None) -> LLMProviderPreset | None:
+    """Find one provider preset by id."""
+    if not preset_id:
+        return None
+    for preset in LLM_PROVIDER_PRESETS:
+        if preset.id == preset_id:
+            return preset
+    return None
+
+
 def _read_file_config(path: str | Path | None = None) -> dict:
     file_path = Path(path) if path is not None else LLM_CONFIG_PATH
     if not file_path.exists():
