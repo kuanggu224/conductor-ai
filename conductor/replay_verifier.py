@@ -227,6 +227,7 @@ class ManifestVerifier:
         self._verify_task_center_summary(summary, self._list(payload.get("task_assignments")), result)
         self._verify_summary_blockers(summary, self._dict(payload.get("resume_cursor")), result)
         self._verify_summary_validation_failure_count(summary, self._list(payload.get("executions")), result)
+        self._verify_requirement_quality_score(summary, self._list(payload.get("requirement_evaluations")), result)
 
         changed_files = self._list(summary.get("changed_files"))
         if "changed_files" in summary and not isinstance(summary.get("changed_files"), list):
@@ -346,6 +347,31 @@ class ManifestVerifier:
                 expected += parsed
         if actual != expected:
             result.errors.append(f"summary.retry_attempt_count={actual} does not match retry_history total={expected}")
+
+    def _verify_requirement_quality_score(
+        self,
+        summary: dict[str, Any],
+        requirement_evaluations: list[Any],
+        result: ManifestVerificationResult,
+    ) -> None:
+        if "requirement_quality_score" not in summary:
+            return
+        actual = self._as_int(summary.get("requirement_quality_score"))
+        if actual is None:
+            result.errors.append("summary.requirement_quality_score must be an integer")
+            return
+        scores = [
+            parsed
+            for evaluation in requirement_evaluations
+            if isinstance(evaluation, dict)
+            for parsed in [self._as_int(evaluation.get("score"))]
+            if parsed is not None
+        ]
+        expected = max(scores, default=0)
+        if actual != expected:
+            result.errors.append(
+                f"summary.requirement_quality_score={actual} does not match max(requirement_evaluations.score)={expected}"
+            )
 
     def _verify_task_center_summary(
         self,
