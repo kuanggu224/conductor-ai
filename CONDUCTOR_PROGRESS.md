@@ -139,6 +139,8 @@ templates/board.html       当前 Board 页面
 - 设置接口只返回 `api_key_present`，不会回显真实 API key。
 - 保存设置时空 key 会保留本地既有密钥，避免页面编辑误清空。
 - Diagnostics 会返回 LLM `health_status`、`recommendation`、模型列表、当前模型是否可见、context length、timeout 和 preflight 状态。
+- `python -m app.run_project` 已加入运行前 preflight gate；真实 Agent/LLMHarness 执行前会先检查所选后端，不满足条件时在创建项目之前失败。
+- `--skip-preflight-gate` 可用于受控离线测试或故意跳过环境检查的场景。
 - 平台负责写入受控 artifact 文件。
 - 对 Qwen thinking 模型默认使用 `reasoning_effort=none`。
 - 支持 CLI 参数 `--llm-reasoning-effort none|low|medium|high`。
@@ -500,7 +502,7 @@ Manifest 已能记录主要运行事实和审计摘要，并已完成 LLM 配置
 4. 做一个小型真实项目闭环：静态 Web 项目优先，从需求冻结、设计、代码生成、StaticWebHarness 验证到 manifest/report 归档。
 5. 继续产品化 Task Center：增加 replay/resume 边界、worker 心跳、长期 claimed task 管理和并发安全策略。
 6. 开始把开发/测试阶段也做成类似需求阶段的产品级闭环。
-7. 基于 Diagnostics 结果做运行前 gate：在真实 Agent 执行前给出更明确的阻断或降级策略。
+7. 继续强化运行前 gate：把 diagnostics 失败建议同步写入 manifest/report，并支持更细的降级策略。
 
 ## 8. 当前关键命令备忘
 

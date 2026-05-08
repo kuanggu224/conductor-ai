@@ -116,6 +116,12 @@ LLM diagnostics include the configured model, timeout, available model list,
 detected context length, whether the selected model is listed, a compact health
 status, and a remediation recommendation.
 
+`python -m app.run_project` runs a preflight gate before real Agent execution.
+For `design_cli_only`, `code_cli`, `full_cli`, or explicit `--llm-harness`
+runs, the gate checks the selected CLI/LLM backend and fails before creating a
+project if no real backend is usable. Use `--skip-preflight-gate` only for
+controlled offline tests.
+
 ### Jiutian LLM Backend
 
 Conductor can use Jiutian through the existing OpenAI-compatible cloud backend.

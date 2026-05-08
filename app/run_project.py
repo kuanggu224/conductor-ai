@@ -81,6 +81,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Disable dynamic requirement review seats for faster controlled smoke runs.",
     )
+    parser.add_argument(
+        "--skip-preflight-gate",
+        action="store_true",
+        help="Skip run preflight gate for controlled tests or intentionally offline runs.",
+    )
     return parser
 
 
@@ -110,14 +115,27 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(diagnostics.to_dict(), ensure_ascii=False, indent=2))
         return 0 if diagnostics.ok else 2
 
+    cli_config = _build_cli_config(agent_cli, run_profile, aspirecode_model=args.aspirecode_model)
+    llm_runtime_config = _build_llm_runtime_config(args)
+    if not args.skip_preflight_gate:
+        gate_payload = _run_preflight_gate(
+            cli_config=cli_config,
+            llm_runtime_config=llm_runtime_config,
+            project_root=project_root,
+            run_profile=run_profile,
+            agent_cli=agent_cli,
+            llm_harness_backend=args.llm_harness,
+        )
+        if gate_payload["ok"] is False:
+            print(json.dumps(gate_payload, ensure_ascii=False, indent=2))
+            return 2
+
     requirement = load_requirement_text(
         requirement=args.requirement,
         requirement_file=args.requirement_file,
         requirement_json_file=args.requirement_json_file,
         json_key=args.requirement_json_key,
     )
-    cli_config = _build_cli_config(agent_cli, run_profile, aspirecode_model=args.aspirecode_model)
-    llm_runtime_config = _build_llm_runtime_config(args)
     engine = ConductorEngine(
         log_dir=project_root / ".conductor" / "logs",
         artifact_dir=project_root / ".conductor" / "artifacts",
@@ -212,6 +230,86 @@ def _build_llm_runtime_config(args):
     if args.llm_reasoning_effort is not None:
         selected.reasoning_effort = args.llm_reasoning_effort
     return runtime_config
+
+
+def _run_preflight_gate(
+    *,
+    cli_config: CLISelectionConfig,
+    llm_runtime_config,
+    project_root: Path,
+    run_profile,
+    agent_cli: str | None,
+    llm_harness_backend: str | None,
+) -> dict[str, object]:
+    """Fail fast when the selected real execution backend is clearly unusable."""
+    requires_real_backend = run_profile.require_real_design_outputs or run_profile.require_real_code_outputs
+    should_probe_cli = bool(agent_cli and run_profile.cli_roles)
+    should_probe_llm = bool(llm_harness_backend or (requires_real_backend and llm_runtime_config.usage.runner_enabled))
+    if not requires_real_backend and not should_probe_cli and not should_probe_llm:
+        return {"ok": True, "skipped": True, "reason": "mock_or_offline_run"}
+
+    diagnostics = build_platform_diagnostics(
+        cli_config=cli_config,
+        project_root=project_root,
+        llm_runtime_config=llm_runtime_config,
+        probe_cli=should_probe_cli,
+        probe_llm=should_probe_llm,
+        preflight_probe=(
+            build_requirement_llm_preflight_probe(
+                llm_runtime_config,
+                project_root / ".conductor" / "diagnostics" / "run-preflight",
+            )
+            if should_probe_llm
+            else None
+        ),
+    )
+    errors = _preflight_gate_errors(
+        diagnostics=diagnostics,
+        run_profile=run_profile,
+        agent_cli=agent_cli,
+        llm_harness_backend=llm_harness_backend,
+        runner_enabled=llm_runtime_config.usage.runner_enabled,
+    )
+    return {
+        "ok": not errors,
+        "preflight_gate": {
+            "errors": errors,
+            "run_profile": run_profile.profile.value,
+            "agent_cli": agent_cli,
+            "llm_harness_backend": llm_harness_backend,
+        },
+        "diagnostics": diagnostics.to_dict(),
+    }
+
+
+def _preflight_gate_errors(
+    *,
+    diagnostics,
+    run_profile,
+    agent_cli: str | None,
+    llm_harness_backend: str | None,
+    runner_enabled: bool,
+) -> list[str]:
+    """Return user-facing gate errors for the selected execution mode."""
+    errors: list[str] = []
+    requires_real_backend = run_profile.require_real_design_outputs or run_profile.require_real_code_outputs
+    if requires_real_backend and not agent_cli and not llm_harness_backend and not runner_enabled:
+        errors.append(
+            "Run profile requires real outputs, but no Agent CLI, LLMHarness backend, or LLM runner is configured."
+        )
+    errors.extend(diagnostics.warnings)
+    if llm_harness_backend:
+        backend = next(
+            (item for item in diagnostics.llm_backends if item.backend == llm_harness_backend),
+            None,
+        )
+        if backend is None:
+            errors.append(f"LLMHarness backend `{llm_harness_backend}` is not present in diagnostics.")
+        elif backend.health_status not in {"ready", "reachable", "models_unavailable"}:
+            errors.append(
+                f"LLMHarness backend `{llm_harness_backend}` is not ready: {backend.recommendation}"
+            )
+    return list(dict.fromkeys(error for error in errors if error))
 
 
 def _build_system_config(args) -> SystemConfig:

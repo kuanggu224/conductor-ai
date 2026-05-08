@@ -1,6 +1,12 @@
 """Tests for the UTF-8 project runner entrypoint."""
 
-from app.run_project import _resolve_project_root, build_parser
+from types import SimpleNamespace
+
+from app import run_project
+from app.run_project import _build_cli_config, _run_preflight_gate, _resolve_project_root, build_parser
+from conductor.agents.llm import LLMHTTPConfig
+from conductor.config.execution import resolve_run_profile
+from conductor.config.llm import LLMRuntimeConfig, LLMUsagePolicy
 
 
 def test_run_project_parser_accepts_requirement_file() -> None:
@@ -97,3 +103,113 @@ def test_run_project_parser_accepts_collaboration_overrides() -> None:
     assert args.static_requirement_review is True
     assert args.diagnose_cli is True
     assert args.diagnose_llm is True
+
+
+def test_run_project_parser_accepts_skip_preflight_gate() -> None:
+    args = build_parser().parse_args(["--requirement", "demo", "--skip-preflight-gate"])
+
+    assert args.skip_preflight_gate is True
+
+
+def test_preflight_gate_blocks_real_profile_without_backend(tmp_path) -> None:
+    run_profile = resolve_run_profile("design_cli_only")
+    llm_runtime_config = LLMRuntimeConfig(
+        local=LLMHTTPConfig(base_url="http://127.0.0.1:1234/v1", model_name="local-model", enabled=False),
+        cloud=LLMHTTPConfig(base_url="https://example.com/v1", model_name="cloud-model", enabled=False),
+        usage=LLMUsagePolicy(runner_enabled=False),
+    )
+
+    payload = _run_preflight_gate(
+        cli_config=_build_cli_config(None, run_profile),
+        llm_runtime_config=llm_runtime_config,
+        project_root=tmp_path,
+        run_profile=run_profile,
+        agent_cli=None,
+        llm_harness_backend=None,
+    )
+
+    assert payload["ok"] is False
+    assert "requires real outputs" in payload["preflight_gate"]["errors"][0]
+
+
+def test_preflight_gate_skips_mock_run_even_when_llm_runner_is_configured(tmp_path) -> None:
+    run_profile = resolve_run_profile("mock")
+    llm_runtime_config = LLMRuntimeConfig(
+        local=LLMHTTPConfig(base_url="http://127.0.0.1:1234/v1", model_name="local-model", enabled=True),
+        cloud=LLMHTTPConfig(base_url="https://example.com/v1", model_name="cloud-model", enabled=True),
+        usage=LLMUsagePolicy(runner_enabled=True),
+    )
+
+    payload = _run_preflight_gate(
+        cli_config=_build_cli_config(None, run_profile),
+        llm_runtime_config=llm_runtime_config,
+        project_root=tmp_path,
+        run_profile=run_profile,
+        agent_cli=None,
+        llm_harness_backend=None,
+    )
+
+    assert payload == {"ok": True, "skipped": True, "reason": "mock_or_offline_run"}
+
+
+def test_preflight_gate_allows_ready_llm_harness(monkeypatch, tmp_path) -> None:
+    run_profile = resolve_run_profile("design_cli_only")
+    llm_runtime_config = LLMRuntimeConfig(
+        local=LLMHTTPConfig(base_url="http://127.0.0.1:1234/v1", model_name="local-model", enabled=True),
+        cloud=LLMHTTPConfig(base_url="https://example.com/v1", model_name="cloud-model", enabled=False),
+        usage=LLMUsagePolicy(runner_enabled=False),
+    )
+
+    monkeypatch.setattr(run_project, "build_platform_diagnostics", lambda **_: fake_diagnostics("local", "ready"))
+
+    payload = _run_preflight_gate(
+        cli_config=_build_cli_config(None, run_profile),
+        llm_runtime_config=llm_runtime_config,
+        project_root=tmp_path,
+        run_profile=run_profile,
+        agent_cli=None,
+        llm_harness_backend="local",
+    )
+
+    assert payload["ok"] is True
+
+
+def test_preflight_gate_blocks_failed_llm_harness(monkeypatch, tmp_path) -> None:
+    run_profile = resolve_run_profile("design_cli_only")
+    llm_runtime_config = LLMRuntimeConfig(
+        local=LLMHTTPConfig(base_url="http://127.0.0.1:1234/v1", model_name="local-model", enabled=True),
+        cloud=LLMHTTPConfig(base_url="https://example.com/v1", model_name="cloud-model", enabled=False),
+        usage=LLMUsagePolicy(runner_enabled=False),
+    )
+
+    monkeypatch.setattr(
+        run_project,
+        "build_platform_diagnostics",
+        lambda **_: fake_diagnostics("local", "failed", warnings=["local LLM preflight failed"]),
+    )
+
+    payload = _run_preflight_gate(
+        cli_config=_build_cli_config(None, run_profile),
+        llm_runtime_config=llm_runtime_config,
+        project_root=tmp_path,
+        run_profile=run_profile,
+        agent_cli=None,
+        llm_harness_backend="local",
+    )
+
+    assert payload["ok"] is False
+    assert any("preflight failed" in error for error in payload["preflight_gate"]["errors"])
+
+
+def fake_diagnostics(backend: str, health_status: str, warnings: list[str] | None = None):
+    return SimpleNamespace(
+        warnings=warnings or [],
+        llm_backends=[
+            SimpleNamespace(
+                backend=backend,
+                health_status=health_status,
+                recommendation="diagnostic recommendation",
+            )
+        ],
+        to_dict=lambda: {"llm_backends": [{"backend": backend, "health_status": health_status}]},
+    )
