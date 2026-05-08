@@ -218,6 +218,37 @@ def test_manifest_verifier_warns_for_malformed_summary_changed_files(tmp_path) -
     assert "summary.changed_files must be a list" in result.warnings
 
 
+def test_manifest_verifier_warns_for_malformed_summary_llm_token_usage(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "summary": {
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+                "llm_token_usage": {
+                    "prompt_tokens": -1,
+                    "completion_tokens": "many",
+                },
+            },
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert "summary.llm_token_usage.prompt_tokens must be non-negative" in result.warnings
+    assert "summary.llm_token_usage.completion_tokens must be an integer" in result.warnings
+
+
 def test_manifest_verifier_warns_for_malformed_resume_cursor_lists(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,
@@ -401,6 +432,43 @@ def test_manifest_verifier_warns_for_run_output_files(tmp_path) -> None:
     assert result.passed is True
     assert f"cli_runs[0].output_files entry does not exist: {missing_cli_output}" in result.warnings
     assert "llm_runs[0] output_files must be a list" in result.warnings
+
+
+def test_manifest_verifier_warns_for_malformed_llm_run_token_usage(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "summary": {
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 1,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+            },
+            "llm_runs": [
+                {
+                    "agent_id": "agent-llm",
+                    "token_usage": {
+                        "prompt_tokens": "-1",
+                        "completion_tokens": {},
+                    },
+                    "output_files": [],
+                }
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert "llm_runs[0].token_usage.prompt_tokens must be an integer" in result.warnings
+    assert "llm_runs[0].token_usage.completion_tokens must be an integer" in result.warnings
 
 
 def test_manifest_verifier_rejects_unknown_task_assignment_dependencies(tmp_path) -> None:

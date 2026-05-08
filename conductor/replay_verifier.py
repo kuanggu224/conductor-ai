@@ -191,6 +191,8 @@ class ManifestVerifier:
                 result.errors.append(
                     f"summary.changed_file_count={actual} does not match len(summary.changed_files)={len(changed_files)}"
                 )
+        if "llm_token_usage" in summary:
+            self._verify_token_usage(summary.get("llm_token_usage"), "summary.llm_token_usage", result)
 
     def _verify_resume_cursor(self, payload: dict[str, Any], result: ManifestVerificationResult) -> None:
         cursor = self._dict(payload.get("resume_cursor"))
@@ -333,6 +335,8 @@ class ManifestVerifier:
                 if not isinstance(run, dict):
                     continue
                 self._warn_non_list_fields(run, f"{run_list_name}[{index}]", ("output_files",), result)
+                if run_list_name == "llm_runs" and "token_usage" in run:
+                    self._verify_token_usage(run.get("token_usage"), f"llm_runs[{index}].token_usage", result)
 
     def _warn_non_list_fields(
         self,
@@ -345,6 +349,18 @@ class ManifestVerifier:
         for field_name in field_names:
             if field_name in item and not isinstance(item.get(field_name), list):
                 result.warnings.append(f"{owner} {field_name} must be a list")
+
+    def _verify_token_usage(self, value: Any, owner: str, result: ManifestVerificationResult) -> None:
+        """Warn when token usage cannot be safely aggregated."""
+        if not isinstance(value, dict):
+            result.warnings.append(f"{owner} must be an object")
+            return
+        for key, token_count in value.items():
+            parsed = self._as_int(token_count)
+            if parsed is None:
+                result.warnings.append(f"{owner}.{key} must be an integer")
+            elif parsed < 0:
+                result.warnings.append(f"{owner}.{key} must be non-negative")
 
     def _verify_no_secret_leaks(self, payload: dict[str, Any], result: ManifestVerificationResult) -> None:
         """Fail manifests that appear to contain API credentials.
