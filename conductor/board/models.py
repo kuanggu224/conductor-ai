@@ -175,6 +175,20 @@ class BoardPreflightGateView:
 
 
 @dataclass(slots=True)
+class BoardRunAuditView:
+    """Compact run audit summary for Board consumers."""
+
+    retry_history_count: int = 0
+    retry_attempt_count: int = 0
+    failed_workitem_ids: list[str] = field(default_factory=list)
+    scope_contract_status: str = "not_evaluated"
+    scope_contract_status_label: str = "未评估"
+    scope_contract_violation_count: int = 0
+    risk_level: str = "normal"
+    risk_level_label: str = "正常"
+
+
+@dataclass(slots=True)
 class BoardDesignCollaborationView:
     """需求/设计阶段会议桌视图。"""
 
@@ -217,6 +231,7 @@ class BoardSnapshot:
     task_center_summary: dict[str, int] = field(default_factory=dict)
     task_assignments: list[BoardTaskAssignmentView] = field(default_factory=list)
     preflight_gate: BoardPreflightGateView = field(default_factory=BoardPreflightGateView)
+    run_audit: BoardRunAuditView = field(default_factory=BoardRunAuditView)
     execution_runtime: BoardExecutionRuntimeView = field(default_factory=BoardExecutionRuntimeView)
     design_collaboration: BoardDesignCollaborationView = field(default_factory=BoardDesignCollaborationView)
 

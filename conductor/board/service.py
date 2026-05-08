@@ -13,10 +13,13 @@ from conductor.board.models import (
     BoardProjectAgentView,
     BoardProjectSummary,
     BoardReviewView,
+    BoardRunAuditView,
     BoardSnapshot,
     BoardTaskAssignmentView,
     BoardWorkItemView,
 )
+from conductor.artifacts.scope_contract import evaluate_scope_contract
+from conductor.artifacts.store import ArtifactStore
 from conductor.domain.models import SharedProjectState
 from conductor.config.cli import CLISelectionConfig
 from conductor.config.llm import LLMRuntimeConfig
@@ -279,6 +282,7 @@ class BoardService:
                 for assignment in state.task_assignments
             ],
             preflight_gate=self._build_preflight_gate_view(state),
+            run_audit=self._build_run_audit_view(state),
             execution_runtime=self._build_execution_runtime_view(state, cli_config, llm_runtime_config),
             design_collaboration=self._build_design_collaboration_view(state, artifacts),
         )
@@ -314,6 +318,78 @@ class BoardService:
                 preflight_gate_status_label=preflight_gate.status_label,
             ))
         return summaries
+
+    def _build_run_audit_view(self, state: SharedProjectState) -> BoardRunAuditView:
+        """Build a compact run risk summary from current state."""
+        failed_workitem_ids = [item.id for item in state.workitems if item.status.value == "failed"]
+        retry_items = [
+            item
+            for item in state.workitems
+            if item.retry_count > 0 or item.status.value == "failed" or bool(item.blocked_reason)
+        ]
+        scope_status, scope_violation_count = self._scope_contract_status(state)
+        risk_level = self._risk_level(
+            failed_count=len(failed_workitem_ids),
+            retry_attempt_count=sum(item.retry_count for item in retry_items),
+            scope_violation_count=scope_violation_count,
+            blocker_count=len(state.blockers),
+        )
+        return BoardRunAuditView(
+            retry_history_count=len(retry_items),
+            retry_attempt_count=sum(item.retry_count for item in retry_items),
+            failed_workitem_ids=failed_workitem_ids,
+            scope_contract_status=scope_status,
+            scope_contract_status_label=self._scope_status_label(scope_status),
+            scope_contract_violation_count=scope_violation_count,
+            risk_level=risk_level,
+            risk_level_label=self._risk_level_label(risk_level),
+        )
+
+    def _scope_contract_status(self, state: SharedProjectState) -> tuple[str, int]:
+        """Return status and violation count for downstream scope-contract checks."""
+        frozen_requirement = next(
+            (artifact for artifact in reversed(state.artifacts) if artifact.kind == "frozen_requirement_spec"),
+            None,
+        )
+        if frozen_requirement is None:
+            return "not_evaluated", 0
+        artifact_store = ArtifactStore()
+        checked = 0
+        violation_count = 0
+        skipped_kinds = {"requirement_spec", "frozen_requirement_spec", "collaboration_review"}
+        for artifact in state.artifacts:
+            if artifact.kind in skipped_kinds:
+                continue
+            checked += 1
+            contract = evaluate_scope_contract(frozen_requirement, artifact_store.read_content(artifact))
+            violation_count += len(contract.violations)
+        if checked == 0:
+            return "not_evaluated", 0
+        if violation_count:
+            return "violation", violation_count
+        return "pass", 0
+
+    def _scope_status_label(self, status: str) -> str:
+        return {
+            "not_evaluated": "未评估",
+            "pass": "通过",
+            "violation": "范围风险",
+        }.get(status, status)
+
+    def _risk_level(self, *, failed_count: int, retry_attempt_count: int, scope_violation_count: int, blocker_count: int) -> str:
+        """Return a coarse run risk level for Board summaries."""
+        if blocker_count or scope_violation_count or failed_count:
+            return "high"
+        if retry_attempt_count:
+            return "medium"
+        return "normal"
+
+    def _risk_level_label(self, risk_level: str) -> str:
+        return {
+            "normal": "正常",
+            "medium": "注意",
+            "high": "高风险",
+        }.get(risk_level, risk_level)
 
     def build_role_labels(self, roles: list[str]) -> list[str]:
         """构建角色中文展示名。"""
