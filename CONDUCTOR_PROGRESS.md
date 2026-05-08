@@ -506,6 +506,7 @@ Manifest 已能记录主要运行事实和审计摘要，并已完成 LLM 配置
 - 检查 schema 基础字段、summary 计数、`resume_cursor`、WorkItem/Execution/Artifact 链接和引用文件。
 - 当前它不重跑 Agent，也不恢复状态；定位是 replay/resume 前的归档自检层。
 - `python -m app.run_project` 的最终 JSON payload 已包含 `manifest_verification`，每次运行后立即暴露归档自检结果。
+- `python -m app.run_project --write-manifest-verification` 可在项目运行结束时同步归档 manifest 自检 JSON 报告；`--manifest-verification-output` 的相对路径会解析到项目根目录下。
 - `python -m app.run_project --write-replay-trace` 可在项目运行结束时同步归档只读 replay trace。
 - `python -m app.verify_manifest <manifest> --output <file>` 可将自检报告归档到 JSON 文件。
 - 针对测试：`python -m pytest tests\test_replay_verifier.py -q`，结果 `7 passed`。

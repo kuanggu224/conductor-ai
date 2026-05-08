@@ -121,6 +121,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="After writing the run manifest, also write a read-only replay trace.",
     )
     parser.add_argument(
+        "--write-manifest-verification",
+        action="store_true",
+        help="After writing the run manifest, also write the JSON manifest verification report.",
+    )
+    parser.add_argument(
+        "--manifest-verification-output",
+        help="Optional manifest verification output path. Defaults under .conductor/replay.",
+    )
+    parser.add_argument(
         "--replay-trace-format",
         choices=["json", "markdown"],
         default="markdown",
@@ -238,6 +247,12 @@ def main(argv: list[str] | None = None) -> int:
     report_path = engine.write_project_report(state.project.id)
     manifest_path = engine.write_run_manifest(state.project.id, report_path=report_path)
     manifest_verification = verify_manifest(manifest_path)
+    manifest_verification_payload = _write_manifest_verification_if_requested(
+        args,
+        project_root,
+        state.project.id,
+        manifest_verification,
+    )
     replay_trace_payload = _write_replay_trace_if_requested(args, project_root, manifest_path)
     payload = {
         "project_id": state.project.id,
@@ -250,12 +265,42 @@ def main(argv: list[str] | None = None) -> int:
         "report_path": str(report_path),
         "manifest_path": str(manifest_path),
         "manifest_verification": manifest_verification.to_dict(),
+        "manifest_verification_report": manifest_verification_payload,
         "replay_trace": replay_trace_payload,
         "workitems": [asdict(item) for item in state.workitems],
         "artifacts": [asdict(item) for item in state.artifacts],
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0 if state.project_status.value == "completed" else 1
+
+
+def _write_manifest_verification_if_requested(
+    args,
+    project_root: Path,
+    project_id: str,
+    manifest_verification,
+) -> dict[str, object]:
+    """Write an optional JSON manifest verification report after a project run."""
+    if not getattr(args, "write_manifest_verification", False):
+        return {}
+    output_path = (
+        _resolve_project_output_path(project_root, args.manifest_verification_output)
+        if getattr(args, "manifest_verification_output", None)
+        else _default_manifest_verification_path(project_root, project_id)
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(manifest_verification.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+    return {
+        "path": str(output_path),
+        "format": "json",
+        "passed": manifest_verification.passed,
+        "error_count": len(manifest_verification.errors),
+        "warning_count": len(manifest_verification.warnings),
+    }
+
+
+def _default_manifest_verification_path(project_root: Path, project_id: str) -> Path:
+    return project_root / ".conductor" / "replay" / f"{project_id}.verification.json"
 
 
 def _resolve_agent_cli(use_codex: bool, agent_cli: str | None) -> str | None:
@@ -288,7 +333,7 @@ def _write_replay_trace_if_requested(args, project_root: Path, manifest_path: Pa
         return {}
     trace = build_manifest_replay_trace(manifest_path)
     output_path = (
-        _resolve_replay_trace_output_path(project_root, args.replay_trace_output)
+        _resolve_project_output_path(project_root, args.replay_trace_output)
         if getattr(args, "replay_trace_output", None)
         else _default_replay_trace_path(project_root, trace.project_id, args.replay_trace_format)
     )
@@ -308,7 +353,7 @@ def _default_replay_trace_path(project_root: Path, project_id: str, output_forma
     return project_root / ".conductor" / "replay" / f"{project_id}.replay.{suffix}"
 
 
-def _resolve_replay_trace_output_path(project_root: Path, output_path: str) -> Path:
+def _resolve_project_output_path(project_root: Path, output_path: str) -> Path:
     path = Path(output_path).expanduser()
     if path.is_absolute():
         return path.resolve()

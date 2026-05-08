@@ -166,6 +166,21 @@ def test_run_project_parser_accepts_replay_trace_options() -> None:
     assert args.replay_trace_output == "trace.json"
 
 
+def test_run_project_parser_accepts_manifest_verification_output_options() -> None:
+    args = build_parser().parse_args(
+        [
+            "--requirement",
+            "demo",
+            "--write-manifest-verification",
+            "--manifest-verification-output",
+            "audit/verification.json",
+        ]
+    )
+
+    assert args.write_manifest_verification is True
+    assert args.manifest_verification_output == "audit/verification.json"
+
+
 def test_run_project_can_resume_existing_project(tmp_path, capsys) -> None:
     first_exit = run_project.main(
         [
@@ -231,6 +246,32 @@ def test_run_project_can_write_replay_trace(tmp_path, capsys) -> None:
     assert "# Replay Trace:" in trace_path.read_text(encoding="utf-8")
 
 
+def test_run_project_can_write_manifest_verification_report(tmp_path, capsys) -> None:
+    exit_code = run_project.main(
+        [
+            "--project-root",
+            str(tmp_path),
+            "--requirement",
+            "Build a small reading list",
+            "--max-steps",
+            "1",
+            "--skip-preflight-gate",
+            "--write-manifest-verification",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+    report_path = tmp_path / ".conductor" / "replay" / f"{payload['project_id']}.verification.json"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+
+    assert exit_code == 1
+    assert payload["manifest_verification_report"]["path"] == str(report_path)
+    assert payload["manifest_verification_report"]["format"] == "json"
+    assert payload["manifest_verification_report"]["passed"] is True
+    assert payload["manifest_verification_report"]["error_count"] == 0
+    assert report["passed"] is True
+    assert report["project_id"] == payload["project_id"]
+
+
 def test_run_project_resolves_relative_replay_trace_output_under_project_root(tmp_path, capsys) -> None:
     exit_code = run_project.main(
         [
@@ -252,6 +293,29 @@ def test_run_project_resolves_relative_replay_trace_output_under_project_root(tm
     assert exit_code == 1
     assert payload["replay_trace"]["path"] == str(trace_path.resolve())
     assert trace_path.exists()
+
+
+def test_run_project_resolves_relative_manifest_verification_output_under_project_root(tmp_path, capsys) -> None:
+    exit_code = run_project.main(
+        [
+            "--project-root",
+            str(tmp_path),
+            "--requirement",
+            "Build a small reading list",
+            "--max-steps",
+            "1",
+            "--skip-preflight-gate",
+            "--write-manifest-verification",
+            "--manifest-verification-output",
+            "audit/verification.json",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+    report_path = tmp_path / "audit" / "verification.json"
+
+    assert exit_code == 1
+    assert payload["manifest_verification_report"]["path"] == str(report_path.resolve())
+    assert report_path.exists()
 
 
 def test_run_project_can_release_stale_tasks_before_resume(tmp_path, capsys) -> None:

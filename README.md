@@ -216,6 +216,15 @@ archived runs can still be inspected.
 `python -m app.run_project` also includes `manifest_verification` in its final
 JSON payload immediately after writing the run manifest.
 
+To persist the same verification report as part of a project run:
+
+```powershell
+python -m app.run_project --requirement-file requirement.txt --project-root C:\path\to\project --write-manifest-verification
+```
+
+When `--manifest-verification-output` is relative, it is resolved under the
+project root.
+
 To write the replay trace as part of a project run:
 
 ```powershell
