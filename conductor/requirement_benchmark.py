@@ -210,6 +210,27 @@ CJK_KEYWORD_TERMS: tuple[str, ...] = (
 )
 
 
+CJK_SEMANTIC_KEYWORD_ALIASES: dict[str, tuple[str, ...]] = {
+    "expense": ("\u8d39\u7528", "\u62a5\u9500", "\u652f\u51fa", "\u91d1\u989d"),
+    "reimbursement": ("\u62a5\u9500", "\u8d39\u7528", "\u652f\u51fa"),
+    "submit": ("\u63d0\u4ea4", "\u53d1\u8d77", "\u7533\u8bf7", "\u5f55\u5165"),
+    "approve": ("\u5ba1\u6279", "\u6279\u51c6", "\u901a\u8fc7", "\u540c\u610f"),
+    "approval": ("\u5ba1\u6279", "\u6279\u51c6", "\u901a\u8fc7", "\u540c\u610f"),
+    "reject": ("\u62d2\u7edd", "\u9a73\u56de", "\u9000\u56de", "\u4e0d\u540c\u610f"),
+    "status": ("\u72b6\u6001", "\u8fdb\u5ea6", "\u6d41\u8f6c\u72b6\u6001", "\u5ba1\u6279\u72b6\u6001"),
+    "error": ("\u9519\u8bef", "\u5f02\u5e38", "\u6821\u9a8c", "\u65e0\u6548", "\u63d0\u793a"),
+    "csv": ("csv", "\u9017\u53f7\u5206\u9694\u6587\u4ef6", "\u8868\u683c\u6587\u4ef6"),
+    "trim": ("\u53bb\u9664\u7a7a\u683c", "\u9996\u5c3e\u7a7a\u767d", "\u7a7a\u767d", "\u4fee\u526a"),
+    "duplicate": ("\u91cd\u590d", "\u91cd\u590d\u884c", "\u53bb\u91cd", "\u5220\u9664\u91cd\u590d"),
+    "invalid": ("\u65e0\u6548", "\u975e\u6cd5", "\u5f02\u5e38", "\u9519\u8bef", "\u574f\u884c"),
+    "export": ("\u5bfc\u51fa", "\u4e0b\u8f7d", "\u8f93\u51fa", "\u751f\u6210\u6587\u4ef6"),
+    "\u4e66\u540d": ("\u4e66\u540d", "\u56fe\u4e66\u540d\u79f0", "\u6807\u9898"),
+    "\u4f5c\u8005": ("\u4f5c\u8005", "\u521b\u4f5c\u8005"),
+    "\u4fdd\u7559\u6570\u636e": ("\u4fdd\u7559\u6570\u636e", "\u4fdd\u5b58\u6570\u636e", "\u6301\u4e45\u5316", "\u5237\u65b0\u540e\u4fdd\u7559"),
+    "\u7b5b\u9009": ("\u7b5b\u9009", "\u8fc7\u6ee4", "\u6309\u72b6\u6001\u7b5b\u9009", "\u6761\u4ef6\u8fc7\u6ee4"),
+}
+
+
 def default_requirement_benchmark_cases() -> list[RequirementBenchmarkCase]:
     """Return fixed cases for requirement-stage regression."""
     return [
@@ -271,7 +292,9 @@ def evaluate_requirement_document(
     """Evaluate whether a requirement document is complete enough to guide downstream agents."""
     text = document.lower()
     keyword_coverage = _coverage(case.expected_keywords, text)
-    missing_keywords = _missing_keywords(case.expected_keywords, text)
+    keyword_matches = _keyword_match_details(case.expected_keywords, text)
+    missing_keywords = [term for term, matched_alias in keyword_matches.items() if not matched_alias]
+    matched_keywords = [term for term, matched_alias in keyword_matches.items() if matched_alias]
     aspect_coverage = _aspect_coverage(case.required_aspects, text)
     checks = {
         "keyword_coverage": keyword_coverage >= 70,
@@ -338,8 +361,11 @@ def evaluate_requirement_document(
         checks=checks,
         metrics={
             "keyword_coverage": keyword_coverage,
-            "matched_keyword_count": len(case.expected_keywords) - len(missing_keywords),
+            "matched_keyword_count": len(matched_keywords),
             "expected_keyword_count": len(case.expected_keywords),
+            "matched_keywords": matched_keywords,
+            "missing_keywords": missing_keywords,
+            "keyword_matches": keyword_matches,
             "aspect_coverage": aspect_coverage,
             "document_chars": len(document),
         },
@@ -545,19 +571,50 @@ def _coverage(expected: list[str], text: str) -> int:
 
 def _matched_keywords(expected: list[str], text: str) -> list[str]:
     """Return expected keywords that are present through exact or alias matching."""
-    return [term for term in expected if _keyword_present(term, text)]
+    return [term for term, matched_alias in _keyword_match_details(expected, text).items() if matched_alias]
 
 
 def _missing_keywords(expected: list[str], text: str) -> list[str]:
     """Return expected keywords that are absent after alias expansion."""
-    return [term for term in expected if not _keyword_present(term, text)]
+    return [term for term, matched_alias in _keyword_match_details(expected, text).items() if not matched_alias]
 
 
 def _keyword_present(term: str, text: str) -> bool:
     """Return whether a domain term or one of its semantic aliases appears."""
+    return bool(_keyword_match_alias(term, text))
+
+
+def _keyword_match_details(expected: list[str], text: str) -> dict[str, str]:
+    """Return the concrete alias that matched each expected keyword, if any."""
+    return {term: _keyword_match_alias(term, text) for term in expected}
+
+
+def _keyword_match_alias(term: str, text: str) -> str:
+    """Return the alias that matched a domain keyword, or an empty string."""
+    for alias in _keyword_aliases(term):
+        if alias.lower() in text:
+            return alias
+    return ""
+
+
+def _keyword_aliases(term: str) -> tuple[str, ...]:
+    """Return all known aliases for one keyword while preserving order."""
     normalized = term.lower()
-    aliases = KEYWORD_ALIASES.get(normalized, (normalized,))
-    return any(alias.lower() in text for alias in aliases)
+    aliases = [
+        normalized,
+        *KEYWORD_ALIASES.get(normalized, ()),
+        *CJK_SEMANTIC_KEYWORD_ALIASES.get(normalized, ()),
+    ]
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for alias in aliases:
+        alias_text = str(alias).strip()
+        key = alias_text.lower()
+        if not alias_text or key in seen:
+            continue
+        seen.add(key)
+        deduped.append(alias_text)
+    return tuple(deduped)
 
 
 def _aspect_coverage(expected_aspects: list[str], text: str) -> int:

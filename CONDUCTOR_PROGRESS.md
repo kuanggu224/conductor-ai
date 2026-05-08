@@ -509,7 +509,8 @@ Manifest 已能记录主要运行事实和审计摘要，并已完成 LLM 配置
 - 已补只读 replay trace：`python -m app.replay_manifest <manifest> --format markdown`，从 manifest 还原 Project/WorkItem/Execution/Artifact 时间线，不重跑 Agent。
 - 针对测试：`python -m pytest tests\test_replay_trace.py tests\test_replay_verifier.py -q`，结果 `10 passed`。
 - Task Center context 已显式暴露 `frozen_requirement_baseline`，Markdown prompt 会单独强调冻结需求是下游设计、开发、测试的控制性合同。
-- 当前全量测试：`python -m pytest -q`，结果 `380 passed`。
+- 需求评分器已补中文语义 alias 和 `metrics.keyword_matches`，benchmark 报告可看到每个关键词实际命中的表达，便于定位 keyword coverage 误报。
+- 当前全量测试：`python -m pytest -q`，结果 `381 passed`。
 
 ### 6.5 任务中心仍是轻量实现
 

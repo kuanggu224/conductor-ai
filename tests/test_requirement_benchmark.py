@@ -187,6 +187,30 @@ def test_requirement_evaluator_counts_chinese_keyword_variants() -> None:
     assert evaluation.checks["keyword_coverage"] is True
 
 
+def test_requirement_evaluator_reports_keyword_match_evidence() -> None:
+    case = RequirementBenchmarkCase(
+        id="semantic-aliases",
+        name="Semantic Aliases",
+        requirement="Expense approval and CSV cleaner",
+        expected_keywords=["expense", "submit", "approve", "reject", "CSV", "trim", "duplicate", "invalid", "export"],
+    )
+    document = """
+    目标：费用流程和逗号分隔文件清洗。
+    范围：员工可以发起申请，经理同意或驳回；文件处理会去除首尾空白，删除重复行，标记坏行。
+    验收标准：审批状态可见，清洗结果可以生成文件下载。
+    风险与假设：CSV 编码和金额格式需要确认。
+    测试验证：覆盖提交、批准、拒绝、无效行和导出。
+    """
+
+    evaluation = evaluate_requirement_document(document, case)
+
+    assert evaluation.metrics["keyword_coverage"] == 100
+    assert evaluation.metrics["missing_keywords"] == []
+    assert evaluation.metrics["keyword_matches"]["expense"] == "费用"
+    assert evaluation.metrics["keyword_matches"]["CSV"] in {"csv", "逗号分隔文件"}
+    assert "duplicate" in evaluation.metrics["matched_keywords"]
+
+
 def test_requirement_evaluator_reports_missing_keywords() -> None:
     case = RequirementBenchmarkCase(
         id="missing-keywords",
