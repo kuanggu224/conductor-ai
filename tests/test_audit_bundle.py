@@ -165,6 +165,33 @@ def test_verify_audit_bundle_cli_exits_zero_for_valid_bundle(tmp_path, capsys) -
     assert payload["checksums"]["manifest"]
 
 
+def test_verify_audit_bundle_cli_accepts_bundle_directory(tmp_path, capsys) -> None:
+    payload, _ = _write_project_audit_bundle(tmp_path, capsys)
+
+    exit_code = verify_audit_bundle_main([str(tmp_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    report = json.loads(captured.out)
+    assert report["passed"] is True
+    assert report["bundle_count"] == 1
+    assert report["results"][0]["project_id"] == payload["project_id"]
+
+
+def test_verify_audit_bundle_cli_fails_for_directory_without_bundles(tmp_path, capsys) -> None:
+    empty_dir = tmp_path / "empty"
+    empty_dir.mkdir()
+
+    exit_code = verify_audit_bundle_main([str(empty_dir)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 2
+    report = json.loads(captured.out)
+    assert report["passed"] is False
+    assert report["bundle_count"] == 0
+    assert "no audit bundles found" in report["errors"][0]
+
+
 def test_verify_audit_bundle_cli_writes_output_file(tmp_path, capsys) -> None:
     _, bundle_path = _write_project_audit_bundle(tmp_path, capsys)
     output_path = tmp_path / "audit" / "bundle-verification.json"

@@ -239,6 +239,8 @@ Verify an audit bundle index:
 python -m app.verify_audit_bundle C:\path\to\project\.conductor\replay\project-id.audit.json
 ```
 
+You can also pass a directory to verify every `*.audit.json` under it.
+
 The audit bundle verifier checks the bundle index and reruns manifest
 verification, so it can detect stale or corrupted bundle components. It also
 checks replay trace identity/pass markers and supports `--fail-on-warnings` for
@@ -313,7 +315,7 @@ Current targeted verification for read-only replay trace:
 
 Current full verification after preflight gate, diagnostics, manifest hardening,
 task-center recovery work, and manifest verification:
-`417 passed` with `python -m pytest -q`.
+`419 passed` with `python -m pytest -q`.
 
 ## Project Layout
 
