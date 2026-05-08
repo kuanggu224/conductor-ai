@@ -1036,6 +1036,7 @@ class ManifestVerifier:
         if "model_costs" in value and not isinstance(model_costs, list):
             result.warnings.append(f"{owner}.model_costs must be a list")
             return
+        parsed_model_costs: list[float] = []
         for index, item in enumerate(model_costs if isinstance(model_costs, list) else []):
             if not isinstance(item, dict):
                 result.warnings.append(f"{owner}.model_costs[{index}] must be an object")
@@ -1045,6 +1046,14 @@ class ManifestVerifier:
                 result.warnings.append(f"{owner}.model_costs[{index}].estimated_cost must be a number")
             elif estimated_cost is not None and estimated_cost < 0:
                 result.warnings.append(f"{owner}.model_costs[{index}].estimated_cost must be non-negative")
+            elif estimated_cost is not None:
+                parsed_model_costs.append(estimated_cost)
+        if estimated_total is not None and estimated_total >= 0:
+            expected_total = round(sum(parsed_model_costs), 8)
+            if abs(estimated_total - expected_total) > 0.00000001:
+                result.errors.append(
+                    f"{owner}.estimated_total={estimated_total} does not match sum(model_costs)={expected_total}"
+                )
 
     def _verify_no_secret_leaks(self, payload: dict[str, Any], result: ManifestVerificationResult) -> None:
         """Fail manifests that appear to contain API credentials.

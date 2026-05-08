@@ -1676,6 +1676,71 @@ def test_manifest_verifier_warns_for_malformed_summary_llm_cost_estimate(tmp_pat
     assert "summary.llm_cost_estimate.model_costs[2] must be an object" in result.warnings
 
 
+def test_manifest_verifier_rejects_summary_llm_cost_estimate_total_mismatch(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "summary": {
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+                "llm_cost_estimate": {
+                    "estimated_total": 1.25,
+                    "model_costs": [
+                        {"model": "local-a", "estimated_cost": 0.4},
+                        {"model": "local-b", "estimated_cost": 0.5},
+                    ],
+                },
+            },
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert "summary.llm_cost_estimate.estimated_total=1.25 does not match sum(model_costs)=0.9" in result.errors
+
+
+def test_manifest_verifier_accepts_matching_summary_llm_cost_estimate(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "summary": {
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+                "llm_cost_estimate": {
+                    "estimated_total": 0.9,
+                    "model_costs": [
+                        {"model": "local-a", "estimated_cost": 0.4},
+                        {"model": "local-b", "estimated_cost": 0.5},
+                    ],
+                },
+            },
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+
+
 def test_manifest_verifier_warns_for_malformed_resume_cursor_lists(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,
