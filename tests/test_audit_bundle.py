@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from app import run_project
@@ -39,6 +40,22 @@ def test_audit_bundle_verifier_accepts_run_project_bundle(tmp_path, capsys) -> N
     assert result.project_id == payload["project_id"]
     assert result.files == bundle["files"]
     assert result.checksums == bundle["checksums"]
+
+
+def test_audit_bundle_verifier_resolves_relative_component_paths(tmp_path, capsys) -> None:
+    _, bundle_path = _write_project_audit_bundle(tmp_path, capsys)
+    bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+    original_files = dict(bundle["files"])
+    bundle["files"] = {
+        key: os.path.relpath(value, start=bundle_path.parent)
+        for key, value in original_files.items()
+    }
+    bundle_path.write_text(json.dumps(bundle, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    result = verify_audit_bundle(bundle_path)
+
+    assert result.passed is True
+    assert result.files == {key: str(Path(value).resolve()) for key, value in original_files.items()}
 
 
 def test_audit_bundle_verifier_rejects_missing_component_file(tmp_path, capsys) -> None:

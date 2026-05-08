@@ -54,7 +54,7 @@ class AuditBundleVerifier:
             return result
 
         result.project_id = str(payload.get("project_id", ""))
-        result.files = self._file_index(payload)
+        result.files = self._file_index(payload, path)
         result.checksums = self._checksum_index(payload)
         self._verify_required_fields(payload, result)
         self._verify_summary(payload, result)
@@ -77,15 +77,16 @@ class AuditBundleVerifier:
             return None
         return payload
 
-    def _file_index(self, payload: dict[str, Any]) -> dict[str, str]:
+    def _file_index(self, payload: dict[str, Any], bundle_path: Path) -> dict[str, str]:
         files = payload.get("files")
         if not isinstance(files, dict):
             return {}
-        return {
-            field_name: str(files.get(field_name, ""))
-            for field_name in self.REQUIRED_FILE_FIELDS
-            if str(files.get(field_name, ""))
-        }
+        indexed: dict[str, str] = {}
+        for field_name in self.REQUIRED_FILE_FIELDS:
+            raw_path = str(files.get(field_name, ""))
+            if raw_path:
+                indexed[field_name] = str(self._resolve_component_path(raw_path, bundle_path).resolve())
+        return indexed
 
     def _checksum_index(self, payload: dict[str, Any]) -> dict[str, str]:
         checksums = payload.get("checksums")
