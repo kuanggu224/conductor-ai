@@ -113,6 +113,42 @@ agent CLIs. The `probe_cli=true` variant runs lightweight `--version` checks.
 The `probe_llm=true` variant checks enabled OpenAI-compatible model endpoints.
 The `preflight_llm=true` variant also runs a lightweight chat-completion probe.
 
+### Jiutian LLM Backend
+
+Conductor can use Jiutian through the existing OpenAI-compatible cloud backend.
+Keep the real API key only in `.conductor/llm.config.json`, which is ignored by
+Git.
+
+Minimal cloud config:
+
+```json
+{
+  "cloud": {
+    "cloud_llm_base_url": "https://jiutian.10086.cn/largemodel/moma/api/v3",
+    "cloud_llm_model": "jiutian-lan-comv3",
+    "cloud_llm_api_key": "<fill locally>",
+    "cloud_llm_timeout": 120.0,
+    "cloud_llm_enabled": true
+  },
+  "usage": {
+    "runner_enabled": true,
+    "preferred_backend": "cloud"
+  }
+}
+```
+
+Validate the configured key without printing it:
+
+```powershell
+python -m app.requirement_benchmark preflight --backend cloud --output-dir .conductor\diagnostics\jiutian-preflight
+```
+
+Run one platform-vs-direct requirement check with the cloud backend:
+
+```powershell
+python -m app.requirement_benchmark run-suite --cases reading_list --output-dir .conductor\diagnostics\jiutian-reading-list --platform-llm cloud --direct-llm cloud --direct-prompt-mode plain --max-steps 4 --collaboration-max-rounds 1 --static-requirement-review
+```
+
 ### Windows PowerShell UTF-8
 
 If Chinese text appears as mojibake when reading logs or reports in PowerShell,
