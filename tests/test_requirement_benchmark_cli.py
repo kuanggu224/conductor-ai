@@ -1,5 +1,6 @@
 """Requirement benchmark CLI tests."""
 
+import json
 from pathlib import Path
 
 import pytest
@@ -191,11 +192,16 @@ def test_requirement_benchmark_cli_runs_generated_suite(tmp_path, monkeypatch) -
     assert exit_code == 0
     assert (output_dir / "requirement-comparison-results.json").exists()
     assert (output_dir / "requirement-generated-suite.json").exists()
-    payload = (output_dir / "requirement-generated-suite.json").read_text(encoding="utf-8")
-    assert '"platform_runs"' in payload
-    assert '"direct_runs"' in payload
-    assert '"source": "file"' in payload
-    assert '"document"' not in payload
+    payload_text = (output_dir / "requirement-generated-suite.json").read_text(encoding="utf-8")
+    payload = json.loads(payload_text)
+    assert "platform_runs" in payload
+    assert "direct_runs" in payload
+    assert payload["run_config"]["requirement_review_mode"] == "static"
+    assert payload["run_config"]["dynamic_requirement_review_enabled"] is False
+    assert payload["platform_runs"][0]["requirement_review_mode"] == "static"
+    assert payload["platform_runs"][0]["dynamic_requirement_review_enabled"] is False
+    assert payload["direct_runs"][0]["source"] == "file"
+    assert '"document"' not in payload_text
 
 
 def test_requirement_benchmark_cli_reports_generated_suite_direct_failure(tmp_path, monkeypatch) -> None:

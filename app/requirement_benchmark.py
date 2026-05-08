@@ -257,7 +257,13 @@ def _run_generated_suite(args) -> int:
             )
         except Exception as error:
             raise SystemExit(f"Platform requirement generation failed for {case.id}: {error}") from None
-        platform_runs.append({key: value for key, value in platform.items() if key != "document"})
+        platform_record = {key: value for key, value in platform.items() if key != "document"}
+        platform_record.setdefault("run_profile", args.run_profile)
+        platform_record.setdefault("platform_llm", args.platform_llm or "")
+        platform_record.setdefault("collaboration_max_rounds", args.collaboration_max_rounds)
+        platform_record.setdefault("requirement_review_mode", "static" if args.static_requirement_review else "dynamic")
+        platform_record.setdefault("dynamic_requirement_review_enabled", not args.static_requirement_review)
+        platform_runs.append(platform_record)
         if args.direct_llm:
             assert runtime_config is not None
             llm_config = runtime_config.local if args.direct_llm == "local" else runtime_config.cloud
@@ -312,6 +318,16 @@ def _run_generated_suite(args) -> int:
 
     result = write_requirement_comparison_report(comparisons, output_dir)
     payload = asdict(result)
+    payload["run_config"] = {
+        "run_profile": args.run_profile,
+        "platform_llm": args.platform_llm or "",
+        "direct_llm": args.direct_llm or "",
+        "direct_prompt_mode": args.direct_prompt_mode,
+        "max_steps": args.max_steps,
+        "collaboration_max_rounds": args.collaboration_max_rounds,
+        "requirement_review_mode": "static" if args.static_requirement_review else "dynamic",
+        "dynamic_requirement_review_enabled": not args.static_requirement_review,
+    }
     payload["platform_runs"] = platform_runs
     payload["direct_runs"] = direct_runs
     generated_path = output_dir / "requirement-generated-suite.json"
@@ -425,6 +441,11 @@ def _run_platform_requirement_case(
         "current_stage": state.current_stage or "",
         "status": state.project_status.value,
         "steps": steps,
+        "run_profile": run_profile,
+        "platform_llm": platform_llm or "",
+        "collaboration_max_rounds": collaboration_max_rounds,
+        "requirement_review_mode": "dynamic" if dynamic_requirement_review_enabled else "static",
+        "dynamic_requirement_review_enabled": dynamic_requirement_review_enabled,
         "document": document,
     }
 
