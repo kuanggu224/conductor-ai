@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from conductor.agents.llm import (
@@ -53,6 +53,7 @@ class LLMRuntimeConfig:
     local: LLMHTTPConfig
     cloud: LLMHTTPConfig
     usage: "LLMUsagePolicy"
+    pricing: "LLMPricingConfig" = field(default_factory=lambda: LLMPricingConfig())
 
 
 @dataclass(slots=True)
@@ -70,6 +71,14 @@ class LLMUsagePolicy:
             self.runner_allowed_roles = list(DEFAULT_RUNNER_ALLOWED_ROLES)
         if self.runner_allowed_kinds is None:
             self.runner_allowed_kinds = list(DEFAULT_RUNNER_ALLOWED_KINDS)
+
+
+@dataclass(slots=True)
+class LLMPricingConfig:
+    """Optional LLM pricing table used for manifest cost estimation."""
+
+    currency: str = "USD"
+    per_million_tokens: dict[str, dict[str, float]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,12 +173,32 @@ def _resolve_float(file_section: dict, env_name: str, default: float) -> float:
     return float(file_value)
 
 
+def _pricing_table(value: object) -> dict[str, dict[str, float]]:
+    """Normalize a model pricing table from local config."""
+    if not isinstance(value, dict):
+        return {}
+    table: dict[str, dict[str, float]] = {}
+    for model_name, rates in value.items():
+        if not isinstance(rates, dict):
+            continue
+        normalized_rates: dict[str, float] = {}
+        for token_type, rate in rates.items():
+            try:
+                normalized_rates[str(token_type)] = float(rate)
+            except (TypeError, ValueError):
+                continue
+        if normalized_rates:
+            table[str(model_name)] = normalized_rates
+    return table
+
+
 def load_llm_runtime_config(path: str | Path | None = None) -> LLMRuntimeConfig:
     """从本地配置文件和环境变量读取本地/云端 LLM 配置。"""
     file_config = _read_file_config(path)
     local_section = file_config.get("local", {})
     cloud_section = file_config.get("cloud", {})
     usage_section = file_config.get("usage", {})
+    pricing_section = file_config.get("pricing", {})
     return LLMRuntimeConfig(
         local=LLMHTTPConfig(
             base_url=_resolve_value(local_section, "CONDUCTOR_LOCAL_LLM_BASE_URL", "http://127.0.0.1:11434/v1"),
@@ -192,6 +221,12 @@ def load_llm_runtime_config(path: str | Path | None = None) -> LLMRuntimeConfig:
             runner_allowed_roles=list(usage_section.get("runner_allowed_roles", DEFAULT_RUNNER_ALLOWED_ROLES)),
             runner_allowed_kinds=list(usage_section.get("runner_allowed_kinds", DEFAULT_RUNNER_ALLOWED_KINDS)),
             preferred_backend=str(usage_section.get("preferred_backend", "cloud")),
+        ),
+        pricing=LLMPricingConfig(
+            currency=str(pricing_section.get("currency", "USD")) if isinstance(pricing_section, dict) else "USD",
+            per_million_tokens=_pricing_table(
+                pricing_section.get("per_million_tokens", {}) if isinstance(pricing_section, dict) else {}
+            ),
         ),
     )
 
@@ -231,6 +266,10 @@ def save_llm_runtime_config(config: LLMRuntimeConfig, path: str | Path | None = 
             "runner_allowed_roles": config.usage.runner_allowed_roles,
             "runner_allowed_kinds": config.usage.runner_allowed_kinds,
             "preferred_backend": config.usage.preferred_backend,
+        },
+        "pricing": {
+            "currency": config.pricing.currency,
+            "per_million_tokens": config.pricing.per_million_tokens,
         },
     }
     with file_path.open("w", encoding="utf-8") as file:

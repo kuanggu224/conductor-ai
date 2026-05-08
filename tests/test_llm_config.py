@@ -1,6 +1,7 @@
 """LLM 配置层测试。"""
 
 from conductor.config.llm import (
+    LLMPricingConfig,
     LLMRuntimeConfig,
     build_default_hybrid_llm_backend,
     get_llm_provider_preset,
@@ -81,6 +82,10 @@ def test_save_llm_runtime_config_writes_local_file(tmp_path) -> None:
             enabled=True,
         ),
         usage=load_llm_runtime_config(tmp_path / "missing.json").usage,
+        pricing=LLMPricingConfig(
+            currency="CNY",
+            per_million_tokens={"demo-model": {"prompt_tokens": 1.0, "completion_tokens": 2.0}},
+        ),
     )
 
     path = save_llm_runtime_config(config, tmp_path / "llm.config.json")
@@ -89,6 +94,37 @@ def test_save_llm_runtime_config_writes_local_file(tmp_path) -> None:
     assert path.exists()
     assert loaded.cloud.base_url == "https://ai.cdn.ad/v1"
     assert loaded.cloud.model_name == "DeepSeek-R1-0528"
+    assert loaded.pricing.currency == "CNY"
+    assert loaded.pricing.per_million_tokens["demo-model"]["completion_tokens"] == 2.0
+
+
+def test_load_llm_runtime_config_reads_pricing_table(tmp_path) -> None:
+    config_path = tmp_path / "llm.config.json"
+    config_path.write_text(
+        """
+{
+  "pricing": {
+    "currency": "CNY",
+    "per_million_tokens": {
+      "qwen-local": {
+        "prompt_tokens": "1.5",
+        "completion_tokens": 3
+      },
+      "*": {
+        "total_tokens": 2
+      }
+    }
+  }
+}
+        """.strip(),
+        encoding="utf-8",
+    )
+
+    config = load_llm_runtime_config(config_path)
+
+    assert config.pricing.currency == "CNY"
+    assert config.pricing.per_million_tokens["qwen-local"]["prompt_tokens"] == 1.5
+    assert config.pricing.per_million_tokens["*"]["total_tokens"] == 2.0
 
 
 def test_load_llm_runtime_config_reads_usage_policy(tmp_path) -> None:

@@ -168,9 +168,22 @@ Minimal cloud config:
   "usage": {
     "runner_enabled": true,
     "preferred_backend": "cloud"
+  },
+  "pricing": {
+    "currency": "CNY",
+    "per_million_tokens": {
+      "jiutian-lan-comv3": {
+        "prompt_tokens": 0.0,
+        "completion_tokens": 0.0
+      }
+    }
   }
 }
 ```
+
+`pricing.per_million_tokens` is optional. When configured, run manifests add
+`summary.llm_cost_estimate` based on actual provider-reported token usage. Keep
+rates local because model pricing changes over time.
 
 Validate the configured key without printing it:
 
@@ -238,7 +251,7 @@ Current targeted verification for the manifest verifier:
 
 Current full verification after preflight gate, diagnostics, manifest hardening,
 task-center recovery work, and manifest verification:
-`375 passed` with `python -m pytest -q`.
+`376 passed` with `python -m pytest -q`.
 
 ## Project Layout
 

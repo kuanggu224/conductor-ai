@@ -24,7 +24,7 @@ def _write_manifest(tmp_path: Path, overrides: dict[str, object] | None = None) 
         path.write_text("ok", encoding="utf-8")
 
     payload: dict[str, object] = {
-        "schema_version": "1.27",
+        "schema_version": "1.28",
         "run_id": "project-1:run",
         "project_id": "project-1",
         "generated_at": "2026-01-01T00:00:00+00:00",
@@ -140,7 +140,7 @@ def test_manifest_verifier_accepts_consistent_manifest(tmp_path) -> None:
     assert result.passed is True
     assert result.errors == []
     assert result.project_id == "project-1"
-    assert result.schema_version == "1.27"
+    assert result.schema_version == "1.28"
 
 
 def test_manifest_verifier_accepts_engine_generated_manifest(tmp_path) -> None:

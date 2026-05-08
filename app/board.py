@@ -271,6 +271,7 @@ def redacted_llm_runtime_config(config: LLMRuntimeConfig) -> LLMRuntimeConfig:
         local=replace(config.local, api_key=None),
         cloud=replace(config.cloud, api_key=None),
         usage=config.usage,
+        pricing=config.pricing,
     )
 
 
@@ -340,6 +341,7 @@ def llm_config_from_settings_payload(payload: dict, existing_config: LLMRuntimeC
             ])),
             preferred_backend=str(payload.get("usage", {}).get("preferred_backend", "cloud")),
         ),
+        pricing=existing_config.pricing,
     )
 
 
@@ -1384,6 +1386,7 @@ async def save_llm_settings(request: Request) -> RedirectResponse:
             ],
             preferred_backend=_form_value(form, "runner_preferred_backend", "cloud"),
         ),
+        pricing=existing_config.pricing,
     )
     save_llm_runtime_config(config)
     refresh_engine_llm_backend()

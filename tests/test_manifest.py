@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 
 from conductor.config.cli import CLISelectionConfig
 from conductor.config.execution import RunProfile
-from conductor.config.llm import LLMRuntimeConfig, LLMUsagePolicy
+from conductor.config.llm import LLMPricingConfig, LLMRuntimeConfig, LLMUsagePolicy
 from conductor.controller.engine import ConductorEngine
 from conductor.domain.models import ProjectStatus, TaskAssignmentStatus, WorkItemStatus
 from conductor.agents.llm import LLMHTTPConfig
@@ -27,7 +27,7 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     manifest_path = engine.write_run_manifest(state.project.id, report_path)
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-    assert payload["schema_version"] == "1.27"
+    assert payload["schema_version"] == "1.28"
     assert payload["run_id"].startswith(state.project.id)
     assert payload["project_id"] == state.project.id
     assert payload["run_profile"] == "mock"
@@ -112,6 +112,7 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     assert payload["summary"]["cli_run_count"] == len(payload["cli_runs"])
     assert payload["summary"]["llm_run_count"] == len(payload["llm_runs"])
     assert isinstance(payload["summary"]["llm_token_usage"], dict)
+    assert isinstance(payload["summary"]["llm_cost_estimate"], dict)
     assert isinstance(payload["summary"]["llm_context_windows"], list)
     assert payload["summary"]["collaboration_run_count"] == len(payload["collaboration_runs"])
     assert isinstance(payload["summary"]["changed_files"], list)
@@ -895,6 +896,15 @@ def test_manifest_records_llm_harness_collaboration_runtime(tmp_path) -> None:
         artifact_dir=tmp_path / "artifacts",
         cli_selection_config=CLISelectionConfig(),
     )
+    engine.llm_runtime_config.pricing = LLMPricingConfig(
+        currency="CNY",
+        per_million_tokens={
+            "qwen/qwen3.6-35b-a3b": {
+                "prompt_tokens": 2.0,
+                "completion_tokens": 4.0,
+            }
+        },
+    )
     state = engine.create_project("design collaboration manifest")
     report_path = engine.write_project_report(state.project.id)
     state = engine.get_project(state.project.id)
@@ -1026,3 +1036,7 @@ def test_manifest_records_llm_harness_collaboration_runtime(tmp_path) -> None:
         "completion_tokens": 38,
         "total_tokens": 63,
     }
+    assert payload["summary"]["llm_cost_estimate"]["configured"] is True
+    assert payload["summary"]["llm_cost_estimate"]["currency"] == "CNY"
+    assert payload["summary"]["llm_cost_estimate"]["estimated_total"] == 0.000202
+    assert payload["summary"]["llm_cost_estimate"]["model_costs"][0]["token_usage"]["total_tokens"] == 63

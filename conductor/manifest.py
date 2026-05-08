@@ -103,9 +103,11 @@ class RunManifestWriter:
         ).to_dict()
         llm_context_windows = self._llm_context_windows(platform_diagnostics)
         llm_runs = self._llm_runs(state, executions, llm_context_windows)
+        llm_token_usage = self._sum_token_usage([dict(run.get("token_usage", {})) for run in llm_runs])
+        llm_cost_estimate = self._llm_cost_estimate(llm_runs, llm_runtime_config)
         resume_cursor = self._resume_cursor(state)
         manifest = RunManifest(
-            schema_version="1.27",
+            schema_version="1.28",
             run_id=f"{state.project.id}:{generated_at}",
             project_id=state.project.id,
             generated_at=generated_at,
@@ -145,7 +147,8 @@ class RunManifestWriter:
                 "retry_attempt_count": sum(int(item.get("retry_count", 0)) for item in retry_history),
                 "cli_run_count": len(cli_runs),
                 "llm_run_count": len(llm_runs),
-                "llm_token_usage": self._sum_token_usage([dict(run.get("token_usage", {})) for run in llm_runs]),
+                "llm_token_usage": llm_token_usage,
+                "llm_cost_estimate": llm_cost_estimate,
                 "llm_context_windows": llm_context_windows,
                 "collaboration_run_count": len(collaboration_runs),
                 "changed_file_count": len(self._changed_files(executions)),
@@ -635,6 +638,109 @@ class RunManifestWriter:
             for key, value in self._normalize_token_usage(usage).items():
                 totals[key] = totals.get(key, 0) + value
         return totals
+
+    def _llm_cost_estimate(
+        self,
+        llm_runs: list[dict[str, object]],
+        llm_runtime_config: LLMRuntimeConfig | None,
+    ) -> dict[str, object]:
+        """Estimate LLM cost from actual token usage and configured model rates."""
+        pricing = getattr(llm_runtime_config, "pricing", None)
+        currency = str(getattr(pricing, "currency", "USD") or "USD")
+        rate_table = dict(getattr(pricing, "per_million_tokens", {}) or {})
+        usage_by_model: dict[str, dict[str, int]] = {}
+        for run in llm_runs:
+            usage = self._normalize_token_usage(run.get("token_usage", {}))
+            if not usage:
+                continue
+            model = str(run.get("model", "") or self._model_from_source_backend(str(run.get("source_backend", ""))) or "unknown")
+            model_usage = usage_by_model.setdefault(model, {})
+            for key, value in usage.items():
+                model_usage[key] = model_usage.get(key, 0) + value
+
+        if not rate_table:
+            return {
+                "configured": False,
+                "currency": currency,
+                "estimated_total": 0.0,
+                "model_costs": [],
+                "unpriced_models": sorted(usage_by_model),
+            }
+
+        model_costs: list[dict[str, object]] = []
+        unpriced_models: list[str] = []
+        estimated_total = 0.0
+        for model, usage in usage_by_model.items():
+            rates = self._pricing_rates_for_model(model, rate_table)
+            if not rates:
+                unpriced_models.append(model)
+                continue
+            cost, priced_token_types, unpriced_token_types = self._estimate_model_cost(usage, rates)
+            estimated_total += cost
+            model_costs.append(
+                {
+                    "model": model,
+                    "token_usage": usage,
+                    "rates_per_million_tokens": rates,
+                    "estimated_cost": round(cost, 8),
+                    "priced_token_types": priced_token_types,
+                    "unpriced_token_types": unpriced_token_types,
+                }
+            )
+        return {
+            "configured": True,
+            "currency": currency,
+            "estimated_total": round(estimated_total, 8),
+            "model_costs": model_costs,
+            "unpriced_models": sorted(unpriced_models),
+        }
+
+    def _pricing_rates_for_model(
+        self,
+        model: str,
+        rate_table: dict[str, dict[str, float]],
+    ) -> dict[str, float]:
+        """Return model-specific rates or a wildcard fallback."""
+        rates = rate_table.get(model) or rate_table.get(model.lower()) or rate_table.get("*") or {}
+        normalized: dict[str, float] = {}
+        for key, value in rates.items():
+            try:
+                normalized[str(key)] = float(value)
+            except (TypeError, ValueError):
+                continue
+        return normalized
+
+    def _estimate_model_cost(
+        self,
+        usage: dict[str, int],
+        rates: dict[str, float],
+    ) -> tuple[float, list[str], list[str]]:
+        """Estimate one model cost using per-million-token rates."""
+        cost = 0.0
+        priced: list[str] = []
+        unpriced: list[str] = []
+        prompt_rate = rates.get("prompt_tokens", rates.get("input_tokens"))
+        completion_rate = rates.get("completion_tokens", rates.get("output_tokens"))
+        if prompt_rate is not None or completion_rate is not None:
+            if "prompt_tokens" in usage and prompt_rate is not None:
+                cost += usage["prompt_tokens"] * prompt_rate / 1_000_000
+                priced.append("prompt_tokens")
+            elif "prompt_tokens" in usage:
+                unpriced.append("prompt_tokens")
+            if "completion_tokens" in usage and completion_rate is not None:
+                cost += usage["completion_tokens"] * completion_rate / 1_000_000
+                priced.append("completion_tokens")
+            elif "completion_tokens" in usage:
+                unpriced.append("completion_tokens")
+            return cost, priced, unpriced
+
+        total_rate = rates.get("total_tokens")
+        if "total_tokens" in usage and total_rate is not None:
+            cost += usage["total_tokens"] * total_rate / 1_000_000
+            priced.append("total_tokens")
+        elif "total_tokens" in usage:
+            unpriced.append("total_tokens")
+        return cost, priced, unpriced
 
     def _manifest_path(self, project_id: str, project_root: str | Path | None) -> Path:
         root = (Path(project_root) / ".conductor" / "manifests") if project_root else Path(".conductor") / "manifests"
