@@ -514,7 +514,7 @@ Manifest 已能记录主要运行事实和审计摘要，并已完成 LLM 配置
 - 需求评分器已补中文语义 alias 和 `metrics.keyword_matches`，benchmark 报告可看到每个关键词实际命中的表达，便于定位 keyword coverage 误报。
 - 需求评分器已补范围扩张检测，能标记原始需求未要求但文档新增的登录、支付、通知、后台报表等功能；明确写在非目标里的排除项不会被误判。
 - Requirement benchmark Markdown 报告已展示 keyword coverage、缺失关键词、命中 alias 和 scope expansion，方便直接从报告定位评分问题。
-- 当前全量测试：`python -m pytest -q`，结果 `387 passed`。
+- 当前全量测试：`python -m pytest -q`，结果 `388 passed`。
 
 ### 6.5 任务中心仍是轻量实现
 

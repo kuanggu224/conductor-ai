@@ -231,6 +231,29 @@ def test_run_project_can_write_replay_trace(tmp_path, capsys) -> None:
     assert "# Replay Trace:" in trace_path.read_text(encoding="utf-8")
 
 
+def test_run_project_resolves_relative_replay_trace_output_under_project_root(tmp_path, capsys) -> None:
+    exit_code = run_project.main(
+        [
+            "--project-root",
+            str(tmp_path),
+            "--requirement",
+            "Build a small reading list",
+            "--max-steps",
+            "1",
+            "--skip-preflight-gate",
+            "--write-replay-trace",
+            "--replay-trace-output",
+            "audit/trace.md",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+    trace_path = tmp_path / "audit" / "trace.md"
+
+    assert exit_code == 1
+    assert payload["replay_trace"]["path"] == str(trace_path.resolve())
+    assert trace_path.exists()
+
+
 def test_run_project_can_release_stale_tasks_before_resume(tmp_path, capsys) -> None:
     exit_code = run_project.main(
         [

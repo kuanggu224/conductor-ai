@@ -288,7 +288,7 @@ def _write_replay_trace_if_requested(args, project_root: Path, manifest_path: Pa
         return {}
     trace = build_manifest_replay_trace(manifest_path)
     output_path = (
-        Path(args.replay_trace_output).expanduser().resolve()
+        _resolve_replay_trace_output_path(project_root, args.replay_trace_output)
         if getattr(args, "replay_trace_output", None)
         else _default_replay_trace_path(project_root, trace.project_id, args.replay_trace_format)
     )
@@ -306,6 +306,13 @@ def _write_replay_trace_if_requested(args, project_root: Path, manifest_path: Pa
 def _default_replay_trace_path(project_root: Path, project_id: str, output_format: str) -> Path:
     suffix = "md" if output_format == "markdown" else "json"
     return project_root / ".conductor" / "replay" / f"{project_id}.replay.{suffix}"
+
+
+def _resolve_replay_trace_output_path(project_root: Path, output_path: str) -> Path:
+    path = Path(output_path).expanduser()
+    if path.is_absolute():
+        return path.resolve()
+    return (project_root / path).resolve()
 
 
 def _build_cli_config(agent_cli: str | None, run_profile, aspirecode_model: str | None = None) -> CLISelectionConfig:

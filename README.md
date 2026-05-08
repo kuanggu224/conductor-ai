@@ -220,6 +220,8 @@ To write the replay trace as part of a project run:
 python -m app.run_project --requirement-file requirement.txt --project-root C:\path\to\project --write-replay-trace
 ```
 
+When `--replay-trace-output` is relative, it is resolved under the project root.
+
 Build a read-only replay trace from the same manifest:
 
 ```powershell
@@ -279,7 +281,7 @@ Current targeted verification for read-only replay trace:
 
 Current full verification after preflight gate, diagnostics, manifest hardening,
 task-center recovery work, and manifest verification:
-`387 passed` with `python -m pytest -q`.
+`388 passed` with `python -m pytest -q`.
 
 ## Project Layout
 
