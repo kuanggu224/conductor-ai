@@ -271,10 +271,17 @@ def _run_preflight_gate(
         llm_harness_backend=llm_harness_backend,
         runner_enabled=llm_runtime_config.usage.runner_enabled,
     )
+    recommendations = _preflight_gate_recommendations(
+        diagnostics=diagnostics,
+        errors=errors,
+        agent_cli=agent_cli,
+        llm_harness_backend=llm_harness_backend,
+    )
     payload = {
         "ok": not errors,
         "preflight_gate": {
             "errors": errors,
+            "recommendations": recommendations,
             "run_profile": run_profile.profile.value,
             "agent_cli": agent_cli,
             "llm_harness_backend": llm_harness_backend,
@@ -313,6 +320,36 @@ def _preflight_gate_errors(
                 f"LLMHarness backend `{llm_harness_backend}` is not ready: {backend.recommendation}"
             )
     return list(dict.fromkeys(error for error in errors if error))
+
+
+def _preflight_gate_recommendations(
+    *,
+    diagnostics,
+    errors: list[str],
+    agent_cli: str | None,
+    llm_harness_backend: str | None,
+) -> list[str]:
+    """Return concise next actions for failed or risky preflight gates."""
+    recommendations: list[str] = []
+    if not errors:
+        return recommendations
+    if agent_cli:
+        recommendations.append("Run `python -m app.diagnostics --probe-cli` to verify the selected Agent CLI.")
+    else:
+        recommendations.append("Bind a real Agent CLI with `--agent-cli` or use `--llm-harness local|cloud`.")
+    if llm_harness_backend:
+        recommendations.append("Run `python -m app.diagnostics --preflight-llm` and verify base URL, model, key, and quota.")
+    for backend in getattr(diagnostics, "llm_backends", []):
+        recommendation = getattr(backend, "recommendation", "")
+        health_status = getattr(backend, "health_status", "")
+        if recommendation and health_status in {"failed", "warning", "unreadable"}:
+            recommendations.append(recommendation)
+    for warning in getattr(diagnostics, "warnings", []):
+        if "API key is missing" in warning:
+            recommendations.append("Fill the missing API key in `.conductor/llm.config.json` or the Board LLM settings page.")
+        if "not available on PATH" in warning:
+            recommendations.append("Install the selected CLI or remove it from the selected CLI bindings.")
+    return list(dict.fromkeys(item for item in recommendations if item))
 
 
 def _build_system_config(args) -> SystemConfig:

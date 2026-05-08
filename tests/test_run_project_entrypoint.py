@@ -131,10 +131,12 @@ def test_preflight_gate_blocks_real_profile_without_backend(tmp_path) -> None:
 
     assert payload["ok"] is False
     assert "requires real outputs" in payload["preflight_gate"]["errors"][0]
+    assert payload["preflight_gate"]["recommendations"]
     diagnostics_path = tmp_path / ".conductor" / "diagnostics" / "run-preflight" / "preflight-gate.json"
     persisted = json.loads(diagnostics_path.read_text(encoding="utf-8"))
     assert persisted["ok"] is False
     assert persisted["preflight_gate"]["diagnostics_path"] == str(diagnostics_path)
+    assert persisted["preflight_gate"]["recommendations"]
     assert payload["preflight_gate"]["diagnostics_path"] == str(diagnostics_path)
 
 

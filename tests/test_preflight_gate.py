@@ -10,6 +10,7 @@ def test_preflight_gate_write_stamps_path_and_read_normalizes_payload(tmp_path) 
         "ok": False,
         "preflight_gate": {
             "errors": ["local LLM preflight failed"],
+            "recommendations": ["Check local server"],
         },
     }
 
@@ -25,6 +26,7 @@ def test_preflight_gate_write_stamps_path_and_read_normalizes_payload(tmp_path) 
     assert snapshot.status == "fail"
     assert snapshot.status_label == "失败"
     assert snapshot.errors == ["local LLM preflight failed"]
+    assert snapshot.recommendations == ["Check local server"]
 
 
 def test_preflight_gate_read_returns_not_recorded_for_missing_file(tmp_path) -> None:

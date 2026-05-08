@@ -292,6 +292,7 @@ class BoardService:
             status_label=snapshot.status_label,
             path=snapshot.path,
             errors=snapshot.errors,
+            recommendations=snapshot.recommendations,
         )
 
     def build_project_summaries(self, states: list[SharedProjectState]) -> list[BoardProjectSummary]:

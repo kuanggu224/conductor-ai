@@ -170,6 +170,7 @@ class BoardPreflightGateView:
     status_label: str = "未记录"
     path: str = ""
     errors: list[str] = field(default_factory=list)
+    recommendations: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)

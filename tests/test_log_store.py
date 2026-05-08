@@ -165,6 +165,7 @@ def test_project_report_includes_preflight_gate_summary(tmp_path) -> None:
                 "ok": False,
                 "preflight_gate": {
                     "errors": ["local LLM preflight failed"],
+                    "recommendations": ["Check local server"],
                     "diagnostics_path": str(gate_path),
                 },
             },
@@ -190,3 +191,4 @@ def test_project_report_includes_preflight_gate_summary(tmp_path) -> None:
     assert f"- Path: {gate_path}" in report
     assert "- Status: fail" in report
     assert "- Error: local LLM preflight failed" in report
+    assert "- Recommendation: Check local server" in report

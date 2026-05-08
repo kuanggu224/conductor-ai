@@ -177,6 +177,7 @@ def test_board_service_exposes_preflight_gate_summary(tmp_path) -> None:
                 "ok": False,
                 "preflight_gate": {
                     "errors": ["local LLM preflight failed"],
+                    "recommendations": ["Check local server"],
                     "diagnostics_path": str(gate_path),
                 },
             },
@@ -203,6 +204,7 @@ def test_board_service_exposes_preflight_gate_summary(tmp_path) -> None:
     assert snapshot.preflight_gate.status_label == "失败"
     assert snapshot.preflight_gate.path == str(gate_path)
     assert snapshot.preflight_gate.errors == ["local LLM preflight failed"]
+    assert snapshot.preflight_gate.recommendations == ["Check local server"]
 
 
 def test_board_service_project_summaries_include_preflight_gate_status(tmp_path) -> None:

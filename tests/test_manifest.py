@@ -26,7 +26,7 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     manifest_path = engine.write_run_manifest(state.project.id, report_path)
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-    assert payload["schema_version"] == "1.21"
+    assert payload["schema_version"] == "1.22"
     assert payload["run_id"].startswith(state.project.id)
     assert payload["project_id"] == state.project.id
     assert payload["run_profile"] == "mock"
@@ -108,6 +108,7 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     assert "validation_failure_count" in payload["summary"]
     assert "preflight_gate_ok" in payload["summary"]
     assert "preflight_gate_errors" in payload["summary"]
+    assert "preflight_gate_recommendations" in payload["summary"]
     assert payload["summary"]["task_center_summary"]["total"] == len(state.task_assignments)
     assert "claimable" in payload["summary"]["task_center_summary"]
     assert "blocked_by_dependencies" in payload["summary"]["task_center_summary"]
@@ -132,6 +133,7 @@ def test_manifest_indexes_preflight_gate_file(tmp_path) -> None:
                 "ok": False,
                 "preflight_gate": {
                     "errors": ["local LLM preflight failed"],
+                    "recommendations": ["Check local server"],
                     "diagnostics_path": str(gate_path),
                 },
             },
@@ -155,6 +157,7 @@ def test_manifest_indexes_preflight_gate_file(tmp_path) -> None:
     assert payload["files"]["preflight_gate"] == str(gate_path)
     assert payload["summary"]["preflight_gate_ok"] is False
     assert payload["summary"]["preflight_gate_errors"] == ["local LLM preflight failed"]
+    assert payload["summary"]["preflight_gate_recommendations"] == ["Check local server"]
 
 
 def test_manifest_indexes_task_prompt_files(tmp_path) -> None:

@@ -141,7 +141,7 @@ templates/board.html       当前 Board 页面
 - Diagnostics 会返回 LLM `health_status`、`recommendation`、模型列表、当前模型是否可见、context length、timeout 和 preflight 状态。
 - `python -m app.run_project` 已加入运行前 preflight gate；真实 Agent/LLMHarness 执行前会先检查所选后端，不满足条件时在创建项目之前失败。
 - preflight gate 结果会写入 `<project_root>/.conductor/diagnostics/run-preflight/preflight-gate.json`，便于失败后审计和排查。
-- Board Snapshot 已暴露 `preflight_gate`，项目列表摘要也暴露 `preflight_gate_status`，前端可展示 gate 状态、文件路径和错误摘要。
+- Board Snapshot 已暴露 `preflight_gate`，项目列表摘要也暴露 `preflight_gate_status`，前端可展示 gate 状态、文件路径、错误摘要和修复建议。
 - `--skip-preflight-gate` 可用于受控离线测试或故意跳过环境检查的场景。
 - 平台负责写入受控 artifact 文件。
 - 对 Qwen thinking 模型默认使用 `reasoning_effort=none`。
@@ -270,7 +270,7 @@ Static Web Harness 能检查：
 - log path
 - report path
 
-当前 schema：`1.21`
+当前 schema：`1.22`
 
 Manifest 现在能正确显示：
 
@@ -287,9 +287,9 @@ Manifest 现在能正确显示：
 - runtime environment 和 platform diagnostics。
 - `llm_runtime_config` 只记录 key 是否存在，不记录真实 API key。
 - `run_environment.command_argv` 会脱敏 `key`、`token`、`secret`、`password` 相关参数。
-- 如果存在运行前 preflight gate 文件，Manifest 会索引 `files.preflight_gate`，并汇总 `summary.preflight_gate_ok` 与 `summary.preflight_gate_errors`。
+- 如果存在运行前 preflight gate 文件，Manifest 会索引 `files.preflight_gate`，并汇总 `summary.preflight_gate_ok`、`summary.preflight_gate_errors` 与 `summary.preflight_gate_recommendations`。
 - summary 聚合：状态计数、失败 WorkItem、可重试/不可重试失败数、CLI/LLM/collaboration 运行数、变更文件数、artifact 文件数、验证失败数。
-- 项目 Markdown Report 会展示 `## Preflight Gate` 小节，包含 gate 文件路径、通过/失败状态和错误摘要。
+- 项目 Markdown Report 会展示 `## Preflight Gate` 小节，包含 gate 文件路径、通过/失败状态、错误摘要和修复建议。
 
 示例真实项目：
 

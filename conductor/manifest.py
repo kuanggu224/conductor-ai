@@ -96,7 +96,7 @@ class RunManifestWriter:
             probe_llm=False,
         ).to_dict()
         manifest = RunManifest(
-            schema_version="1.21",
+            schema_version="1.22",
             run_id=f"{state.project.id}:{generated_at}",
             project_id=state.project.id,
             generated_at=generated_at,
@@ -138,6 +138,7 @@ class RunManifestWriter:
                 "validation_failure_count": self._validation_failure_count(executions),
                 "preflight_gate_ok": preflight_gate.ok,
                 "preflight_gate_errors": preflight_gate.errors,
+                "preflight_gate_recommendations": preflight_gate.recommendations,
             },
             run_environment=self._run_environment_snapshot(),
             platform_diagnostics=platform_diagnostics,

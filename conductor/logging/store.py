@@ -272,6 +272,8 @@ class ProjectLogStore:
             lines.extend(f"- Error: {error}" for error in snapshot.errors)
         else:
             lines.append("- Errors: none")
+        if snapshot.recommendations:
+            lines.extend(f"- Recommendation: {recommendation}" for recommendation in snapshot.recommendations)
         return lines
 
     def _join_or_dash(self, values: list[str]) -> str:

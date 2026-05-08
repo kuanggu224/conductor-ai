@@ -124,8 +124,9 @@ controlled offline tests. Gate results are persisted at
 `.conductor/diagnostics/run-preflight/preflight-gate.json` under the resolved
 project root. Successful run manifests index the same file as
 `files.preflight_gate` and summarize `summary.preflight_gate_ok` /
-`summary.preflight_gate_errors`. Project Markdown reports also render a
-`Preflight Gate` section with the audit file path and errors.
+`summary.preflight_gate_errors` / `summary.preflight_gate_recommendations`.
+Project Markdown reports also render a `Preflight Gate` section with the audit
+file path, errors, and recommendations.
 
 ### Jiutian LLM Backend
 

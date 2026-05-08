@@ -214,6 +214,7 @@ type BoardPreflightGateView = {
   status_label: string
   path: string
   errors: string[]
+  recommendations: string[]
 }
 ```
 
