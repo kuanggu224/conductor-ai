@@ -174,11 +174,13 @@ def test_run_project_parser_accepts_audit_bundle_option() -> None:
             "--write-audit-bundle",
             "--audit-bundle-output",
             "audit/bundle.json",
+            "--audit-fail-on-warnings",
         ]
     )
 
     assert args.write_audit_bundle is True
     assert args.audit_bundle_output == "audit/bundle.json"
+    assert args.audit_fail_on_warnings is True
 
 
 def test_run_project_parser_accepts_manifest_verification_output_options() -> None:
@@ -352,6 +354,32 @@ def test_run_project_returns_two_when_audit_bundle_verification_fails(monkeypatc
 
     assert exit_code == 2
     assert payload["audit_bundle_verification"]["passed"] is False
+
+
+def test_run_project_can_fail_audit_bundle_warnings(monkeypatch, tmp_path, capsys) -> None:
+    monkeypatch.setattr(
+        run_project,
+        "verify_audit_bundle",
+        lambda _: SimpleNamespace(to_dict=lambda: {"passed": True, "warning_count": 1, "warnings": ["audit warning"]}),
+    )
+
+    exit_code = run_project.main(
+        [
+            "--project-root",
+            str(tmp_path),
+            "--requirement",
+            "Build a small reading list",
+            "--max-steps",
+            "1",
+            "--skip-preflight-gate",
+            "--write-audit-bundle",
+            "--audit-fail-on-warnings",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 2
+    assert payload["audit_bundle_verification"]["warning_count"] == 1
 
 
 def test_run_project_resolves_relative_audit_bundle_output_under_project_root(tmp_path, capsys) -> None:

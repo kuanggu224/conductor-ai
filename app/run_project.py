@@ -132,6 +132,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional audit bundle index output path. Defaults under .conductor/replay.",
     )
     parser.add_argument(
+        "--audit-fail-on-warnings",
+        action="store_true",
+        help="When writing an audit bundle, return exit code 2 if audit bundle verification has warnings.",
+    )
+    parser.add_argument(
         "--write-manifest-verification",
         action="store_true",
         help="After writing the run manifest, also write the JSON manifest verification report.",
@@ -296,7 +301,7 @@ def main(argv: list[str] | None = None) -> int:
         "artifacts": [asdict(item) for item in state.artifacts],
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2))
-    if audit_bundle_verification_payload and audit_bundle_verification_payload.get("passed") is not True:
+    if _audit_bundle_exit_failed(audit_bundle_verification_payload, fail_on_warnings=args.audit_fail_on_warnings):
         return 2
     return 0 if state.project_status.value == "completed" else 1
 
@@ -391,6 +396,14 @@ def _verify_audit_bundle_if_written(audit_bundle_payload: dict[str, object]) -> 
     if not bundle_path:
         return {}
     return verify_audit_bundle(bundle_path).to_dict()
+
+
+def _audit_bundle_exit_failed(audit_bundle_verification_payload: dict[str, object], *, fail_on_warnings: bool) -> bool:
+    if not audit_bundle_verification_payload:
+        return False
+    if audit_bundle_verification_payload.get("passed") is not True:
+        return True
+    return fail_on_warnings and int(audit_bundle_verification_payload.get("warning_count", 0)) > 0
 
 
 def _sha256_file(path: Path) -> str:
