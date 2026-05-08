@@ -6,8 +6,10 @@ from datetime import datetime, timedelta, timezone
 
 from conductor.config.cli import CLISelectionConfig
 from conductor.config.execution import RunProfile
+from conductor.config.llm import LLMRuntimeConfig, LLMUsagePolicy
 from conductor.controller.engine import ConductorEngine
 from conductor.domain.models import TaskAssignmentStatus
+from conductor.agents.llm import LLMHTTPConfig
 
 
 def test_engine_writes_run_manifest(tmp_path) -> None:
@@ -164,6 +166,44 @@ def test_manifest_records_stale_claimed_task_assignments(tmp_path) -> None:
     assert payload["task_assignments"][0]["claimed_age_seconds"] >= 7200
     assert payload["task_assignments"][0]["heartbeat_age_seconds"] >= 7200
     assert payload["task_assignments"][0]["stale_claimed"] is True
+
+
+def test_manifest_does_not_persist_llm_api_keys(tmp_path) -> None:
+    secret = "sk-manifest-secret"
+    llm_config = LLMRuntimeConfig(
+        local=LLMHTTPConfig(
+            base_url="http://127.0.0.1:1234/v1",
+            model_name="local-model",
+            api_key="sk-local-secret",
+            enabled=True,
+        ),
+        cloud=LLMHTTPConfig(
+            base_url="https://jiutian.10086.cn/largemodel/moma/api/v3",
+            model_name="jiutian-lan-comv3",
+            api_key=secret,
+            enabled=True,
+        ),
+        usage=LLMUsagePolicy(runner_enabled=True),
+    )
+    engine = ConductorEngine(
+        log_dir=tmp_path / "logs",
+        artifact_dir=tmp_path / "artifacts",
+        cli_selection_config=CLISelectionConfig(),
+        llm_runtime_config=llm_config,
+        run_profile=RunProfile.MOCK,
+    )
+    state = engine.create_project("Build a local reading list", project_root=str(tmp_path / "project"))
+    report_path = engine.write_project_report(state.project.id)
+
+    manifest_path = engine.write_run_manifest(state.project.id, report_path)
+    manifest_text = manifest_path.read_text(encoding="utf-8")
+    payload = json.loads(manifest_text)
+    cloud = next(item for item in payload["platform_diagnostics"]["llm_backends"] if item["backend"] == "cloud")
+
+    assert secret not in manifest_text
+    assert "sk-local-secret" not in manifest_text
+    assert cloud["api_key_present"] is True
+    assert "api_key" not in cloud
 
 
 def test_manifest_records_artifact_lineage_metadata(tmp_path) -> None:
