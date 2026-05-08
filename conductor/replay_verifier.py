@@ -156,12 +156,29 @@ class ManifestVerifier:
             "collaboration_runs",
             "retry_history",
             "task_assignments",
+            "selected_cli_names",
         ):
             if key in payload and not isinstance(payload.get(key), list):
                 result.errors.append(f"{key} must be a list")
-        for key in ("summary", "resume_cursor", "files"):
+        for key in ("summary", "resume_cursor", "files", "role_cli_bindings"):
             if key in payload and not isinstance(payload.get(key), dict):
                 result.errors.append(f"{key} must be an object")
+        self._verify_cli_config(payload, result)
+
+    def _verify_cli_config(self, payload: dict[str, Any], result: ManifestVerificationResult) -> None:
+        selected_cli_names = self._string_list(payload.get("selected_cli_names", []))
+        role_cli_bindings = payload.get("role_cli_bindings", {})
+        if not isinstance(role_cli_bindings, dict):
+            return
+        selected = set(selected_cli_names)
+        for role, cli_name in role_cli_bindings.items():
+            if cli_name in ("", None):
+                continue
+            if not isinstance(cli_name, str):
+                result.warnings.append(f"role_cli_bindings.{role} must be a string or null")
+                continue
+            if selected and cli_name not in selected:
+                result.warnings.append(f"role_cli_bindings.{role} references unselected CLI: {cli_name}")
 
     def _verify_summary_counts(self, payload: dict[str, Any], result: ManifestVerificationResult) -> None:
         summary = self._dict(payload.get("summary"))

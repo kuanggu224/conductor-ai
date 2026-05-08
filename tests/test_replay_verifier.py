@@ -192,6 +192,42 @@ def test_manifest_verifier_rejects_bad_summary_and_cursor_reference(tmp_path) ->
     assert any("missing-workitem" in error for error in result.errors)
 
 
+def test_manifest_verifier_checks_cli_config_shape_and_bindings(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "selected_cli_names": ["codex"],
+            "role_cli_bindings": {
+                "designer": "aspirecode",
+                "tester": 123,
+                "backend_engineer": None,
+            },
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert "role_cli_bindings.designer references unselected CLI: aspirecode" in result.warnings
+    assert "role_cli_bindings.tester must be a string or null" in result.warnings
+
+
+def test_manifest_verifier_rejects_malformed_cli_config_types(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "selected_cli_names": "codex",
+            "role_cli_bindings": ["designer", "codex"],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert "selected_cli_names must be a list" in result.errors
+    assert "role_cli_bindings must be an object" in result.errors
+
+
 def test_manifest_verifier_warns_for_malformed_summary_changed_files(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,
