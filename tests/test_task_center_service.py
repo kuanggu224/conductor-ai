@@ -402,6 +402,51 @@ def test_task_center_service_accepts_matching_claim_token() -> None:
     assert completed.assignment.claim_token == transition.assignment.claim_token
 
 
+def test_task_center_service_rotates_claim_token_after_release_and_reclaim() -> None:
+    store = InMemoryStateStore()
+    state = SharedProjectState(
+        project=Project(id="project-service", goal="Build a local tool"),
+        project_status=ProjectStatus.INITIALIZED,
+        current_stage="development",
+        workitems=[WorkItem(id="workitem-open", description="Open task", stage="development")],
+        task_assignments=[
+            TaskAssignment(
+                id="assignment-open",
+                workitem_id="workitem-open",
+                role="backend_engineer",
+            ),
+        ],
+    )
+    store.save_state(state)
+    service = TaskCenterService(store)
+    first_claim = service.claim("project-service", "assignment-open", agent_id="agent-owner")
+    old_token = first_claim.assignment.claim_token
+    service.release(
+        "project-service",
+        "assignment-open",
+        release_reason="worker interrupted",
+        agent_id="agent-owner",
+        claim_token=old_token,
+    )
+    second_claim = service.claim("project-service", "assignment-open", agent_id="agent-owner")
+
+    assert second_claim.assignment.claim_token
+    assert second_claim.assignment.claim_token != old_token
+    try:
+        service.complete(
+            "project-service",
+            "assignment-open",
+            result_summary="done",
+            agent_id="agent-owner",
+            claim_token=old_token,
+        )
+    except TaskCenterError as error:
+        assert str(error) == "Task assignment claim token does not match."
+        assert error.status_code == 403
+    else:
+        raise AssertionError("Expected TaskCenterError")
+
+
 def test_task_center_service_rejects_release_for_wrong_agent() -> None:
     store = InMemoryStateStore()
     state = SharedProjectState(
