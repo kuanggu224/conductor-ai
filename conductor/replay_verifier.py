@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -75,6 +76,23 @@ class ManifestVerifier:
         "completed_workitem_ids",
     )
 
+    SECRET_FIELD_NAMES = {
+        "api_key",
+        "apikey",
+        "api-key",
+        "authorization",
+        "x-api-key",
+        "password",
+        "secret",
+        "access_token",
+        "refresh_token",
+    }
+
+    SECRET_VALUE_PATTERNS = (
+        re.compile(r"\bsk-[A-Za-z0-9][A-Za-z0-9_-]{10,}\b"),
+        re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{10,}\b", re.IGNORECASE),
+    )
+
     def verify(self, manifest_path: str | Path, *, check_files: bool = True) -> ManifestVerificationResult:
         """Verify one manifest file and return a structured report."""
         path = Path(manifest_path)
@@ -91,6 +109,7 @@ class ManifestVerifier:
         self._verify_summary_counts(payload, result)
         self._verify_resume_cursor(payload, result)
         self._verify_links(payload, result)
+        self._verify_no_secret_leaks(payload, result)
         if check_files:
             self._verify_files(path, payload, result)
         result.passed = not result.errors
@@ -238,6 +257,37 @@ class ManifestVerifier:
             workitem_id = str(assignment.get("workitem_id", ""))
             if workitem_id and workitem_id not in workitem_ids:
                 result.errors.append(f"task assignment references unknown WorkItem: {workitem_id}")
+
+    def _verify_no_secret_leaks(self, payload: dict[str, Any], result: ManifestVerificationResult) -> None:
+        """Fail manifests that appear to contain API credentials.
+
+        `task_assignments[].claim_token` is currently part of the manifest
+        contract, so this check deliberately targets provider/API credentials
+        rather than every field with "token" in the name.
+        """
+        for path, value in self._walk_json(payload):
+            key = path[-1] if path else ""
+            if key.lower() in self.SECRET_FIELD_NAMES and str(value or ""):
+                result.errors.append(f"manifest contains sensitive field: {'.'.join(path)}")
+                continue
+            if isinstance(value, str) and self._looks_like_secret_value(value):
+                result.errors.append(f"manifest contains sensitive-looking value at: {'.'.join(path)}")
+
+    def _walk_json(self, value: Any, path: tuple[str, ...] = ()) -> list[tuple[tuple[str, ...], Any]]:
+        if isinstance(value, dict):
+            items: list[tuple[tuple[str, ...], Any]] = []
+            for key, child in value.items():
+                items.extend(self._walk_json(child, (*path, str(key))))
+            return items
+        if isinstance(value, list):
+            items = []
+            for index, child in enumerate(value):
+                items.extend(self._walk_json(child, (*path, str(index))))
+            return items
+        return [(path, value)]
+
+    def _looks_like_secret_value(self, value: str) -> bool:
+        return any(pattern.search(value) for pattern in self.SECRET_VALUE_PATTERNS)
 
     def _verify_files(self, manifest_path: Path, payload: dict[str, Any], result: ManifestVerificationResult) -> None:
         project_root = Path(str(payload.get("project_root", ""))) if str(payload.get("project_root", "")) else None

@@ -208,10 +208,10 @@ python -m app.verify_manifest C:\path\to\project\.conductor\manifests\project-id
 Use `--output` to persist the verification report.
 
 The verifier checks schema basics, summary counts, `resume_cursor` references,
-WorkItem/Execution/Artifact links, and referenced report/log/artifact files. It
-returns exit code `0` when the manifest is self-consistent and `2` when hard
-errors are found. Missing referenced files are reported as warnings so moved or
-archived runs can still be inspected.
+WorkItem/Execution/Artifact links, sensitive provider credential leaks, and
+referenced report/log/artifact files. It returns exit code `0` when the manifest
+is self-consistent and `2` when hard errors are found. Missing referenced files
+are reported as warnings so moved or archived runs can still be inspected.
 
 `python -m app.run_project` also includes `manifest_verification` in its final
 JSON payload immediately after writing the run manifest.

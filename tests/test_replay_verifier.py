@@ -201,6 +201,62 @@ def test_manifest_verifier_reports_missing_files_as_warnings(tmp_path) -> None:
     assert any("artifact_files entry does not exist" in warning for warning in result.warnings)
 
 
+def test_manifest_verifier_rejects_api_key_fields(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "platform_diagnostics": {
+                "cloud": {
+                    "api_key": "sk-leaked-provider-key-12345",
+                }
+            }
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert "manifest contains sensitive field: platform_diagnostics.cloud.api_key" in result.errors
+
+
+def test_manifest_verifier_rejects_bearer_token_values(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "run_environment": {
+                "authorization_header": "Bearer leaked-provider-token-12345",
+            }
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert any("run_environment.authorization_header" in error for error in result.errors)
+
+
+def test_manifest_verifier_allows_task_assignment_claim_token(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "task_assignments": [
+                {
+                    "id": "assignment-1",
+                    "workitem_id": "workitem-1",
+                    "role": "tester",
+                    "status": "claimed",
+                    "claim_token": "safe-existing-claim-token",
+                }
+            ]
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert not any("claim_token" in error for error in result.errors)
+
+
 def test_verify_manifest_cli_exits_zero_for_valid_manifest(tmp_path, capsys) -> None:
     manifest_path = _write_manifest(tmp_path)
 
