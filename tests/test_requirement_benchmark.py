@@ -211,6 +211,56 @@ def test_requirement_evaluator_reports_keyword_match_evidence() -> None:
     assert "duplicate" in evaluation.metrics["matched_keywords"]
 
 
+def test_requirement_evaluator_flags_unrequested_scope_expansion() -> None:
+    case = RequirementBenchmarkCase(
+        id="scope-expansion",
+        name="Scope Expansion",
+        requirement="做一个本地读书清单，支持新增书名、作者、状态筛选和导出 CSV。",
+        expected_keywords=["书名", "作者", "筛选", "CSV"],
+        required_aspects=["ui", "data", "export", "filtering"],
+    )
+    document = """
+    目标：本地读书清单。
+    范围：支持书名、作者、状态筛选、CSV 导出，同时增加登录账号、支付订阅、邮件通知和后台报表。
+    非目标：不接入第三方推荐系统。
+    验收标准：新增图书、筛选和导出可用。
+    风险与假设：浏览器存储容量有限。
+    测试验证：覆盖新增、筛选、导出和登录。
+    下游交付约束：前端实现保持本地运行。
+    """
+
+    evaluation = evaluate_requirement_document(document, case)
+
+    assert evaluation.checks["no_scope_expansion"] is False
+    assert set(evaluation.metrics["scope_expansion_topics"]) >= {"authentication", "payment", "notification", "analytics"}
+    assert evaluation.score <= 85
+    assert any("Potential scope expansion" in finding for finding in evaluation.findings)
+
+
+def test_requirement_evaluator_allows_scope_terms_when_declared_non_goals() -> None:
+    case = RequirementBenchmarkCase(
+        id="non-goal-scope",
+        name="Non Goal Scope",
+        requirement="做一个本地读书清单，支持新增书名、作者、状态筛选和导出 CSV。",
+        expected_keywords=["书名", "作者", "筛选", "CSV"],
+        required_aspects=["ui", "data", "export", "filtering"],
+    )
+    document = """
+    目标：本地读书清单。
+    范围：支持书名、作者、状态筛选、CSV 导出。
+    非目标：不做登录账号、不包含支付订阅、不需要邮件通知、不做后台报表。
+    验收标准：新增图书、筛选和导出可用。
+    风险与假设：浏览器存储容量有限。
+    测试验证：覆盖新增、筛选和导出。
+    下游交付约束：前端实现保持本地运行。
+    """
+
+    evaluation = evaluate_requirement_document(document, case)
+
+    assert evaluation.checks["no_scope_expansion"] is True
+    assert evaluation.metrics["scope_expansion_topics"] == []
+
+
 def test_requirement_evaluator_reports_missing_keywords() -> None:
     case = RequirementBenchmarkCase(
         id="missing-keywords",

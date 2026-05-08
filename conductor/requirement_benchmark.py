@@ -231,6 +231,32 @@ CJK_SEMANTIC_KEYWORD_ALIASES: dict[str, tuple[str, ...]] = {
 }
 
 
+SCOPE_EXPANSION_TOPICS: dict[str, tuple[str, ...]] = {
+    "authentication": ("login", "auth", "account", "\u767b\u5f55", "\u8d26\u53f7", "\u8ba4\u8bc1"),
+    "payment": ("payment", "pay", "billing", "\u652f\u4ed8", "\u6536\u6b3e", "\u8ba1\u8d39"),
+    "notification": ("notification", "email", "sms", "\u901a\u77e5", "\u90ae\u4ef6", "\u77ed\u4fe1"),
+    "admin_console": ("admin", "dashboard", "\u540e\u53f0", "\u7ba1\u7406\u5458", "\u7ba1\u7406\u7aef"),
+    "analytics": ("analytics", "metrics", "\u7edf\u8ba1", "\u5206\u6790", "\u62a5\u8868"),
+    "deployment": ("deploy", "docker", "kubernetes", "\u90e8\u7f72", "\u4e0a\u7ebf", "\u5bb9\u5668"),
+    "ai_recommendation": ("recommendation", "llm", "ai", "\u63a8\u8350", "\u667a\u80fd\u63a8\u8350", "\u5927\u6a21\u578b"),
+}
+
+SCOPE_NEGATION_TERMS: tuple[str, ...] = (
+    "out of scope",
+    "non-goal",
+    "non goal",
+    "not required",
+    "do not",
+    "no ",
+    "\u975e\u76ee\u6807",
+    "\u4e0d\u505a",
+    "\u4e0d\u9700\u8981",
+    "\u65e0\u9700",
+    "\u4e0d\u5305\u542b",
+    "\u6392\u9664",
+)
+
+
 def default_requirement_benchmark_cases() -> list[RequirementBenchmarkCase]:
     """Return fixed cases for requirement-stage regression."""
     return [
@@ -296,6 +322,7 @@ def evaluate_requirement_document(
     missing_keywords = [term for term, matched_alias in keyword_matches.items() if not matched_alias]
     matched_keywords = [term for term, matched_alias in keyword_matches.items() if matched_alias]
     aspect_coverage = _aspect_coverage(case.required_aspects, text)
+    scope_expansion_topics = _scope_expansion_topics(case.requirement, document)
     checks = {
         "keyword_coverage": keyword_coverage >= 70,
         "aspect_coverage": aspect_coverage >= 60 if case.required_aspects else True,
@@ -309,6 +336,7 @@ def evaluate_requirement_document(
         "has_open_questions_or_assumptions": _contains_any(text, SECTION_TERMS["open_question"]),
         "has_edge_cases": _contains_any(text, SECTION_TERMS["edge_case"]),
         "has_downstream_constraints": _contains_any(text, SECTION_TERMS["downstream"]),
+        "no_scope_expansion": not scope_expansion_topics,
         "not_mock_or_placeholder": not _is_mock_or_placeholder_document(text),
     }
     score = 0
@@ -325,6 +353,8 @@ def evaluate_requirement_document(
     score += 4 if checks["has_edge_cases"] else 0
     score += 2 if checks["has_downstream_constraints"] else 0
     score = min(score, 100)
+    if not checks["no_scope_expansion"]:
+        score = min(score, 85)
     if not checks["not_mock_or_placeholder"]:
         score = min(score, 35)
     findings: list[str] = []
@@ -354,6 +384,8 @@ def evaluate_requirement_document(
         findings.append("Boundary, error, empty-state, or edge-case behavior is missing.")
     if not checks["has_downstream_constraints"]:
         findings.append("Downstream handoff constraints are missing.")
+    if not checks["no_scope_expansion"]:
+        findings.append("Potential scope expansion detected: " + ", ".join(scope_expansion_topics) + ".")
     return RequirementEvaluation(
         case_id=case.id,
         score=score,
@@ -367,6 +399,7 @@ def evaluate_requirement_document(
             "missing_keywords": missing_keywords,
             "keyword_matches": keyword_matches,
             "aspect_coverage": aspect_coverage,
+            "scope_expansion_topics": scope_expansion_topics,
             "document_chars": len(document),
         },
         findings=findings,
@@ -649,6 +682,46 @@ def _is_mock_or_placeholder_document(text: str) -> bool:
         "工作项执行说明",
     )
     return any(term in text for term in placeholder_terms)
+
+
+def _scope_expansion_topics(requirement: str, document: str) -> list[str]:
+    """Return likely feature topics introduced by the document but absent from the source requirement."""
+    requirement_text = requirement.lower()
+    document_text = document.lower()
+    topics: list[str] = []
+    for topic, terms in SCOPE_EXPANSION_TOPICS.items():
+        if _contains_any(requirement_text, terms):
+            continue
+        if not _contains_any(document_text, terms):
+            continue
+        if _topic_only_appears_as_non_goal(document_text, terms):
+            continue
+        topics.append(topic)
+    return topics
+
+
+def _topic_only_appears_as_non_goal(text: str, terms: tuple[str, ...]) -> bool:
+    """Return whether every mention of a topic is explicitly negated/out of scope."""
+    mentions: list[int] = []
+    lowered_terms = [term.lower() for term in terms]
+    for term in lowered_terms:
+        start = 0
+        while True:
+            index = text.find(term, start)
+            if index < 0:
+                break
+            mentions.append(index)
+            start = index + max(len(term), 1)
+    if not mentions:
+        return False
+    return all(_has_scope_negation_near(text, index) for index in mentions)
+
+
+def _has_scope_negation_near(text: str, index: int) -> bool:
+    """Return whether a topic mention sits inside a nearby non-goal phrase."""
+    window_start = max(0, index - 40)
+    snippet = text[window_start:index]
+    return any(term in snippet for term in SCOPE_NEGATION_TERMS)
 
 
 def _extract_requirement_keywords(requirement: str, limit: int = 12) -> list[str]:
