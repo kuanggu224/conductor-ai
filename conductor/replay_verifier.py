@@ -229,6 +229,7 @@ class ManifestVerifier:
         self._verify_summary_validation_failure_count(summary, self._list(payload.get("executions")), result)
         self._verify_requirement_quality_score(summary, self._list(payload.get("requirement_evaluations")), result)
         self._verify_requirement_coverage_status(summary, self._list(payload.get("requirement_coverage_results")), result)
+        self._verify_scope_contract_summary(summary, self._list(payload.get("scope_contract_results")), result)
 
         changed_files = self._list(summary.get("changed_files"))
         if "changed_files" in summary and not isinstance(summary.get("changed_files"), list):
@@ -396,6 +397,45 @@ class ManifestVerifier:
         if any(record.get("passed") is False for record in records):
             return "missing_coverage"
         if any(bool(self._string_list(record.get("required_rules", []))) for record in records):
+            return "pass"
+        return "no_rules"
+
+    def _verify_scope_contract_summary(
+        self,
+        summary: dict[str, Any],
+        scope_results: list[Any],
+        result: ManifestVerificationResult,
+    ) -> None:
+        if "scope_contract_status" in summary:
+            expected_status = self._scope_contract_status(scope_results)
+            actual_status = str(summary.get("scope_contract_status", ""))
+            if actual_status != expected_status:
+                result.errors.append(
+                    f"summary.scope_contract_status={actual_status} does not match scope contract results={expected_status}"
+                )
+        if "scope_contract_violation_count" in summary:
+            actual_count = self._as_int(summary.get("scope_contract_violation_count"))
+            if actual_count is None:
+                result.errors.append("summary.scope_contract_violation_count must be an integer")
+                return
+            expected_count = sum(
+                len(self._list(record.get("violations", [])))
+                for record in scope_results
+                if isinstance(record, dict)
+            )
+            if actual_count != expected_count:
+                result.errors.append(
+                    f"summary.scope_contract_violation_count={actual_count} "
+                    f"does not match scope contract violations={expected_count}"
+                )
+
+    def _scope_contract_status(self, scope_results: list[Any]) -> str:
+        records = [item for item in scope_results if isinstance(item, dict)]
+        if not records:
+            return "not_evaluated"
+        if any(record.get("passed") is False for record in records):
+            return "violation"
+        if any(bool(self._string_list(record.get("rule_ids", []))) for record in records):
             return "pass"
         return "no_rules"
 

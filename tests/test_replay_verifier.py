@@ -802,6 +802,114 @@ def test_manifest_verifier_accepts_requirement_coverage_status_without_results(t
     assert result.passed is True
 
 
+def test_manifest_verifier_rejects_bad_scope_contract_status(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "summary": {
+                "final_status": "completed",
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+                "scope_contract_status": "pass",
+                "scope_contract_violation_count": 1,
+            },
+            "scope_contract_results": [
+                {
+                    "artifact_id": "artifact-1",
+                    "passed": False,
+                    "rule_ids": ["no-auth"],
+                    "violations": [
+                        {
+                            "rule_id": "no-auth",
+                            "excerpt": "login screen",
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert "summary.scope_contract_status=pass does not match scope contract results=violation" in result.errors
+
+
+def test_manifest_verifier_rejects_bad_scope_contract_violation_count(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "summary": {
+                "final_status": "completed",
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+                "scope_contract_status": "violation",
+                "scope_contract_violation_count": 0,
+            },
+            "scope_contract_results": [
+                {
+                    "artifact_id": "artifact-1",
+                    "passed": False,
+                    "rule_ids": ["no-auth"],
+                    "violations": [{"rule_id": "no-auth"}],
+                }
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert "summary.scope_contract_violation_count=0 does not match scope contract violations=1" in result.errors
+
+
+def test_manifest_verifier_accepts_scope_contract_status_without_results(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "summary": {
+                "final_status": "completed",
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+                "scope_contract_status": "not_evaluated",
+                "scope_contract_violation_count": 0,
+            },
+            "scope_contract_results": [],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+
+
 def test_manifest_verifier_rejects_summary_changed_files_mismatch_executions(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,
