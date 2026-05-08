@@ -17,6 +17,7 @@ from conductor.diagnostics import build_platform_diagnostics, build_requirement_
 from conductor.io.encoding import configure_utf8_stdio
 from conductor.io.requirements import load_requirement_text
 from conductor.preflight_gate import write_preflight_gate_payload
+from conductor.replay_verifier import verify_manifest
 from conductor.state.file_store import FileStateStore
 from conductor.task_center.service import DEFAULT_STALE_CLAIMED_AFTER_SECONDS, TaskCenterService
 
@@ -220,6 +221,7 @@ def main(argv: list[str] | None = None) -> int:
     state = engine.run_project(state.project.id, max_steps=args.max_steps)
     report_path = engine.write_project_report(state.project.id)
     manifest_path = engine.write_run_manifest(state.project.id, report_path=report_path)
+    manifest_verification = verify_manifest(manifest_path)
     payload = {
         "project_id": state.project.id,
         "status": state.project_status.value,
@@ -230,6 +232,7 @@ def main(argv: list[str] | None = None) -> int:
         "released_stale_task_count": released_stale_task_count,
         "report_path": str(report_path),
         "manifest_path": str(manifest_path),
+        "manifest_verification": manifest_verification.to_dict(),
         "workitems": [asdict(item) for item in state.workitems],
         "artifacts": [asdict(item) for item in state.artifacts],
     }

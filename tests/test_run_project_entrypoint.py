@@ -184,6 +184,8 @@ def test_run_project_can_resume_existing_project(tmp_path, capsys) -> None:
     assert len(first_payload["workitems"]) == 1
     assert len(resumed_state.executions) == 1
     assert second_payload["manifest_path"].endswith(f"{first_payload['project_id']}.manifest.json")
+    assert second_payload["manifest_verification"]["passed"] is True
+    assert second_payload["manifest_verification"]["error_count"] == 0
 
 
 def test_run_project_can_release_stale_tasks_before_resume(tmp_path, capsys) -> None:
@@ -230,6 +232,7 @@ def test_run_project_can_release_stale_tasks_before_resume(tmp_path, capsys) -> 
 
     assert resumed_exit == 1
     assert resumed_payload["released_stale_task_count"] == 1
+    assert resumed_payload["manifest_verification"]["passed"] is True
     assert reloaded.task_assignments[0].status.value == "queued"
     assert reloaded.task_assignments[0].claim_reason == "resume cleanup"
     assert reloaded.workitems[0].status.value == "pending"

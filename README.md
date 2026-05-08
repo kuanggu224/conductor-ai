@@ -211,6 +211,9 @@ returns exit code `0` when the manifest is self-consistent and `2` when hard
 errors are found. Missing referenced files are reported as warnings so moved or
 archived runs can still be inspected.
 
+`python -m app.run_project` also includes `manifest_verification` in its final
+JSON payload immediately after writing the run manifest.
+
 Build a read-only replay trace from the same manifest:
 
 ```powershell
