@@ -211,6 +211,22 @@ def test_verify_manifest_cli_exits_zero_for_valid_manifest(tmp_path, capsys) -> 
     assert '"passed": true' in captured.out
 
 
+def test_verify_manifest_cli_writes_output_file(tmp_path, capsys) -> None:
+    manifest_path = _write_manifest(tmp_path)
+    output_path = tmp_path / "audit" / "manifest-verification.json"
+
+    exit_code = verify_manifest_main([str(manifest_path), "--output", str(output_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    payload = json.loads(captured.out)
+    assert payload["ok"] is True
+    assert payload["output_path"] == str(output_path.resolve())
+    report = json.loads(output_path.read_text(encoding="utf-8"))
+    assert report["passed"] is True
+    assert report["project_id"] == "project-1"
+
+
 def test_verify_manifest_cli_exits_two_for_invalid_manifest(tmp_path, capsys) -> None:
     manifest_path = _write_manifest(tmp_path, {"project_id": ""})
 
