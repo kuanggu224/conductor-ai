@@ -12,6 +12,7 @@ from conductor.domain.models import (
     WorkItemStatus,
 )
 from conductor.state.store import InMemoryStateStore
+from conductor.state.file_store import FileStateStore
 from conductor.task_center.service import TaskCenterError, TaskCenterService
 
 
@@ -64,6 +65,40 @@ def test_task_center_service_claim_next_skips_unsatisfied_dependencies() -> None
     assert transition.assignment.returned_at == ""
     assert transition.state.workitems[2].status == WorkItemStatus.RUNNING
     assert transition.state.workitems[2].owner_agent == "agent-backend"
+
+
+def test_task_center_service_file_store_reloads_under_lock_before_claim(tmp_path) -> None:
+    state = SharedProjectState(
+        project=Project(id="project-file-lock", goal="Build a local tool"),
+        project_status=ProjectStatus.INITIALIZED,
+        current_stage="development",
+        workitems=[WorkItem(id="workitem-open", description="Open task", stage="development")],
+        task_assignments=[
+            TaskAssignment(
+                id="assignment-open",
+                workitem_id="workitem-open",
+                role="backend_engineer",
+            ),
+        ],
+    )
+    first_store = FileStateStore(tmp_path / "state")
+    first_store.save_state(state)
+    second_store = FileStateStore(tmp_path / "state")
+    first_service = TaskCenterService(first_store)
+    second_service = TaskCenterService(second_store)
+
+    first_service.claim("project-file-lock", "assignment-open", agent_id="agent-a")
+
+    try:
+        second_service.claim("project-file-lock", "assignment-open", agent_id="agent-b")
+    except TaskCenterError as error:
+        assert str(error) == "Task assignment is not queued: claimed"
+    else:
+        raise AssertionError("Expected TaskCenterError")
+
+    reloaded = FileStateStore(tmp_path / "state").get_state("project-file-lock")
+    assert reloaded.task_assignments[0].assigned_agent_id == "agent-a"
+    assert reloaded.workitems[0].owner_agent == "agent-a"
 
 
 def test_task_center_service_rejects_claim_with_unsatisfied_dependencies() -> None:

@@ -93,7 +93,10 @@ Board API endpoints:
 Task payloads expose `claimable` and `unmet_dependency_ids`. Summaries expose
 `total`, `queued`, `claimed`, `completed`, `failed`, `blocked`, `claimable`,
 `blocked_by_dependencies`, and `stale_claimed`. Run manifests and project
-reports also include Task Center readiness for audit and replay.
+reports also include Task Center readiness for audit and replay. File-backed
+Task Center mutations use a per-project lock file and refresh state from disk
+before writes, so stale worker processes are less likely to duplicate-claim the
+same assignment.
 
 ## Diagnostics
 

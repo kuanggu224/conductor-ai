@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from dataclasses import dataclass, replace
 from uuid import uuid4
@@ -89,9 +90,10 @@ class TaskCenterService:
         claim_reason: str = "",
     ) -> TaskCenterTransition:
         """Claim one queued assignment and mark its WorkItem running."""
-        state = self._state(project_id)
-        assignment = self.require_assignment(state, assignment_id)
-        return self._claim_assignment(project_id, state, assignment, agent_id, claim_reason)
+        with self._project_mutation(project_id):
+            state = self._state(project_id)
+            assignment = self.require_assignment(state, assignment_id)
+            return self._claim_assignment(project_id, state, assignment, agent_id, claim_reason)
 
     def claim_next(
         self,
@@ -101,9 +103,10 @@ class TaskCenterService:
         claim_reason: str = "",
     ) -> TaskCenterTransition:
         """Claim the next queued assignment whose dependencies are satisfied."""
-        state = self._state(project_id)
-        assignment = self.select_next_assignment(state, role=role)
-        return self._claim_assignment(project_id, state, assignment, agent_id, claim_reason)
+        with self._project_mutation(project_id):
+            state = self._state(project_id)
+            assignment = self.select_next_assignment(state, role=role)
+            return self._claim_assignment(project_id, state, assignment, agent_id, claim_reason)
 
     def complete(
         self,
@@ -115,15 +118,16 @@ class TaskCenterService:
         claim_token: str = "",
     ) -> TaskCenterTransition:
         """Return one claimed assignment as completed and mark its WorkItem done."""
-        return self._return_assignment(
-            project_id,
-            assignment_id,
-            status=TaskAssignmentStatus.COMPLETED,
-            result_summary=result_summary,
-            output_artifact_ids=output_artifact_ids,
-            agent_id=agent_id,
-            claim_token=claim_token,
-        )
+        with self._project_mutation(project_id):
+            return self._return_assignment(
+                project_id,
+                assignment_id,
+                status=TaskAssignmentStatus.COMPLETED,
+                result_summary=result_summary,
+                output_artifact_ids=output_artifact_ids,
+                agent_id=agent_id,
+                claim_token=claim_token,
+            )
 
     def fail(
         self,
@@ -136,16 +140,17 @@ class TaskCenterService:
         claim_token: str = "",
     ) -> TaskCenterTransition:
         """Return one claimed assignment as failed and mark its WorkItem failed."""
-        return self._return_assignment(
-            project_id,
-            assignment_id,
-            status=TaskAssignmentStatus.FAILED,
-            result_summary=result_summary,
-            output_artifact_ids=output_artifact_ids,
-            blocked_reason=blocked_reason,
-            agent_id=agent_id,
-            claim_token=claim_token,
-        )
+        with self._project_mutation(project_id):
+            return self._return_assignment(
+                project_id,
+                assignment_id,
+                status=TaskAssignmentStatus.FAILED,
+                result_summary=result_summary,
+                output_artifact_ids=output_artifact_ids,
+                blocked_reason=blocked_reason,
+                agent_id=agent_id,
+                claim_token=claim_token,
+            )
 
     def release(
         self,
@@ -156,29 +161,16 @@ class TaskCenterService:
         claim_token: str = "",
     ) -> TaskCenterTransition:
         """Release a claimed/failed assignment back to queued for another worker."""
-        state = self._state(project_id)
-        assignment = self.require_assignment(state, assignment_id)
-        if assignment.status not in {TaskAssignmentStatus.CLAIMED, TaskAssignmentStatus.FAILED}:
-            raise TaskCenterError(f"Task assignment cannot be released: {assignment.status.value}")
-        self._validate_claim_guard(assignment, agent_id=agent_id, claim_token=claim_token)
-        updated = replace(
-            assignment,
-            status=TaskAssignmentStatus.QUEUED,
-            assigned_agent_id=None,
-            claim_token="",
-            claim_reason=release_reason or assignment.claim_reason,
-            output_artifact_ids=[],
-            result_summary="",
-            blocked_reason=None,
-            claimed_at="",
-            last_heartbeat_at="",
-            returned_at="",
-            prompt_file="",
-        )
-        self._sync_workitem_release(project_id, assignment)
-        self.state_store.upsert_task_assignment(project_id, updated)
-        self.state_store.add_event(project_id, f"{self.event_prefix}: {assignment.workitem_id} released")
-        return TaskCenterTransition(state=self._state(project_id), assignment=updated)
+        with self._project_mutation(project_id):
+            state = self._state(project_id)
+            assignment = self.require_assignment(state, assignment_id)
+            return self._release_assignment(
+                project_id,
+                assignment,
+                release_reason=release_reason,
+                agent_id=agent_id,
+                claim_token=claim_token,
+            )
 
     def release_stale(
         self,
@@ -189,17 +181,18 @@ class TaskCenterService:
         now: datetime | None = None,
     ) -> TaskCenterBulkTransition:
         """Release all stale claimed assignments back to queued."""
-        state = self._state(project_id)
-        stale_assignments = [
-            assignment
-            for assignment in state.task_assignments
-            if self.stale_claimed(assignment, stale_after_seconds=stale_after_seconds, now=now)
-        ]
-        released: list[TaskAssignment] = []
-        for assignment in stale_assignments:
-            transition = self.release(project_id, assignment.id, release_reason=release_reason)
-            released.append(transition.assignment)
-        return TaskCenterBulkTransition(state=self._state(project_id), assignments=released)
+        with self._project_mutation(project_id):
+            state = self._state(project_id)
+            stale_assignments = [
+                assignment
+                for assignment in state.task_assignments
+                if self.stale_claimed(assignment, stale_after_seconds=stale_after_seconds, now=now)
+            ]
+            released: list[TaskAssignment] = []
+            for assignment in stale_assignments:
+                transition = self._release_assignment(project_id, assignment, release_reason=release_reason)
+                released.append(transition.assignment)
+            return TaskCenterBulkTransition(state=self._state(project_id), assignments=released)
 
     def heartbeat(
         self,
@@ -210,15 +203,16 @@ class TaskCenterService:
         now: datetime | None = None,
     ) -> TaskCenterTransition:
         """Refresh one claimed assignment's worker heartbeat timestamp."""
-        state = self._state(project_id)
-        assignment = self.require_assignment(state, assignment_id)
-        if assignment.status != TaskAssignmentStatus.CLAIMED:
-            raise TaskCenterError(f"Task assignment is not claimed: {assignment.status.value}")
-        self._validate_claim_guard(assignment, agent_id=agent_id, claim_token=claim_token)
-        updated = replace(assignment, last_heartbeat_at=_utc_now(now))
-        self.state_store.upsert_task_assignment(project_id, updated)
-        self.state_store.add_event(project_id, f"{self.event_prefix}: heartbeat {assignment.workitem_id}")
-        return TaskCenterTransition(state=self._state(project_id), assignment=updated)
+        with self._project_mutation(project_id):
+            state = self._state(project_id)
+            assignment = self.require_assignment(state, assignment_id)
+            if assignment.status != TaskAssignmentStatus.CLAIMED:
+                raise TaskCenterError(f"Task assignment is not claimed: {assignment.status.value}")
+            self._validate_claim_guard(assignment, agent_id=agent_id, claim_token=claim_token)
+            updated = replace(assignment, last_heartbeat_at=_utc_now(now))
+            self.state_store.upsert_task_assignment(project_id, updated)
+            self.state_store.add_event(project_id, f"{self.event_prefix}: heartbeat {assignment.workitem_id}")
+            return TaskCenterTransition(state=self._state(project_id), assignment=updated)
 
     def require_assignment(self, state: SharedProjectState, assignment_id: str) -> TaskAssignment:
         """Return an assignment or raise a Task Center not-found error."""
@@ -298,6 +292,42 @@ class TaskCenterService:
             for dependency_id in assignment.dependencies
             if status_by_workitem.get(dependency_id) != WorkItemStatus.DONE
         ]
+
+    def _project_mutation(self, project_id: str):
+        project_lock = getattr(self.state_store, "project_lock", None)
+        if callable(project_lock):
+            return project_lock(project_id)
+        return nullcontext()
+
+    def _release_assignment(
+        self,
+        project_id: str,
+        assignment: TaskAssignment,
+        release_reason: str = "",
+        agent_id: str = "",
+        claim_token: str = "",
+    ) -> TaskCenterTransition:
+        if assignment.status not in {TaskAssignmentStatus.CLAIMED, TaskAssignmentStatus.FAILED}:
+            raise TaskCenterError(f"Task assignment cannot be released: {assignment.status.value}")
+        self._validate_claim_guard(assignment, agent_id=agent_id, claim_token=claim_token)
+        updated = replace(
+            assignment,
+            status=TaskAssignmentStatus.QUEUED,
+            assigned_agent_id=None,
+            claim_token="",
+            claim_reason=release_reason or assignment.claim_reason,
+            output_artifact_ids=[],
+            result_summary="",
+            blocked_reason=None,
+            claimed_at="",
+            last_heartbeat_at="",
+            returned_at="",
+            prompt_file="",
+        )
+        self._sync_workitem_release(project_id, assignment)
+        self.state_store.upsert_task_assignment(project_id, updated)
+        self.state_store.add_event(project_id, f"{self.event_prefix}: {assignment.workitem_id} released")
+        return TaskCenterTransition(state=self._state(project_id), assignment=updated)
 
     def _claim_assignment(
         self,

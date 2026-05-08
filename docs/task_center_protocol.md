@@ -29,6 +29,10 @@ Claim rules:
 - Failed dependency checks report `unmet_dependency_ids`.
 - Stale detection uses `last_heartbeat_at` when present, falling back to
   `claimed_at`.
+- File-backed Task Center mutations acquire a per-project `.lock` file and
+  refresh state from disk before claim/return/heartbeat/release transitions.
+  This reduces duplicate claims when multiple worker processes use the same
+  `.conductor/state` directory.
 
 ## CLI
 

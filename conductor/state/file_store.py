@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
+import time
+from contextlib import contextmanager
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -49,19 +52,66 @@ class FileStateStore(InMemoryStateStore):
         """Save state in memory and on disk."""
         super().save_state(state)
         path = self._state_path(state.project.id)
-        path.write_text(
-            json.dumps(asdict(state), ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        payload = json.dumps(asdict(state), ensure_ascii=False, indent=2)
+        temp_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+        temp_path.write_text(payload, encoding="utf-8")
+        self._replace_with_retry(temp_path, path)
+
+    def _replace_with_retry(self, source: Path, target: Path, *, attempts: int = 10) -> None:
+        for attempt in range(attempts):
+            try:
+                source.replace(target)
+                return
+            except PermissionError:
+                if attempt == attempts - 1:
+                    raise
+                time.sleep(0.05)
+
+    @contextmanager
+    def project_lock(
+        self,
+        project_id: str,
+        *,
+        timeout_seconds: float = 10.0,
+        poll_seconds: float = 0.05,
+    ):
+        """Acquire a cross-process project mutation lock and refresh state."""
+        lock_path = self.root_dir / f"{project_id}.lock"
+        started = time.monotonic()
+        file_descriptor: int | None = None
+        while file_descriptor is None:
+            try:
+                file_descriptor = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_RDWR)
+            except FileExistsError as error:
+                if time.monotonic() - started >= timeout_seconds:
+                    raise TimeoutError(f"Timed out waiting for project state lock: {project_id}") from error
+                time.sleep(poll_seconds)
+        try:
+            self._reload_state(project_id)
+            yield
+        finally:
+            os.close(file_descriptor)
+            try:
+                lock_path.unlink()
+            except FileNotFoundError:
+                pass
 
     def _state_path(self, project_id: str) -> Path:
         return self.root_dir / f"{project_id}.state.json"
 
     def _load_existing_states(self) -> None:
         for path in sorted(self.root_dir.glob("*.state.json")):
-            data = json.loads(path.read_text(encoding="utf-8"))
-            state = self._state_from_dict(data)
-            self._states[state.project.id] = state
+            self._load_state_path(path)
+
+    def _reload_state(self, project_id: str) -> None:
+        path = self._state_path(project_id)
+        if path.exists():
+            self._load_state_path(path)
+
+    def _load_state_path(self, path: Path) -> None:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        state = self._state_from_dict(data)
+        self._states[state.project.id] = state
 
     def _state_from_dict(self, data: dict[str, Any]) -> SharedProjectState:
         return SharedProjectState(
