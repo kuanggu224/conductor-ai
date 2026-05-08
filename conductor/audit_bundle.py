@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from conductor.replay_verifier import verify_manifest
+
 
 @dataclass(slots=True)
 class AuditBundleVerificationResult:
@@ -99,6 +101,14 @@ class AuditBundleVerifier:
             raw_path = str(files.get(field_name, ""))
             if raw_path and not self._resolve_component_path(raw_path, bundle_path).exists():
                 result.errors.append(f"files.{field_name} does not exist: {raw_path}")
+
+        manifest_path = self._resolve_component_path(str(files.get("manifest", "")), bundle_path)
+        if manifest_path.exists():
+            manifest_result = verify_manifest(manifest_path)
+            if manifest_result.project_id != result.project_id:
+                result.errors.append("manifest.project_id does not match audit bundle project_id")
+            result.errors.extend(f"manifest verification: {error}" for error in manifest_result.errors)
+            result.warnings.extend(f"manifest verification: {warning}" for warning in manifest_result.warnings)
 
         verification_path = self._resolve_component_path(str(files.get("manifest_verification", "")), bundle_path)
         if verification_path.exists():

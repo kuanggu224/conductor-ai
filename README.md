@@ -238,6 +238,10 @@ Verify an audit bundle index:
 python -m app.verify_audit_bundle C:\path\to\project\.conductor\replay\project-id.audit.json
 ```
 
+The audit bundle verifier checks the bundle index and reruns manifest
+verification, so it can detect stale or corrupted bundle components. It also
+supports `--fail-on-warnings` for CI gates.
+
 To write the replay trace as part of a project run:
 
 ```powershell
@@ -306,7 +310,7 @@ Current targeted verification for read-only replay trace:
 
 Current full verification after preflight gate, diagnostics, manifest hardening,
 task-center recovery work, and manifest verification:
-`409 passed` with `python -m pytest -q`.
+`411 passed` with `python -m pytest -q`.
 
 ## Project Layout
 
