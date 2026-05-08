@@ -30,6 +30,7 @@ def create_task_return_artifact(
         title=title or f"External Result - {assignment.workitem_id}",
         content=content,
         source_backend="task_center/external",
+        parent_artifact_id=_parent_artifact_id_for_return(state, assignment),
         derived_from=list(assignment.input_artifact_ids),
     )
     persisted = artifact_store.save_markdown(artifact, project_root=state.project.project_root)
@@ -46,6 +47,21 @@ def _next_external_artifact_id(state: SharedProjectState, workitem_id: str) -> s
     while f"{prefix}-{index}" in existing_ids:
         index += 1
     return f"{prefix}-{index}"
+
+
+def _parent_artifact_id_for_return(state: SharedProjectState, assignment: TaskAssignment) -> str:
+    """Infer the direct parent artifact for rework return artifacts."""
+    workitem = next((item for item in state.workitems if item.id == assignment.workitem_id), None)
+    if workitem is None or not workitem.rework_of:
+        return ""
+    input_ids = set(assignment.input_artifact_ids)
+    for artifact in reversed(state.artifacts):
+        if artifact.workitem_id != workitem.rework_of:
+            continue
+        if input_ids and artifact.id not in input_ids:
+            continue
+        return artifact.id
+    return ""
 
 
 __all__ = ["create_task_return_artifact"]

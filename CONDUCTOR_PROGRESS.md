@@ -524,6 +524,7 @@ Manifest 已能记录主要运行事实和审计摘要，并已完成 LLM 配置
 - 测试失败回流到研发返工时，返工 WorkItem 和 TaskAssignment 会显式携带失败测试产物 ID，研发 Agent 不再只依赖摘要，而是可以读取完整失败报告作为修复输入。
 - Task Center context 已增加结构化 `rework_context` 和 Markdown `Rework Context` 区块，外部 CLI/Agent 可以明确识别返工来源、原始 WorkItem、失败反馈 WorkItem、对应失败产物和原始实现产物。
 - 外部 worker 通过 Task Center `complete --output-file` 归还产物时，新 artifact 会自动记录 `derived_from=assignment.input_artifact_ids`，后续 manifest/replay/audit 可以追踪产物血缘。
+- 外部 worker 归还返工产物时，如果当前 WorkItem 标记了 `rework_of`，会自动把原始实现产物写入 `parent_artifact_id`，让修复产物和被修复产物形成直接版本关系。
 - 需求评分器已补中文语义 alias 和 `metrics.keyword_matches`，benchmark 报告可看到每个关键词实际命中的表达，便于定位 keyword coverage 误报。
 - 需求评分器已补范围扩张检测，能标记原始需求未要求但文档新增的登录、支付、通知、后台报表等功能；明确写在非目标里的排除项不会被误判。
 - Requirement benchmark Markdown 报告已展示 keyword coverage、缺失关键词、命中 alias 和 scope expansion，方便直接从报告定位评分问题。

@@ -857,13 +857,16 @@ def test_task_center_cli_complete_can_create_output_artifact_from_file(tmp_path,
     input_artifact = Artifact(
         id="artifact-input-baseline",
         project_id=state.project.id,
-        workitem_id="workitem-upstream",
+        workitem_id="workitem-original",
         agent_id="agent-upstream",
         kind="design_overview",
         title="Input Baseline",
         content="Input artifact for lineage.",
     )
     state = state_store.add_artifact(state.project.id, input_artifact)
+    rework_item = replace(state.workitems[0], rework_of="workitem-original")
+    state = replace(state, workitems=[rework_item, *state.workitems[1:]])
+    state_store.save_state(state)
     assignment = replace(state.task_assignments[0], input_artifact_ids=[input_artifact.id])
     state_store.upsert_task_assignment(state.project.id, assignment)
     assignment_id = assignment.id
@@ -896,6 +899,7 @@ def test_task_center_cli_complete_can_create_output_artifact_from_file(tmp_path,
     artifact = next(item for item in reloaded.artifacts if item.id == artifact_id)
     assert artifact.kind == "implementation_report"
     assert artifact.source_backend == "task_center/external"
+    assert artifact.parent_artifact_id == input_artifact.id
     assert artifact.derived_from == [input_artifact.id]
     assert "Implemented by external worker" in artifact.content
 
