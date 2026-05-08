@@ -166,6 +166,12 @@ def test_run_project_parser_accepts_replay_trace_options() -> None:
     assert args.replay_trace_output == "trace.json"
 
 
+def test_run_project_parser_accepts_audit_bundle_option() -> None:
+    args = build_parser().parse_args(["--requirement", "demo", "--write-audit-bundle"])
+
+    assert args.write_audit_bundle is True
+
+
 def test_run_project_parser_accepts_manifest_verification_output_options() -> None:
     args = build_parser().parse_args(
         [
@@ -270,6 +276,32 @@ def test_run_project_can_write_manifest_verification_report(tmp_path, capsys) ->
     assert payload["manifest_verification_report"]["error_count"] == 0
     assert report["passed"] is True
     assert report["project_id"] == payload["project_id"]
+
+
+def test_run_project_can_write_audit_bundle(tmp_path, capsys) -> None:
+    exit_code = run_project.main(
+        [
+            "--project-root",
+            str(tmp_path),
+            "--requirement",
+            "Build a small reading list",
+            "--max-steps",
+            "1",
+            "--skip-preflight-gate",
+            "--write-audit-bundle",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+    verification_path = tmp_path / ".conductor" / "replay" / f"{payload['project_id']}.verification.json"
+    trace_path = tmp_path / ".conductor" / "replay" / f"{payload['project_id']}.replay.md"
+
+    assert exit_code == 1
+    assert payload["manifest_verification_report"]["path"] == str(verification_path)
+    assert payload["manifest_verification_report"]["passed"] is True
+    assert payload["replay_trace"]["path"] == str(trace_path)
+    assert payload["replay_trace"]["passed"] is True
+    assert verification_path.exists()
+    assert trace_path.exists()
 
 
 def test_run_project_resolves_relative_replay_trace_output_under_project_root(tmp_path, capsys) -> None:

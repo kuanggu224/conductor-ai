@@ -121,6 +121,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="After writing the run manifest, also write a read-only replay trace.",
     )
     parser.add_argument(
+        "--write-audit-bundle",
+        action="store_true",
+        help="After writing the run manifest, write both manifest verification and replay trace artifacts.",
+    )
+    parser.add_argument(
         "--write-manifest-verification",
         action="store_true",
         help="After writing the run manifest, also write the JSON manifest verification report.",
@@ -281,7 +286,7 @@ def _write_manifest_verification_if_requested(
     manifest_verification,
 ) -> dict[str, object]:
     """Write an optional JSON manifest verification report after a project run."""
-    if not getattr(args, "write_manifest_verification", False):
+    if not (getattr(args, "write_manifest_verification", False) or getattr(args, "write_audit_bundle", False)):
         return {}
     output_path = (
         _resolve_project_output_path(project_root, args.manifest_verification_output)
@@ -329,7 +334,7 @@ def _resolve_project_root(project_root: str, project_name: str | None = None) ->
 
 def _write_replay_trace_if_requested(args, project_root: Path, manifest_path: Path) -> dict[str, object]:
     """Write an optional replay trace artifact after a project run."""
-    if not getattr(args, "write_replay_trace", False):
+    if not (getattr(args, "write_replay_trace", False) or getattr(args, "write_audit_bundle", False)):
         return {}
     trace = build_manifest_replay_trace(manifest_path)
     output_path = (
