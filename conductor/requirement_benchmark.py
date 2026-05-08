@@ -853,6 +853,14 @@ def _render_comparison_markdown(
                 "",
                 f"- Platform findings: {'; '.join(comparison.platform.findings) or '-'}",
                 f"- Direct findings: {'; '.join(comparison.direct.findings) or '-'}",
+                f"- Platform keyword coverage: {_keyword_metric_summary(comparison.platform)}",
+                f"- Direct keyword coverage: {_keyword_metric_summary(comparison.direct)}",
+                f"- Platform missing keywords: {_metric_list(comparison.platform.metrics.get('missing_keywords'))}",
+                f"- Direct missing keywords: {_metric_list(comparison.direct.metrics.get('missing_keywords'))}",
+                f"- Platform keyword matches: {_keyword_matches_summary(comparison.platform)}",
+                f"- Direct keyword matches: {_keyword_matches_summary(comparison.direct)}",
+                f"- Platform scope expansion: {_metric_list(comparison.platform.metrics.get('scope_expansion_topics'))}",
+                f"- Direct scope expansion: {_metric_list(comparison.direct.metrics.get('scope_expansion_topics'))}",
                 "",
                 "| Check | Platform | Direct |",
                 "|---|---|---|",
@@ -868,6 +876,36 @@ def _render_comparison_markdown(
             )
         lines.append("")
     return "\n".join(lines)
+
+
+def _keyword_metric_summary(evaluation: RequirementEvaluation) -> str:
+    """Return compact keyword coverage metrics for Markdown reports."""
+    metrics = evaluation.metrics
+    return (
+        f"{metrics.get('keyword_coverage', 0)}% "
+        f"({metrics.get('matched_keyword_count', 0)}/{metrics.get('expected_keyword_count', 0)})"
+    )
+
+
+def _keyword_matches_summary(evaluation: RequirementEvaluation, *, limit: int = 8) -> str:
+    """Return matched keyword aliases for Markdown reports."""
+    matches = evaluation.metrics.get("keyword_matches", {})
+    if not isinstance(matches, dict):
+        return "-"
+    pairs = [f"{term}->{alias}" for term, alias in matches.items() if alias]
+    if not pairs:
+        return "-"
+    rendered = pairs[:limit]
+    if len(pairs) > limit:
+        rendered.append(f"...+{len(pairs) - limit}")
+    return ", ".join(rendered)
+
+
+def _metric_list(value: object) -> str:
+    """Return a compact list metric for Markdown reports."""
+    if not isinstance(value, list) or not value:
+        return "-"
+    return ", ".join(str(item) for item in value)
 
 
 __all__ = [

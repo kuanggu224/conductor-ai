@@ -377,6 +377,10 @@ def test_requirement_comparison_report_writes_json_and_markdown(tmp_path) -> Non
     markdown = Path(result.markdown_path).read_text(encoding="utf-8")
     assert "| Check | Platform | Direct |" in markdown
     assert "has_acceptance_criteria" in markdown
+    assert "Platform keyword coverage:" in markdown
+    assert "Direct missing keywords:" in markdown
+    assert "Platform keyword matches:" in markdown
+    assert "Platform scope expansion:" in markdown
 
 
 def test_direct_requirement_baseline_runs_through_harness(tmp_path) -> None:
