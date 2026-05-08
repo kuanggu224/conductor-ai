@@ -249,6 +249,43 @@ def test_manifest_verifier_warns_for_malformed_summary_llm_token_usage(tmp_path)
     assert "summary.llm_token_usage.completion_tokens must be an integer" in result.warnings
 
 
+def test_manifest_verifier_warns_for_malformed_summary_llm_cost_estimate(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "summary": {
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+                "llm_cost_estimate": {
+                    "estimated_total": -0.1,
+                    "model_costs": [
+                        {"model": "local", "estimated_cost": "unknown"},
+                        {"model": "cloud", "estimated_cost": -1},
+                        "bad-record",
+                    ],
+                },
+            },
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert "summary.llm_cost_estimate.estimated_total must be non-negative" in result.warnings
+    assert "summary.llm_cost_estimate.model_costs[0].estimated_cost must be a number" in result.warnings
+    assert "summary.llm_cost_estimate.model_costs[1].estimated_cost must be non-negative" in result.warnings
+    assert "summary.llm_cost_estimate.model_costs[2] must be an object" in result.warnings
+
+
 def test_manifest_verifier_warns_for_malformed_resume_cursor_lists(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,

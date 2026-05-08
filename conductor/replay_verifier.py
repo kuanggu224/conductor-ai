@@ -193,6 +193,8 @@ class ManifestVerifier:
                 )
         if "llm_token_usage" in summary:
             self._verify_token_usage(summary.get("llm_token_usage"), "summary.llm_token_usage", result)
+        if "llm_cost_estimate" in summary:
+            self._verify_llm_cost_estimate(summary.get("llm_cost_estimate"), "summary.llm_cost_estimate", result)
 
     def _verify_resume_cursor(self, payload: dict[str, Any], result: ManifestVerificationResult) -> None:
         cursor = self._dict(payload.get("resume_cursor"))
@@ -362,6 +364,30 @@ class ManifestVerifier:
             elif parsed < 0:
                 result.warnings.append(f"{owner}.{key} must be non-negative")
 
+    def _verify_llm_cost_estimate(self, value: Any, owner: str, result: ManifestVerificationResult) -> None:
+        """Warn when cost estimate fields cannot be safely audited."""
+        if not isinstance(value, dict):
+            result.warnings.append(f"{owner} must be an object")
+            return
+        estimated_total = self._as_float(value.get("estimated_total"))
+        if "estimated_total" in value and estimated_total is None:
+            result.warnings.append(f"{owner}.estimated_total must be a number")
+        elif estimated_total is not None and estimated_total < 0:
+            result.warnings.append(f"{owner}.estimated_total must be non-negative")
+        model_costs = value.get("model_costs", [])
+        if "model_costs" in value and not isinstance(model_costs, list):
+            result.warnings.append(f"{owner}.model_costs must be a list")
+            return
+        for index, item in enumerate(model_costs if isinstance(model_costs, list) else []):
+            if not isinstance(item, dict):
+                result.warnings.append(f"{owner}.model_costs[{index}] must be an object")
+                continue
+            estimated_cost = self._as_float(item.get("estimated_cost"))
+            if "estimated_cost" in item and estimated_cost is None:
+                result.warnings.append(f"{owner}.model_costs[{index}].estimated_cost must be a number")
+            elif estimated_cost is not None and estimated_cost < 0:
+                result.warnings.append(f"{owner}.model_costs[{index}].estimated_cost must be non-negative")
+
     def _verify_no_secret_leaks(self, payload: dict[str, Any], result: ManifestVerificationResult) -> None:
         """Fail manifests that appear to contain API credentials.
 
@@ -516,6 +542,18 @@ class ManifestVerifier:
             return value
         if isinstance(value, str) and value.isdigit():
             return int(value)
+        return None
+
+    def _as_float(self, value: Any) -> float | None:
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, str):
+            try:
+                return float(value)
+            except ValueError:
+                return None
         return None
 
 
