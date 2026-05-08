@@ -1,6 +1,8 @@
 """Tests for the UTF-8 project runner entrypoint."""
 
 import json
+from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 from app import run_project
@@ -9,6 +11,7 @@ from conductor.agents.llm import LLMHTTPConfig
 from conductor.config.execution import resolve_run_profile
 from conductor.config.llm import LLMRuntimeConfig, LLMUsagePolicy
 from conductor.state.file_store import FileStateStore
+from conductor.task_center.service import TaskCenterService
 
 
 def test_run_project_parser_accepts_requirement_file() -> None:
@@ -125,6 +128,26 @@ def test_run_project_parser_accepts_resume_project_id() -> None:
     assert args.resume_project_id == "project-123"
 
 
+def test_run_project_parser_accepts_release_stale_tasks() -> None:
+    args = build_parser().parse_args(
+        [
+            "--project-root",
+            "demo",
+            "--resume-project-id",
+            "project-123",
+            "--release-stale-tasks",
+            "--stale-after-seconds",
+            "10",
+            "--stale-release-reason",
+            "resume cleanup",
+        ]
+    )
+
+    assert args.release_stale_tasks is True
+    assert args.stale_after_seconds == 10
+    assert args.stale_release_reason == "resume cleanup"
+
+
 def test_run_project_can_resume_existing_project(tmp_path, capsys) -> None:
     first_exit = run_project.main(
         [
@@ -161,6 +184,55 @@ def test_run_project_can_resume_existing_project(tmp_path, capsys) -> None:
     assert len(first_payload["workitems"]) == 1
     assert len(resumed_state.executions) == 1
     assert second_payload["manifest_path"].endswith(f"{first_payload['project_id']}.manifest.json")
+
+
+def test_run_project_can_release_stale_tasks_before_resume(tmp_path, capsys) -> None:
+    exit_code = run_project.main(
+        [
+            "--project-root",
+            str(tmp_path),
+            "--requirement",
+            "Build a small reading list",
+            "--max-steps",
+            "0",
+            "--skip-preflight-gate",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+
+    store = FileStateStore(tmp_path / ".conductor" / "state")
+    initial_state = store.get_state(payload["project_id"])
+    service = TaskCenterService(store)
+    claimed = service.claim(payload["project_id"], initial_state.task_assignments[0].id, agent_id="agent-worker")
+    stale_time = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+    stale_assignment = replace(claimed.assignment, claimed_at=stale_time, last_heartbeat_at=stale_time)
+    store.upsert_task_assignment(payload["project_id"], stale_assignment)
+
+    resumed_exit = run_project.main(
+        [
+            "--project-root",
+            str(tmp_path),
+            "--resume-project-id",
+            payload["project_id"],
+            "--max-steps",
+            "0",
+            "--skip-preflight-gate",
+            "--release-stale-tasks",
+            "--stale-after-seconds",
+            "1",
+            "--stale-release-reason",
+            "resume cleanup",
+        ]
+    )
+    resumed_payload = json.loads(capsys.readouterr().out)
+    reloaded = FileStateStore(tmp_path / ".conductor" / "state").get_state(payload["project_id"])
+
+    assert resumed_exit == 1
+    assert resumed_payload["released_stale_task_count"] == 1
+    assert reloaded.task_assignments[0].status.value == "queued"
+    assert reloaded.task_assignments[0].claim_reason == "resume cleanup"
+    assert reloaded.workitems[0].status.value == "pending"
 
 
 def test_run_project_preflight_only_can_skip_without_requirement(tmp_path, capsys) -> None:

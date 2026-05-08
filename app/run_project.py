@@ -18,6 +18,7 @@ from conductor.io.encoding import configure_utf8_stdio
 from conductor.io.requirements import load_requirement_text
 from conductor.preflight_gate import write_preflight_gate_payload
 from conductor.state.file_store import FileStateStore
+from conductor.task_center.service import DEFAULT_STALE_CLAIMED_AFTER_SECONDS, TaskCenterService
 
 configure_utf8_stdio()
 
@@ -95,6 +96,22 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--resume-project-id",
         help="Resume an existing project from --project-root/.conductor/state instead of creating a new project.",
+    )
+    parser.add_argument(
+        "--release-stale-tasks",
+        action="store_true",
+        help="Before running, release stale claimed Task Center assignments back to queued.",
+    )
+    parser.add_argument(
+        "--stale-after-seconds",
+        type=int,
+        default=DEFAULT_STALE_CLAIMED_AFTER_SECONDS,
+        help="Stale claimed-task threshold used with --release-stale-tasks.",
+    )
+    parser.add_argument(
+        "--stale-release-reason",
+        default="resume stale cleanup",
+        help="Release reason recorded when --release-stale-tasks requeues assignments.",
     )
     return parser
 
@@ -191,6 +208,15 @@ def main(argv: list[str] | None = None) -> int:
             json_key=args.requirement_json_key,
         )
         state = engine.create_project(requirement=requirement, project_root=str(project_root))
+    released_stale_task_count = 0
+    if args.release_stale_tasks:
+        stale_release = TaskCenterService(engine.state_store, event_prefix="RunProject").release_stale(
+            state.project.id,
+            stale_after_seconds=args.stale_after_seconds,
+            release_reason=args.stale_release_reason,
+        )
+        state = stale_release.state
+        released_stale_task_count = len(stale_release.assignments)
     state = engine.run_project(state.project.id, max_steps=args.max_steps)
     report_path = engine.write_project_report(state.project.id)
     manifest_path = engine.write_run_manifest(state.project.id, report_path=report_path)
@@ -201,6 +227,7 @@ def main(argv: list[str] | None = None) -> int:
         "project_root": state.project.project_root,
         "run_profile": run_profile.profile.value,
         "resumed": bool(args.resume_project_id),
+        "released_stale_task_count": released_stale_task_count,
         "report_path": str(report_path),
         "manifest_path": str(manifest_path),
         "workitems": [asdict(item) for item in state.workitems],

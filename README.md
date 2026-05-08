@@ -42,11 +42,13 @@ The repository is configured for local, deterministic execution.
 python -m pytest -q
 python -m app.run_project --project-root <project-root> --requirement "Build a reading list"
 python -m app.run_project --project-root <project-root> --resume-project-id <project-id>
+python -m app.run_project --project-root <project-root> --resume-project-id <project-id> --release-stale-tasks --stale-after-seconds 3600
 ```
 
 `--resume-project-id` loads the existing `.conductor/state/<project-id>.state.json`
 under the resolved project root and continues the controller-driven flow instead
-of creating a new project.
+of creating a new project. `--release-stale-tasks` can be used on resume to
+requeue claimed Task Center assignments whose heartbeat has expired.
 
 ## Task Center
 

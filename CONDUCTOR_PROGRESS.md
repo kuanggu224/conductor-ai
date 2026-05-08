@@ -147,6 +147,7 @@ templates/board.html       当前 Board 页面
 - `python -m app.run_project --preflight-only` 可只执行本次 run profile 的 gate 并退出，不创建项目，适合真实运行前做环境验收。
 - `--skip-preflight-gate` 可用于受控离线测试或故意跳过环境检查的场景。
 - `python -m app.run_project --resume-project-id <project-id>` 可从 `<project_root>/.conductor/state` 读取已有项目并继续执行，不会重新创建 Project。
+- `python -m app.run_project --resume-project-id <project-id> --release-stale-tasks` 可在恢复前释放心跳过期的 claimed TaskAssignment，避免长期占用。
 - 平台负责写入受控 artifact 文件。
 - 对 Qwen thinking 模型默认使用 `reasoning_effort=none`。
 - 支持 CLI 参数 `--llm-reasoning-effort none|low|medium|high`。
