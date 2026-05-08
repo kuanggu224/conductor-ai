@@ -328,6 +328,12 @@ class ManifestVerifier:
                         f"task assignment {assignment_id} output_artifact_ids is not indexed in artifacts: {artifact_id}"
                     )
 
+        for run_list_name in ("cli_runs", "llm_runs"):
+            for index, run in enumerate(self._list(payload.get(run_list_name))):
+                if not isinstance(run, dict):
+                    continue
+                self._warn_non_list_fields(run, f"{run_list_name}[{index}]", ("output_files",), result)
+
     def _warn_non_list_fields(
         self,
         item: dict[str, Any],
@@ -427,6 +433,14 @@ class ManifestVerifier:
                 result.warnings.append(f"task assignment prompt_file does not exist: {prompt_file}")
             if prompt_file and prompt_file not in task_prompt_files:
                 result.warnings.append(f"task assignment prompt_file is not indexed in task_prompt_files: {prompt_file}")
+
+        for run_list_name in ("cli_runs", "llm_runs"):
+            for index, run in enumerate(self._list(payload.get(run_list_name))):
+                if not isinstance(run, dict):
+                    continue
+                for raw_path in self._string_list(run.get("output_files", [])):
+                    if raw_path and not self._path_exists(raw_path, manifest_path, project_root):
+                        result.warnings.append(f"{run_list_name}[{index}].output_files entry does not exist: {raw_path}")
 
     def _ids_with_duplicate_check(
         self,

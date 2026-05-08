@@ -358,6 +358,51 @@ def test_manifest_verifier_warns_for_unindexed_execution_artifact_file(tmp_path)
     assert f"execution workitem-1 artifact_files entry is not indexed in artifact_files: {artifact_path}" in result.warnings
 
 
+def test_manifest_verifier_warns_for_run_output_files(tmp_path) -> None:
+    missing_cli_output = tmp_path / "missing-cli-output.md"
+    missing_llm_output = tmp_path / "missing-llm-output.md"
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "summary": {
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 1,
+                "llm_run_count": 1,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+            },
+            "cli_runs": [
+                {
+                    "agent_id": "agent-cli",
+                    "output_files": "not-a-list",
+                }
+            ],
+            "llm_runs": [
+                {
+                    "agent_id": "agent-llm",
+                    "output_files": [str(missing_llm_output)],
+                }
+            ],
+        },
+    )
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    payload["cli_runs"][0]["output_files"] = [str(missing_cli_output)]
+    payload["llm_runs"][0]["output_files"] = "not-a-list"
+    manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert f"cli_runs[0].output_files entry does not exist: {missing_cli_output}" in result.warnings
+    assert "llm_runs[0] output_files must be a list" in result.warnings
+
+
 def test_manifest_verifier_rejects_unknown_task_assignment_dependencies(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,
