@@ -135,6 +135,11 @@ def test_run_project_preflight_only_can_skip_without_requirement(tmp_path, capsy
         "skipped": True,
         "reason": "skip_preflight_gate",
         "project_root": str(tmp_path),
+        "preflight_gate": {
+            "run_profile": "mock",
+            "agent_cli": None,
+            "llm_harness_backend": None,
+        },
     }
     assert not (tmp_path / ".conductor" / "state").exists()
 
@@ -161,6 +166,9 @@ def test_run_project_preflight_only_blocks_real_profile_without_backend(monkeypa
     assert exit_code == 2
     assert payload["ok"] is False
     assert payload["project_root"] == str(tmp_path)
+    assert payload["preflight_gate"]["run_profile"] == "design_cli_only"
+    assert payload["preflight_gate"]["agent_cli"] is None
+    assert payload["preflight_gate"]["llm_harness_backend"] is None
     assert "requires real outputs" in payload["preflight_gate"]["errors"][0]
     assert not (tmp_path / ".conductor" / "state").exists()
 

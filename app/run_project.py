@@ -135,7 +135,13 @@ def main(argv: list[str] | None = None) -> int:
                 agent_cli=agent_cli,
                 llm_harness_backend=args.llm_harness,
             )
-        gate_payload.setdefault("project_root", str(project_root))
+        _add_preflight_output_metadata(
+            gate_payload,
+            project_root=project_root,
+            run_profile=run_profile,
+            agent_cli=agent_cli,
+            llm_harness_backend=args.llm_harness,
+        )
         print(json.dumps(gate_payload, ensure_ascii=False, indent=2))
         return 0 if gate_payload["ok"] is True else 2
 
@@ -149,6 +155,13 @@ def main(argv: list[str] | None = None) -> int:
             llm_harness_backend=args.llm_harness,
         )
         if gate_payload["ok"] is False:
+            _add_preflight_output_metadata(
+                gate_payload,
+                project_root=project_root,
+                run_profile=run_profile,
+                agent_cli=agent_cli,
+                llm_harness_backend=args.llm_harness,
+            )
             print(json.dumps(gate_payload, ensure_ascii=False, indent=2))
             return 2
 
@@ -252,6 +265,23 @@ def _build_llm_runtime_config(args):
     if args.llm_reasoning_effort is not None:
         selected.reasoning_effort = args.llm_reasoning_effort
     return runtime_config
+
+
+def _add_preflight_output_metadata(
+    payload: dict[str, object],
+    *,
+    project_root: Path,
+    run_profile,
+    agent_cli: str | None,
+    llm_harness_backend: str | None,
+) -> None:
+    """Stabilize preflight CLI JSON for scripts and human audit logs."""
+    payload.setdefault("project_root", str(project_root))
+    gate_payload = payload.setdefault("preflight_gate", {})
+    if isinstance(gate_payload, dict):
+        gate_payload.setdefault("run_profile", run_profile.profile.value)
+        gate_payload.setdefault("agent_cli", agent_cli)
+        gate_payload.setdefault("llm_harness_backend", llm_harness_backend)
 
 
 def _run_preflight_gate(
