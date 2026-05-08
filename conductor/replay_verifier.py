@@ -236,6 +236,12 @@ class ManifestVerifier:
             if not isinstance(workitem, dict):
                 continue
             workitem_id = str(workitem.get("id", ""))
+            self._warn_non_list_fields(
+                workitem,
+                f"workitem {workitem_id}",
+                ("dependencies", "input_artifact_ids", "output_artifact_ids"),
+                result,
+            )
             for dependency_id in self._string_list(workitem.get("dependencies", [])):
                 if dependency_id not in workitem_ids:
                     result.errors.append(f"workitem {workitem_id} dependency references unknown WorkItem: {dependency_id}")
@@ -252,6 +258,8 @@ class ManifestVerifier:
 
         for execution in executions:
             workitem_id = str(execution.get("workitem_id", "")) if isinstance(execution, dict) else ""
+            if isinstance(execution, dict):
+                self._warn_non_list_fields(execution, f"execution for {workitem_id}", ("artifact_ids",), result)
             if workitem_id and workitem_id not in workitem_ids:
                 result.errors.append(f"execution references unknown WorkItem: {workitem_id}")
             for artifact_id in self._string_list(execution.get("artifact_ids", []) if isinstance(execution, dict) else []):
@@ -287,6 +295,12 @@ class ManifestVerifier:
                 continue
             assignment_id = str(assignment.get("id", ""))
             workitem_id = str(assignment.get("workitem_id", ""))
+            self._warn_non_list_fields(
+                assignment,
+                f"task assignment {assignment_id}",
+                ("dependencies", "input_artifact_ids", "output_artifact_ids"),
+                result,
+            )
             if workitem_id and workitem_id not in workitem_ids:
                 result.errors.append(f"task assignment references unknown WorkItem: {workitem_id}")
             for dependency_id in self._string_list(assignment.get("dependencies", [])):
@@ -304,6 +318,18 @@ class ManifestVerifier:
                     result.warnings.append(
                         f"task assignment {assignment_id} output_artifact_ids is not indexed in artifacts: {artifact_id}"
                     )
+
+    def _warn_non_list_fields(
+        self,
+        item: dict[str, Any],
+        owner: str,
+        field_names: tuple[str, ...],
+        result: ManifestVerificationResult,
+    ) -> None:
+        """Warn when relationship fields are present but not encoded as lists."""
+        for field_name in field_names:
+            if field_name in item and not isinstance(item.get(field_name), list):
+                result.warnings.append(f"{owner} {field_name} must be a list")
 
     def _verify_no_secret_leaks(self, payload: dict[str, Any], result: ManifestVerificationResult) -> None:
         """Fail manifests that appear to contain API credentials.

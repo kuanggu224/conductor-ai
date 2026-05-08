@@ -236,6 +236,32 @@ def test_manifest_verifier_rejects_unknown_workitem_dependencies(tmp_path) -> No
     assert "workitem workitem-1 dependency references unknown WorkItem: missing-workitem" in result.errors
 
 
+def test_manifest_verifier_warns_for_malformed_workitem_relationship_lists(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "workitems": [
+                {
+                    "id": "workitem-1",
+                    "stage": "testing",
+                    "kind": "acceptance_check",
+                    "status": "done",
+                    "dependencies": "workitem-0",
+                    "input_artifact_ids": "artifact-input",
+                    "output_artifact_ids": "artifact-output",
+                }
+            ]
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert "workitem workitem-1 dependencies must be a list" in result.warnings
+    assert "workitem workitem-1 input_artifact_ids must be a list" in result.warnings
+    assert "workitem workitem-1 output_artifact_ids must be a list" in result.warnings
+
+
 def test_manifest_verifier_rejects_unknown_task_assignment_input_artifacts(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,
@@ -281,6 +307,54 @@ def test_manifest_verifier_warns_for_unindexed_task_assignment_output_artifacts(
         "task assignment assignment-1 output_artifact_ids is not indexed in artifacts: artifact-external"
         in result.warnings
     )
+
+
+def test_manifest_verifier_warns_for_malformed_task_assignment_relationship_lists(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "task_assignments": [
+                {
+                    "id": "assignment-1",
+                    "workitem_id": "workitem-1",
+                    "role": "tester",
+                    "status": "completed",
+                    "dependencies": "workitem-0",
+                    "input_artifact_ids": "artifact-input",
+                    "output_artifact_ids": "artifact-output",
+                }
+            ]
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert "task assignment assignment-1 dependencies must be a list" in result.warnings
+    assert "task assignment assignment-1 input_artifact_ids must be a list" in result.warnings
+    assert "task assignment assignment-1 output_artifact_ids must be a list" in result.warnings
+
+
+def test_manifest_verifier_warns_for_malformed_execution_artifact_ids(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "executions": [
+                {
+                    "workitem_id": "workitem-1",
+                    "agent_id": "agent-1",
+                    "status": "success",
+                    "artifact_ids": "artifact-1",
+                    "artifact_files": [],
+                }
+            ]
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert "execution for workitem-1 artifact_ids must be a list" in result.warnings
 
 
 def test_manifest_verifier_rejects_unknown_workitem_input_artifacts(tmp_path) -> None:
