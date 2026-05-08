@@ -8,6 +8,7 @@ from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 
+from conductor.audit_bundle import AUDIT_BUNDLE_SCHEMA_VERSION
 from conductor.config.cli import CLISelectionConfig
 from conductor.config.execution import RunProfile, resolve_run_profile
 from conductor.config.llm import load_llm_runtime_config
@@ -345,6 +346,7 @@ def _write_audit_bundle_index_if_requested(
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
+        "schema_version": AUDIT_BUNDLE_SCHEMA_VERSION,
         "project_id": project_id,
         "status": project_status,
         "run_profile": run_profile,

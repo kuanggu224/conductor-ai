@@ -240,7 +240,8 @@ python -m app.verify_audit_bundle C:\path\to\project\.conductor\replay\project-i
 
 The audit bundle verifier checks the bundle index and reruns manifest
 verification, so it can detect stale or corrupted bundle components. It also
-supports `--fail-on-warnings` for CI gates.
+supports `--fail-on-warnings` for CI gates. Current audit bundle schema is
+`1.0`.
 
 To write the replay trace as part of a project run:
 
@@ -310,7 +311,7 @@ Current targeted verification for read-only replay trace:
 
 Current full verification after preflight gate, diagnostics, manifest hardening,
 task-center recovery work, and manifest verification:
-`411 passed` with `python -m pytest -q`.
+`412 passed` with `python -m pytest -q`.
 
 ## Project Layout
 

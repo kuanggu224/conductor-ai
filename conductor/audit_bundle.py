@@ -9,6 +9,8 @@ from typing import Any
 
 from conductor.replay_verifier import verify_manifest
 
+AUDIT_BUNDLE_SCHEMA_VERSION = "1.0"
+
 
 @dataclass(slots=True)
 class AuditBundleVerificationResult:
@@ -35,7 +37,7 @@ class AuditBundleVerificationResult:
 class AuditBundleVerifier:
     """Validate a run audit bundle index without replaying executions."""
 
-    REQUIRED_TOP_LEVEL_FIELDS = ("project_id", "status", "run_profile", "files", "summary")
+    REQUIRED_TOP_LEVEL_FIELDS = ("schema_version", "project_id", "status", "run_profile", "files", "summary")
     REQUIRED_FILE_FIELDS = ("manifest", "report", "manifest_verification", "replay_trace")
 
     def verify(self, bundle_path: str | Path, *, check_files: bool = True) -> AuditBundleVerificationResult:
@@ -74,6 +76,13 @@ class AuditBundleVerifier:
                 result.errors.append(f"missing top-level field: {field_name}")
         if not str(payload.get("project_id", "")):
             result.errors.append("project_id must be non-empty")
+        schema_version = str(payload.get("schema_version", ""))
+        if not schema_version:
+            result.errors.append("schema_version must be non-empty")
+        elif schema_version != AUDIT_BUNDLE_SCHEMA_VERSION:
+            result.warnings.append(
+                f"audit bundle schema_version {schema_version} differs from current {AUDIT_BUNDLE_SCHEMA_VERSION}"
+            )
         files = payload.get("files")
         if not isinstance(files, dict):
             result.errors.append("files must be an object")
@@ -152,4 +161,9 @@ def verify_audit_bundle(bundle_path: str | Path, *, check_files: bool = True) ->
     return AuditBundleVerifier().verify(bundle_path, check_files=check_files)
 
 
-__all__ = ["AuditBundleVerificationResult", "AuditBundleVerifier", "verify_audit_bundle"]
+__all__ = [
+    "AUDIT_BUNDLE_SCHEMA_VERSION",
+    "AuditBundleVerificationResult",
+    "AuditBundleVerifier",
+    "verify_audit_bundle",
+]

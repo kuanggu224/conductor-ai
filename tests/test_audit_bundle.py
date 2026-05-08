@@ -50,6 +50,18 @@ def test_audit_bundle_verifier_rejects_missing_component_file(tmp_path, capsys) 
     assert any("files.report does not exist" in error for error in result.errors)
 
 
+def test_audit_bundle_verifier_warns_for_non_current_schema(tmp_path, capsys) -> None:
+    _, bundle_path = _write_project_audit_bundle(tmp_path, capsys)
+    bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+    bundle["schema_version"] = "0.1"
+    bundle_path.write_text(json.dumps(bundle, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    result = verify_audit_bundle(bundle_path)
+
+    assert result.passed is True
+    assert "audit bundle schema_version 0.1 differs from current 1.0" in result.warnings
+
+
 def test_audit_bundle_verifier_reruns_manifest_verification(tmp_path, capsys) -> None:
     _, bundle_path = _write_project_audit_bundle(tmp_path, capsys)
     bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
