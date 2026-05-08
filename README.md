@@ -120,7 +120,9 @@ status, and a remediation recommendation.
 For `design_cli_only`, `code_cli`, `full_cli`, or explicit `--llm-harness`
 runs, the gate checks the selected CLI/LLM backend and fails before creating a
 project if no real backend is usable. Use `--skip-preflight-gate` only for
-controlled offline tests.
+controlled offline tests. Gate results are persisted at
+`.conductor/diagnostics/run-preflight/preflight-gate.json` under the resolved
+project root.
 
 ### Jiutian LLM Backend
 

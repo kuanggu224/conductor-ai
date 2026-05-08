@@ -270,7 +270,7 @@ def _run_preflight_gate(
         llm_harness_backend=llm_harness_backend,
         runner_enabled=llm_runtime_config.usage.runner_enabled,
     )
-    return {
+    payload = {
         "ok": not errors,
         "preflight_gate": {
             "errors": errors,
@@ -280,6 +280,10 @@ def _run_preflight_gate(
         },
         "diagnostics": diagnostics.to_dict(),
     }
+    diagnostics_path = _preflight_gate_payload_path(project_root)
+    payload["preflight_gate"]["diagnostics_path"] = str(diagnostics_path)
+    _write_preflight_gate_payload(diagnostics_path, payload)
+    return payload
 
 
 def _preflight_gate_errors(
@@ -310,6 +314,18 @@ def _preflight_gate_errors(
                 f"LLMHarness backend `{llm_harness_backend}` is not ready: {backend.recommendation}"
             )
     return list(dict.fromkeys(error for error in errors if error))
+
+
+def _preflight_gate_payload_path(project_root: Path) -> Path:
+    """Return the audit path for the run preflight gate result."""
+    return project_root / ".conductor" / "diagnostics" / "run-preflight" / "preflight-gate.json"
+
+
+def _write_preflight_gate_payload(diagnostics_path: Path, payload: dict[str, object]) -> Path:
+    """Persist the run preflight gate result for audit and troubleshooting."""
+    diagnostics_path.parent.mkdir(parents=True, exist_ok=True)
+    diagnostics_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return diagnostics_path
 
 
 def _build_system_config(args) -> SystemConfig:

@@ -1,5 +1,6 @@
 """Tests for the UTF-8 project runner entrypoint."""
 
+import json
 from types import SimpleNamespace
 
 from app import run_project
@@ -130,6 +131,11 @@ def test_preflight_gate_blocks_real_profile_without_backend(tmp_path) -> None:
 
     assert payload["ok"] is False
     assert "requires real outputs" in payload["preflight_gate"]["errors"][0]
+    diagnostics_path = tmp_path / ".conductor" / "diagnostics" / "run-preflight" / "preflight-gate.json"
+    persisted = json.loads(diagnostics_path.read_text(encoding="utf-8"))
+    assert persisted["ok"] is False
+    assert persisted["preflight_gate"]["diagnostics_path"] == str(diagnostics_path)
+    assert payload["preflight_gate"]["diagnostics_path"] == str(diagnostics_path)
 
 
 def test_preflight_gate_skips_mock_run_even_when_llm_runner_is_configured(tmp_path) -> None:
@@ -172,6 +178,7 @@ def test_preflight_gate_allows_ready_llm_harness(monkeypatch, tmp_path) -> None:
     )
 
     assert payload["ok"] is True
+    assert (tmp_path / ".conductor" / "diagnostics" / "run-preflight" / "preflight-gate.json").exists()
 
 
 def test_preflight_gate_blocks_failed_llm_harness(monkeypatch, tmp_path) -> None:
