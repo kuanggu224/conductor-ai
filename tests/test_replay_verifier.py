@@ -192,6 +192,32 @@ def test_manifest_verifier_rejects_bad_summary_and_cursor_reference(tmp_path) ->
     assert any("missing-workitem" in error for error in result.errors)
 
 
+def test_manifest_verifier_warns_for_malformed_summary_changed_files(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "summary": {
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": "app.py",
+            },
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert "summary.changed_files must be a list" in result.warnings
+
+
 def test_manifest_verifier_warns_for_malformed_resume_cursor_lists(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,
@@ -214,6 +240,28 @@ def test_manifest_verifier_warns_for_malformed_resume_cursor_lists(tmp_path) -> 
     assert result.passed is True
     assert "resume_cursor.completed_workitem_ids must be a list" in result.warnings
     assert "resume_cursor.next_pending_workitem_ids must be a list" in result.warnings
+
+
+def test_manifest_verifier_warns_for_malformed_files_indexes(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "files": {
+                "log": str(tmp_path / "project" / ".conductor" / "logs" / "project-1.jsonl"),
+                "report": str(tmp_path / "project" / ".conductor" / "reports" / "project-1.md"),
+                "manifest": str(tmp_path / "project" / ".conductor" / "manifests" / "project-1.manifest.json"),
+                "artifacts": "artifact-1.md",
+                "task_prompts": "prompt.md",
+                "preflight_gate": "",
+            },
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert "files artifacts must be a list" in result.warnings
+    assert "files task_prompts must be a list" in result.warnings
 
 
 def test_manifest_verifier_rejects_unknown_task_assignment_dependencies(tmp_path) -> None:

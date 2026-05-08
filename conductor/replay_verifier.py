@@ -181,6 +181,8 @@ class ManifestVerifier:
                 )
 
         changed_files = self._list(summary.get("changed_files"))
+        if "changed_files" in summary and not isinstance(summary.get("changed_files"), list):
+            result.warnings.append("summary.changed_files must be a list")
         if "changed_file_count" in summary:
             actual = self._as_int(summary.get("changed_file_count"))
             if actual is None:
@@ -367,6 +369,7 @@ class ManifestVerifier:
     def _verify_files(self, manifest_path: Path, payload: dict[str, Any], result: ManifestVerificationResult) -> None:
         project_root = Path(str(payload.get("project_root", ""))) if str(payload.get("project_root", "")) else None
         files = self._dict(payload.get("files"))
+        self._warn_non_list_fields(files, "files", ("artifacts", "task_prompts"), result)
         for label in ("log", "report", "preflight_gate"):
             raw_path = str(files.get(label, ""))
             if raw_path and not self._path_exists(raw_path, manifest_path, project_root):
