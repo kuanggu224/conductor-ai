@@ -1917,6 +1917,86 @@ def test_manifest_verifier_warns_for_malformed_llm_run_token_usage(tmp_path) -> 
     assert "llm_runs[0].token_usage.completion_tokens must be an integer" in result.warnings
 
 
+def test_manifest_verifier_rejects_run_unknown_workitem_references(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "summary": {
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 1,
+                "llm_run_count": 1,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+            },
+            "agents": [{"agent_id": "agent-1"}],
+            "cli_runs": [
+                {
+                    "workitem_id": "missing-cli-workitem",
+                    "agent_id": "agent-1",
+                    "output_files": [],
+                }
+            ],
+            "llm_runs": [
+                {
+                    "workitem_id": "missing-llm-workitem",
+                    "agent_id": "agent-1",
+                    "token_usage": {},
+                    "output_files": [],
+                }
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert "cli_runs[0] references unknown WorkItem: missing-cli-workitem" in result.errors
+    assert "llm_runs[0] references unknown WorkItem: missing-llm-workitem" in result.errors
+
+
+def test_manifest_verifier_warns_for_run_unknown_agent_and_collaboration(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "summary": {
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 1,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+            },
+            "agents": [{"agent_id": "agent-1"}],
+            "llm_runs": [
+                {
+                    "workitem_id": "workitem-1",
+                    "agent_id": "agent-missing",
+                    "collaboration_id": "collaboration-missing",
+                    "token_usage": {},
+                    "output_files": [],
+                }
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert "llm_runs[0] references unknown Agent: agent-missing" in result.warnings
+    assert "llm_runs[0] references unknown CollaborationRun: collaboration-missing" in result.warnings
+
+
 def test_manifest_verifier_rejects_unknown_retry_history_workitem(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,

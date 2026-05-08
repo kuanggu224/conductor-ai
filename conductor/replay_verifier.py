@@ -668,6 +668,7 @@ class ManifestVerifier:
 
         workitem_ids = self._ids_with_duplicate_check("workitems", workitems, result)
         artifact_ids = self._ids_with_duplicate_check("artifacts", artifacts, result)
+        collaboration_ids = self._id_set(collaboration_runs)
         workitem_statuses = {
             str(item.get("id", "")): str(item.get("status", ""))
             for item in workitems
@@ -794,6 +795,15 @@ class ManifestVerifier:
                 self._warn_non_list_fields(run, f"{run_list_name}[{index}]", ("output_files",), result)
                 if run_list_name == "llm_runs" and "token_usage" in run:
                     self._verify_token_usage(run.get("token_usage"), f"llm_runs[{index}].token_usage", result)
+                self._verify_run_references(
+                    run_list_name,
+                    index,
+                    run,
+                    workitem_ids,
+                    agent_ids,
+                    collaboration_ids,
+                    result,
+                )
 
         for index, retry_record in enumerate(retry_history):
             if not isinstance(retry_record, dict):
@@ -905,6 +915,29 @@ class ManifestVerifier:
                     f"latest execution for WorkItem {workitem_id} has status {execution_status}, "
                     f"but WorkItem status is {actual_status}, expected {expected_status}"
                 )
+
+    def _verify_run_references(
+        self,
+        run_list_name: str,
+        index: int,
+        run: dict[str, Any],
+        workitem_ids: set[str],
+        agent_ids: set[str],
+        collaboration_ids: set[str],
+        result: ManifestVerificationResult,
+    ) -> None:
+        """Verify run-level evidence points at indexed project objects."""
+        workitem_id = str(run.get("workitem_id", ""))
+        if workitem_id and workitem_id not in workitem_ids:
+            result.errors.append(f"{run_list_name}[{index}] references unknown WorkItem: {workitem_id}")
+
+        self._warn_unknown_agent(agent_ids, str(run.get("agent_id", "")), f"{run_list_name}[{index}]", result)
+
+        collaboration_id = str(run.get("collaboration_id", ""))
+        if collaboration_id and collaboration_id not in collaboration_ids:
+            result.warnings.append(
+                f"{run_list_name}[{index}] references unknown CollaborationRun: {collaboration_id}"
+            )
 
     def _verify_task_assignment_workitem_status(
         self,
