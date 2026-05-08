@@ -321,6 +321,10 @@ def test_run_project_can_write_audit_bundle(tmp_path, capsys) -> None:
     assert bundle["files"]["report"] == payload["report_path"]
     assert bundle["files"]["manifest_verification"] == str(verification_path)
     assert bundle["files"]["replay_trace"] == str(trace_path)
+    assert len(bundle["checksums"]["manifest"]) == 64
+    assert len(bundle["checksums"]["report"]) == 64
+    assert len(bundle["checksums"]["manifest_verification"]) == 64
+    assert len(bundle["checksums"]["replay_trace"]) == 64
 
 
 def test_run_project_resolves_relative_audit_bundle_output_under_project_root(tmp_path, capsys) -> None:

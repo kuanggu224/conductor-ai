@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -110,6 +111,7 @@ class AuditBundleVerifier:
             raw_path = str(files.get(field_name, ""))
             if raw_path and not self._resolve_component_path(raw_path, bundle_path).exists():
                 result.errors.append(f"files.{field_name} does not exist: {raw_path}")
+        self._verify_checksums(bundle_path, files, payload, result)
 
         manifest_path = self._resolve_component_path(str(files.get("manifest", "")), bundle_path)
         if manifest_path.exists():
@@ -167,11 +169,40 @@ class AuditBundleVerifier:
         if "- Verification: `passed`" not in text:
             result.errors.append("replay_trace verification marker must be passed")
 
+    def _verify_checksums(
+        self,
+        bundle_path: Path,
+        files: dict[str, Any],
+        payload: dict[str, Any],
+        result: AuditBundleVerificationResult,
+    ) -> None:
+        checksums = payload.get("checksums")
+        if not isinstance(checksums, dict):
+            result.warnings.append("checksums must be an object")
+            return
+        for field_name in self.REQUIRED_FILE_FIELDS:
+            expected = str(checksums.get(field_name, ""))
+            if not expected:
+                result.warnings.append(f"checksums.{field_name} is missing")
+                continue
+            path = self._resolve_component_path(str(files.get(field_name, "")), bundle_path)
+            if path.exists() and path.is_file():
+                actual = self._sha256_file(path)
+                if actual != expected:
+                    result.errors.append(f"checksums.{field_name} does not match file content")
+
     def _resolve_component_path(self, raw_path: str, bundle_path: Path) -> Path:
         path = Path(raw_path)
         if path.is_absolute():
             return path
         return bundle_path.parent / path
+
+    def _sha256_file(self, path: Path) -> str:
+        digest = hashlib.sha256()
+        with path.open("rb") as file:
+            for chunk in iter(lambda: file.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
 
 
 def verify_audit_bundle(bundle_path: str | Path, *, check_files: bool = True) -> AuditBundleVerificationResult:

@@ -50,6 +50,30 @@ def test_audit_bundle_verifier_rejects_missing_component_file(tmp_path, capsys) 
     assert any("files.report does not exist" in error for error in result.errors)
 
 
+def test_audit_bundle_verifier_rejects_checksum_mismatch(tmp_path, capsys) -> None:
+    _, bundle_path = _write_project_audit_bundle(tmp_path, capsys)
+    bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+    report_path = Path(bundle["files"]["report"])
+    report_path.write_text("tampered report", encoding="utf-8")
+
+    result = verify_audit_bundle(bundle_path)
+
+    assert result.passed is False
+    assert "checksums.report does not match file content" in result.errors
+
+
+def test_audit_bundle_verifier_warns_for_missing_checksums(tmp_path, capsys) -> None:
+    _, bundle_path = _write_project_audit_bundle(tmp_path, capsys)
+    bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+    bundle.pop("checksums")
+    bundle_path.write_text(json.dumps(bundle, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    result = verify_audit_bundle(bundle_path)
+
+    assert result.passed is True
+    assert "checksums must be an object" in result.warnings
+
+
 def test_audit_bundle_verifier_warns_for_non_current_schema(tmp_path, capsys) -> None:
     _, bundle_path = _write_project_audit_bundle(tmp_path, capsys)
     bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
@@ -137,10 +161,8 @@ def test_verify_audit_bundle_cli_writes_output_file(tmp_path, capsys) -> None:
 def test_verify_audit_bundle_cli_can_fail_on_manifest_warnings(tmp_path, capsys) -> None:
     _, bundle_path = _write_project_audit_bundle(tmp_path, capsys)
     bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
-    manifest_path = Path(bundle["files"]["manifest"])
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    manifest["schema_version"] = "1.0"
-    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    bundle["schema_version"] = "0.1"
+    bundle_path.write_text(json.dumps(bundle, ensure_ascii=False, indent=2), encoding="utf-8")
 
     exit_code = verify_audit_bundle_main([str(bundle_path), "--fail-on-warnings"])
     captured = capsys.readouterr()
@@ -148,7 +170,7 @@ def test_verify_audit_bundle_cli_can_fail_on_manifest_warnings(tmp_path, capsys)
     assert exit_code == 2
     payload = json.loads(captured.out)
     assert payload["passed"] is True
-    assert any("manifest schema_version 1.0 differs from current 1.28" in warning for warning in payload["warnings"])
+    assert any("audit bundle schema_version 0.1 differs from current 1.0" in warning for warning in payload["warnings"])
 
 
 def test_verify_audit_bundle_cli_exits_two_for_invalid_bundle(tmp_path, capsys) -> None:

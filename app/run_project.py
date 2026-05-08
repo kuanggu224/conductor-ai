@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from dataclasses import asdict
 from datetime import datetime
@@ -357,6 +358,12 @@ def _write_audit_bundle_index_if_requested(
             "manifest_verification": str(manifest_verification_payload.get("path", "")),
             "replay_trace": str(replay_trace_payload.get("path", "")),
         },
+        "checksums": {
+            "manifest": _sha256_file(manifest_path),
+            "report": _sha256_file(report_path),
+            "manifest_verification": _sha256_file(Path(str(manifest_verification_payload.get("path", "")))),
+            "replay_trace": _sha256_file(Path(str(replay_trace_payload.get("path", "")))),
+        },
         "summary": {
             "manifest_verification_passed": bool(manifest_verification_payload.get("passed")),
             "replay_trace_passed": bool(replay_trace_payload.get("passed")),
@@ -373,6 +380,16 @@ def _write_audit_bundle_index_if_requested(
 
 def _default_audit_bundle_path(project_root: Path, project_id: str) -> Path:
     return project_root / ".conductor" / "replay" / f"{project_id}.audit.json"
+
+
+def _sha256_file(path: Path) -> str:
+    if not path.exists() or not path.is_file():
+        return ""
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _resolve_agent_cli(use_codex: bool, agent_cli: str | None) -> str | None:
