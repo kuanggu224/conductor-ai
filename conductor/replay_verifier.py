@@ -236,6 +236,9 @@ class ManifestVerifier:
             if not isinstance(workitem, dict):
                 continue
             workitem_id = str(workitem.get("id", ""))
+            for dependency_id in self._string_list(workitem.get("dependencies", [])):
+                if dependency_id not in workitem_ids:
+                    result.errors.append(f"workitem {workitem_id} dependency references unknown WorkItem: {dependency_id}")
             for artifact_id in self._string_list(workitem.get("input_artifact_ids", [])):
                 if artifact_id not in artifact_ids:
                     result.errors.append(

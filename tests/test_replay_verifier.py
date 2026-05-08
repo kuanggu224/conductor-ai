@@ -214,6 +214,28 @@ def test_manifest_verifier_rejects_unknown_task_assignment_dependencies(tmp_path
     assert "task assignment assignment-1 dependency references unknown WorkItem: missing-workitem" in result.errors
 
 
+def test_manifest_verifier_rejects_unknown_workitem_dependencies(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "workitems": [
+                {
+                    "id": "workitem-1",
+                    "stage": "testing",
+                    "kind": "acceptance_check",
+                    "status": "done",
+                    "dependencies": ["missing-workitem"],
+                }
+            ]
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert "workitem workitem-1 dependency references unknown WorkItem: missing-workitem" in result.errors
+
+
 def test_manifest_verifier_rejects_unknown_task_assignment_input_artifacts(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,
