@@ -228,6 +228,62 @@ def test_manifest_verifier_rejects_summary_final_status_mismatch(tmp_path) -> No
     assert "summary.final_status does not match manifest.final_status" in result.errors
 
 
+def test_manifest_verifier_rejects_bad_summary_workitem_status_counts(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "summary": {
+                "final_status": "completed",
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+                "workitem_status_counts": {"pending": 1},
+            },
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert any("summary.workitem_status_counts" in error for error in result.errors)
+
+
+def test_manifest_verifier_rejects_bad_summary_execution_status_counts(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "summary": {
+                "final_status": "completed",
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+                "execution_status_counts": {"failed": 1},
+            },
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert any("summary.execution_status_counts" in error for error in result.errors)
+
+
 def test_manifest_verifier_rejects_terminal_status_without_terminal_cursor(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,

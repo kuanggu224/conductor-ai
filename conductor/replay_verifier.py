@@ -209,6 +209,18 @@ class ManifestVerifier:
                 result.errors.append(
                     f"summary.{summary_key}={actual} does not match len({list_key})={expected}"
                 )
+        self._verify_summary_status_counts(
+            summary,
+            "workitem_status_counts",
+            self._status_counts(self._list(payload.get("workitems"))),
+            result,
+        )
+        self._verify_summary_status_counts(
+            summary,
+            "execution_status_counts",
+            self._status_counts(self._list(payload.get("executions"))),
+            result,
+        )
 
         changed_files = self._list(summary.get("changed_files"))
         if "changed_files" in summary and not isinstance(summary.get("changed_files"), list):
@@ -225,6 +237,31 @@ class ManifestVerifier:
             self._verify_token_usage(summary.get("llm_token_usage"), "summary.llm_token_usage", result)
         if "llm_cost_estimate" in summary:
             self._verify_llm_cost_estimate(summary.get("llm_cost_estimate"), "summary.llm_cost_estimate", result)
+
+    def _verify_summary_status_counts(
+        self,
+        summary: dict[str, Any],
+        summary_key: str,
+        expected_counts: dict[str, int],
+        result: ManifestVerificationResult,
+    ) -> None:
+        if summary_key not in summary:
+            return
+        value = summary.get(summary_key)
+        if not isinstance(value, dict):
+            result.errors.append(f"summary.{summary_key} must be an object")
+            return
+        actual_counts: dict[str, int] = {}
+        for status, raw_count in value.items():
+            parsed = self._as_int(raw_count)
+            if parsed is None:
+                result.errors.append(f"summary.{summary_key}.{status} must be an integer")
+                continue
+            actual_counts[str(status)] = parsed
+        if actual_counts != expected_counts:
+            result.errors.append(
+                f"summary.{summary_key}={actual_counts} does not match actual status counts={expected_counts}"
+            )
 
     def _verify_resume_cursor(self, payload: dict[str, Any], result: ManifestVerificationResult) -> None:
         cursor = self._dict(payload.get("resume_cursor"))
@@ -830,6 +867,17 @@ class ManifestVerifier:
         if not isinstance(value, list):
             return []
         return [str(item) for item in value if str(item)]
+
+    def _status_counts(self, items: list[Any]) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            status = str(item.get("status", ""))
+            if not status:
+                continue
+            counts[status] = counts.get(status, 0) + 1
+        return counts
 
     def _as_int(self, value: Any) -> int | None:
         if isinstance(value, bool):
