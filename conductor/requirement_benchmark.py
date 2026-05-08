@@ -30,7 +30,7 @@ class RequirementEvaluation:
     score: int
     passed: bool
     checks: dict[str, bool]
-    metrics: dict[str, int]
+    metrics: dict[str, Any]
     findings: list[str]
 
 
