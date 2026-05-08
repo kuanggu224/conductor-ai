@@ -184,6 +184,20 @@ Run one platform-vs-direct requirement check with the cloud backend:
 python -m app.requirement_benchmark run-suite --cases reading_list --output-dir .conductor\diagnostics\jiutian-reading-list --platform-llm cloud --direct-llm cloud --direct-prompt-mode plain --max-steps 4 --collaboration-max-rounds 1 --static-requirement-review
 ```
 
+### Manifest Verification
+
+Run manifests can be checked without replaying Agent execution:
+
+```powershell
+python -m app.verify_manifest C:\path\to\project\.conductor\manifests\project-id.manifest.json
+```
+
+The verifier checks schema basics, summary counts, `resume_cursor` references,
+WorkItem/Execution/Artifact links, and referenced report/log/artifact files. It
+returns exit code `0` when the manifest is self-consistent and `2` when hard
+errors are found. Missing referenced files are reported as warnings so moved or
+archived runs can still be inspected.
+
 ### Windows PowerShell UTF-8
 
 If Chinese text appears as mojibake when reading logs or reports in PowerShell,
@@ -219,8 +233,12 @@ The default flow is:
 6. Update shared state
 7. Let `LeadController` decide the next action
 
-Current full verification after preflight gate, diagnostics, and manifest hardening:
-`369 passed` with `python -m pytest -q`.
+Current targeted verification for the manifest verifier:
+`6 passed` with `python -m pytest tests\test_replay_verifier.py -q`.
+
+Current full verification after preflight gate, diagnostics, manifest hardening,
+task-center recovery work, and manifest verification:
+`375 passed` with `python -m pytest -q`.
 
 ## Project Layout
 

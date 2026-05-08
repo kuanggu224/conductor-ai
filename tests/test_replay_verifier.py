@@ -1,0 +1,221 @@
+"""Read-only run manifest verifier tests."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from app.verify_manifest import main as verify_manifest_main
+from conductor.config.cli import CLISelectionConfig
+from conductor.config.execution import RunProfile
+from conductor.controller.engine import ConductorEngine
+from conductor.replay_verifier import verify_manifest
+
+
+def _write_manifest(tmp_path: Path, overrides: dict[str, object] | None = None) -> Path:
+    project_root = tmp_path / "project"
+    report_path = project_root / ".conductor" / "reports" / "project-1.md"
+    log_path = project_root / ".conductor" / "logs" / "project-1.jsonl"
+    artifact_path = project_root / ".conductor" / "artifacts" / "artifact-1.md"
+    prompt_path = project_root / ".conductor" / "task_prompts" / "task-1.md"
+    manifest_path = project_root / ".conductor" / "manifests" / "project-1.manifest.json"
+    for path in (report_path, log_path, artifact_path, prompt_path, manifest_path):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("ok", encoding="utf-8")
+
+    payload: dict[str, object] = {
+        "schema_version": "1.27",
+        "run_id": "project-1:run",
+        "project_id": "project-1",
+        "generated_at": "2026-01-01T00:00:00+00:00",
+        "completed_at": "2026-01-01T00:00:00+00:00",
+        "run_profile": "mock",
+        "project_root": str(project_root),
+        "status": "completed",
+        "final_status": "completed",
+        "current_stage": "testing",
+        "working_directory": str(project_root),
+        "selected_cli_names": [],
+        "role_cli_bindings": {},
+        "summary": {
+            "final_status": "completed",
+            "workitem_count": 1,
+            "execution_count": 1,
+            "artifact_count": 1,
+            "artifact_file_count": 1,
+            "task_prompt_file_count": 1,
+            "cli_run_count": 0,
+            "llm_run_count": 0,
+            "collaboration_run_count": 0,
+            "retry_history_count": 0,
+            "changed_file_count": 0,
+            "changed_files": [],
+        },
+        "resume_cursor": {
+            "project_id": "project-1",
+            "project_status": "completed",
+            "current_stage": "testing",
+            "next_action": "complete",
+            "terminal": True,
+            "blocked": False,
+            "blockers": [],
+            "next_pending_workitem_ids": [],
+            "running_workitem_ids": [],
+            "retryable_failed_workitem_ids": [],
+            "terminal_failed_workitem_ids": [],
+            "completed_workitem_ids": ["workitem-1"],
+            "last_execution_workitem_id": "workitem-1",
+            "last_event": "completed",
+        },
+        "run_environment": {},
+        "platform_diagnostics": {},
+        "agents": [],
+        "executions": [
+            {
+                "workitem_id": "workitem-1",
+                "agent_id": "agent-1",
+                "status": "success",
+                "artifact_ids": ["artifact-1"],
+                "artifact_files": [str(artifact_path)],
+            }
+        ],
+        "cli_runs": [],
+        "llm_runs": [],
+        "collaboration_runs": [],
+        "retry_history": [],
+        "requirement_evaluations": [],
+        "requirement_coverage_results": [],
+        "scope_contract_results": [],
+        "workitems": [
+            {
+                "id": "workitem-1",
+                "stage": "testing",
+                "kind": "acceptance_check",
+                "status": "done",
+            }
+        ],
+        "task_assignments": [
+            {
+                "id": "assignment-1",
+                "workitem_id": "workitem-1",
+                "role": "tester",
+                "status": "completed",
+            }
+        ],
+        "artifacts": [
+            {
+                "id": "artifact-1",
+                "project_id": "project-1",
+                "workitem_id": "workitem-1",
+                "title": "Report",
+                "kind": "test_report",
+                "agent_id": "agent-1",
+                "path": str(artifact_path),
+            }
+        ],
+        "artifact_files": [str(artifact_path)],
+        "task_prompt_files": [str(prompt_path)],
+        "files": {
+            "log": str(log_path),
+            "report": str(report_path),
+            "manifest": str(manifest_path),
+            "artifacts": [str(artifact_path)],
+            "task_prompts": [str(prompt_path)],
+            "preflight_gate": "",
+        },
+        "log_path": str(log_path),
+        "report_path": str(report_path),
+    }
+    if overrides:
+        payload.update(overrides)
+    manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return manifest_path
+
+
+def test_manifest_verifier_accepts_consistent_manifest(tmp_path) -> None:
+    manifest_path = _write_manifest(tmp_path)
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert result.errors == []
+    assert result.project_id == "project-1"
+    assert result.schema_version == "1.27"
+
+
+def test_manifest_verifier_accepts_engine_generated_manifest(tmp_path) -> None:
+    project_root = tmp_path / "project"
+    engine = ConductorEngine(
+        log_dir=project_root / ".conductor" / "logs",
+        artifact_dir=project_root / ".conductor" / "artifacts",
+        cli_selection_config=CLISelectionConfig(),
+        run_profile=RunProfile.MOCK,
+    )
+    state = engine.create_project("验证 manifest 自检器", project_root=str(project_root))
+    state = engine.step_project(state.project.id)
+    report_path = engine.write_project_report(state.project.id)
+    manifest_path = engine.write_run_manifest(state.project.id, report_path)
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert result.errors == []
+
+
+def test_manifest_verifier_rejects_bad_summary_and_cursor_reference(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "summary": {
+                "workitem_count": 2,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+            },
+            "resume_cursor": {
+                "project_id": "project-1",
+                "project_status": "completed",
+                "current_stage": "testing",
+                "next_action": "complete",
+                "terminal": True,
+                "completed_workitem_ids": ["missing-workitem"],
+                "last_execution_workitem_id": "workitem-1",
+            },
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert "summary.workitem_count=2 does not match len(workitems)=1" in result.errors
+    assert any("missing-workitem" in error for error in result.errors)
+
+
+def test_manifest_verifier_reports_missing_files_as_warnings(tmp_path) -> None:
+    manifest_path = _write_manifest(tmp_path, {"artifact_files": [str(tmp_path / "missing.md")]})
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert any("artifact_files entry does not exist" in warning for warning in result.warnings)
+
+
+def test_verify_manifest_cli_exits_zero_for_valid_manifest(tmp_path, capsys) -> None:
+    manifest_path = _write_manifest(tmp_path)
+
+    exit_code = verify_manifest_main([str(manifest_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert '"passed": true' in captured.out
+
+
+def test_verify_manifest_cli_exits_two_for_invalid_manifest(tmp_path, capsys) -> None:
+    manifest_path = _write_manifest(tmp_path, {"project_id": ""})
+
+    exit_code = verify_manifest_main([str(manifest_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 2
+    assert "project_id must be non-empty" in captured.out
