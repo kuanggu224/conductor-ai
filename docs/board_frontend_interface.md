@@ -181,6 +181,7 @@ type BoardSnapshot = {
   code_execution_artifacts: BoardArtifactView[]
   project_agents: BoardProjectAgentView[]
 
+  preflight_gate: BoardPreflightGateView
   execution_runtime: BoardExecutionRuntimeView
   design_collaboration: BoardDesignCollaborationView
 }
@@ -200,6 +201,22 @@ type BoardProjectSummary = {
   current_stage_label: string
 }
 ```
+
+
+### 4.2.1 BoardPreflightGateView
+
+```ts
+type BoardPreflightGateView = {
+  recorded: boolean
+  status: "not_recorded" | "pass" | "fail" | "unknown" | "unreadable"
+  status_label: string
+  path: string
+  errors: string[]
+}
+```
+
+该字段来自 `<project_root>/.conductor/diagnostics/run-preflight/preflight-gate.json`，
+用于在 Board 中展示运行前环境检查是否通过，以及失败时的错误摘要。
 
 
 ### 4.3 BoardWorkItemView

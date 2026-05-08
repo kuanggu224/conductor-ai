@@ -162,6 +162,17 @@ class BoardExecutionRuntimeView:
 
 
 @dataclass(slots=True)
+class BoardPreflightGateView:
+    """Run preflight gate audit summary for Board consumers."""
+
+    recorded: bool = False
+    status: str = "not_recorded"
+    status_label: str = "未记录"
+    path: str = ""
+    errors: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
 class BoardDesignCollaborationView:
     """需求/设计阶段会议桌视图。"""
 
@@ -203,6 +214,7 @@ class BoardSnapshot:
     activation_nodes: list[BoardActivationNodeView] = field(default_factory=list)
     task_center_summary: dict[str, int] = field(default_factory=dict)
     task_assignments: list[BoardTaskAssignmentView] = field(default_factory=list)
+    preflight_gate: BoardPreflightGateView = field(default_factory=BoardPreflightGateView)
     execution_runtime: BoardExecutionRuntimeView = field(default_factory=BoardExecutionRuntimeView)
     design_collaboration: BoardDesignCollaborationView = field(default_factory=BoardDesignCollaborationView)
 

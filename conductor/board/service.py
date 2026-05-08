@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from conductor.board.models import (
     BoardActivationNodeView,
     BoardArtifactView,
@@ -9,6 +12,7 @@ from conductor.board.models import (
     BoardExecutionView,
     BoardExecutionRuntimeView,
     BoardMeetingAgentView,
+    BoardPreflightGateView,
     BoardProjectAgentView,
     BoardProjectSummary,
     BoardReviewView,
@@ -276,8 +280,46 @@ class BoardService:
                 )
                 for assignment in state.task_assignments
             ],
+            preflight_gate=self._build_preflight_gate_view(state),
             execution_runtime=self._build_execution_runtime_view(state, cli_config, llm_runtime_config),
             design_collaboration=self._build_design_collaboration_view(state, artifacts),
+        )
+
+    def _build_preflight_gate_view(self, state: SharedProjectState) -> BoardPreflightGateView:
+        """Build a Board-facing summary for persisted run preflight gate evidence."""
+        project_root = state.project.project_root
+        if not project_root:
+            return BoardPreflightGateView()
+        gate_path = Path(project_root) / ".conductor" / "diagnostics" / "run-preflight" / "preflight-gate.json"
+        if not gate_path.exists():
+            return BoardPreflightGateView()
+        try:
+            payload = json.loads(gate_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            return BoardPreflightGateView(
+                recorded=True,
+                status="unreadable",
+                status_label="无法读取",
+                path=str(gate_path),
+                errors=[str(error)],
+            )
+        ok = payload.get("ok") if isinstance(payload, dict) else None
+        gate_payload = payload.get("preflight_gate", {}) if isinstance(payload, dict) else {}
+        errors = gate_payload.get("errors", []) if isinstance(gate_payload, dict) else []
+        if not isinstance(errors, list):
+            errors = [str(errors)]
+        if ok is True:
+            status, label = "pass", "通过"
+        elif ok is False:
+            status, label = "fail", "失败"
+        else:
+            status, label = "unknown", "未知"
+        return BoardPreflightGateView(
+            recorded=True,
+            status=status,
+            status_label=label,
+            path=str(gate_path),
+            errors=[str(error) for error in errors],
         )
 
     def build_project_summaries(self, states: list[SharedProjectState]) -> list[BoardProjectSummary]:

@@ -1,5 +1,6 @@
 """BoardSnapshot 组装测试。"""
 
+import json
 from datetime import datetime, timedelta, timezone
 
 from conductor.board.service import BoardService
@@ -84,6 +85,8 @@ def test_board_service_builds_snapshot_from_state() -> None:
     assert snapshot.task_assignments[0].stale_claimed in {True, False}
     assert isinstance(snapshot.workitems[0].remediation_suggestions, list)
     assert isinstance(snapshot.executions[0].remediation_suggestions, list)
+    assert snapshot.preflight_gate.recorded is False
+    assert snapshot.preflight_gate.status == "not_recorded"
 
 
 def test_board_service_extracts_code_execution_reports() -> None:
@@ -162,6 +165,44 @@ def test_board_service_exposes_requirement_team_plan() -> None:
 
     assert snapshot.design_collaboration.team_plan["complexity_level"] == "complex"
     assert snapshot.design_collaboration.team_plan["peer_seats"][0]["seat_id"] == "designer.interaction"
+
+
+def test_board_service_exposes_preflight_gate_summary(tmp_path) -> None:
+    project_root = tmp_path / "project"
+    gate_path = project_root / ".conductor" / "diagnostics" / "run-preflight" / "preflight-gate.json"
+    gate_path.parent.mkdir(parents=True)
+    gate_path.write_text(
+        json.dumps(
+            {
+                "ok": False,
+                "preflight_gate": {
+                    "errors": ["local LLM preflight failed"],
+                    "diagnostics_path": str(gate_path),
+                },
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    state = SharedProjectState(
+        project=Project(
+            id="project-preflight-board",
+            goal="show preflight gate",
+            current_stage="requirement",
+            project_root=str(project_root),
+        ),
+        project_status=ProjectStatus.IN_PROGRESS,
+        current_stage="requirement",
+    )
+
+    snapshot = BoardService().build_snapshot(state)
+
+    assert snapshot.preflight_gate.recorded is True
+    assert snapshot.preflight_gate.status == "fail"
+    assert snapshot.preflight_gate.status_label == "失败"
+    assert snapshot.preflight_gate.path == str(gate_path)
+    assert snapshot.preflight_gate.errors == ["local LLM preflight failed"]
 
 
 def test_board_service_exposes_task_center_readiness() -> None:
