@@ -263,7 +263,7 @@ class ManifestVerifier:
         for execution in executions:
             workitem_id = str(execution.get("workitem_id", "")) if isinstance(execution, dict) else ""
             if isinstance(execution, dict):
-                self._warn_non_list_fields(execution, f"execution for {workitem_id}", ("artifact_ids",), result)
+                self._warn_non_list_fields(execution, f"execution for {workitem_id}", ("artifact_ids", "artifact_files"), result)
             if workitem_id and workitem_id not in workitem_ids:
                 result.errors.append(f"execution references unknown WorkItem: {workitem_id}")
             for artifact_id in self._string_list(execution.get("artifact_ids", []) if isinstance(execution, dict) else []):
@@ -402,6 +402,16 @@ class ManifestVerifier:
             artifact_path = str(artifact.get("path", ""))
             if artifact_path and artifact_path not in artifact_files:
                 result.warnings.append(f"artifact path is not indexed in artifact_files: {artifact_path}")
+
+        for execution in self._list(payload.get("executions")):
+            if not isinstance(execution, dict):
+                continue
+            workitem_id = str(execution.get("workitem_id", ""))
+            for raw_path in self._string_list(execution.get("artifact_files", [])):
+                if raw_path and not self._path_exists(raw_path, manifest_path, project_root):
+                    result.warnings.append(f"execution {workitem_id} artifact_files entry does not exist: {raw_path}")
+                if raw_path and raw_path not in artifact_files:
+                    result.warnings.append(f"execution {workitem_id} artifact_files entry is not indexed in artifact_files: {raw_path}")
 
         task_prompt_files = set(self._string_list(payload.get("task_prompt_files", [])))
         for assignment in self._list(payload.get("task_assignments")):

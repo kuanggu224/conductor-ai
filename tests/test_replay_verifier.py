@@ -334,6 +334,30 @@ def test_manifest_verifier_warns_for_unindexed_assignment_prompt_file(tmp_path) 
     assert f"task assignment prompt_file is not indexed in task_prompt_files: {prompt_path}" in result.warnings
 
 
+def test_manifest_verifier_warns_for_unindexed_execution_artifact_file(tmp_path) -> None:
+    artifact_path = tmp_path / "project" / ".conductor" / "artifacts" / "missing-execution-artifact.md"
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "executions": [
+                {
+                    "workitem_id": "workitem-1",
+                    "agent_id": "agent-1",
+                    "status": "success",
+                    "artifact_ids": ["artifact-1"],
+                    "artifact_files": [str(artifact_path)],
+                }
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert f"execution workitem-1 artifact_files entry does not exist: {artifact_path}" in result.warnings
+    assert f"execution workitem-1 artifact_files entry is not indexed in artifact_files: {artifact_path}" in result.warnings
+
+
 def test_manifest_verifier_rejects_unknown_task_assignment_dependencies(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,
@@ -487,7 +511,7 @@ def test_manifest_verifier_warns_for_malformed_execution_artifact_ids(tmp_path) 
                     "agent_id": "agent-1",
                     "status": "success",
                     "artifact_ids": "artifact-1",
-                    "artifact_files": [],
+                    "artifact_files": "artifact-1.md",
                 }
             ]
         },
@@ -497,6 +521,7 @@ def test_manifest_verifier_warns_for_malformed_execution_artifact_ids(tmp_path) 
 
     assert result.passed is True
     assert "execution for workitem-1 artifact_ids must be a list" in result.warnings
+    assert "execution for workitem-1 artifact_files must be a list" in result.warnings
 
 
 def test_manifest_verifier_rejects_unknown_workitem_input_artifacts(tmp_path) -> None:
