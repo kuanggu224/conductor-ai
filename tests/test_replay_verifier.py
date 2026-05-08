@@ -313,6 +313,57 @@ def test_manifest_verifier_rejects_non_blocked_status_with_blocked_cursor(tmp_pa
     assert "non-blocked manifest cannot have resume_cursor.blocked=true" in result.errors
 
 
+def test_manifest_verifier_rejects_completed_cursor_with_pending_work(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "resume_cursor": {
+                "project_id": "project-1",
+                "project_status": "completed",
+                "current_stage": "testing",
+                "next_action": "complete",
+                "terminal": True,
+                "blocked": False,
+                "next_pending_workitem_ids": ["workitem-1"],
+                "running_workitem_ids": [],
+                "retryable_failed_workitem_ids": [],
+                "terminal_failed_workitem_ids": [],
+                "completed_workitem_ids": ["workitem-1"],
+                "last_execution_workitem_id": "workitem-1",
+            },
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert "completed manifest cannot have resume_cursor.next_pending_workitem_ids" in result.errors
+
+
+def test_manifest_verifier_rejects_completed_cursor_with_blockers(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "resume_cursor": {
+                "project_id": "project-1",
+                "project_status": "completed",
+                "current_stage": "testing",
+                "next_action": "complete",
+                "terminal": True,
+                "blocked": False,
+                "blockers": ["waiting for external approval"],
+                "completed_workitem_ids": ["workitem-1"],
+                "last_execution_workitem_id": "workitem-1",
+            },
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert "completed manifest cannot have resume_cursor.blockers" in result.errors
+
+
 def test_manifest_verifier_checks_cli_config_shape_and_bindings(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,

@@ -252,6 +252,8 @@ class ManifestVerifier:
             result.errors.append("blocked manifest must have resume_cursor.blocked=true")
         if final_status != "blocked" and cursor.get("blocked") is True:
             result.errors.append("non-blocked manifest cannot have resume_cursor.blocked=true")
+        if "blockers" in cursor and not isinstance(cursor.get("blockers"), list):
+            result.warnings.append("resume_cursor.blockers must be a list")
 
         workitem_ids = self._id_set(self._list(payload.get("workitems")))
         for cursor_key in self.CURSOR_WORKITEM_LISTS:
@@ -260,6 +262,17 @@ class ManifestVerifier:
             for workitem_id in self._string_list(cursor.get(cursor_key)):
                 if workitem_id not in workitem_ids:
                     result.errors.append(f"resume_cursor.{cursor_key} references unknown WorkItem: {workitem_id}")
+        if final_status == "completed":
+            for cursor_key in (
+                "next_pending_workitem_ids",
+                "running_workitem_ids",
+                "retryable_failed_workitem_ids",
+                "terminal_failed_workitem_ids",
+            ):
+                if self._string_list(cursor.get(cursor_key)):
+                    result.errors.append(f"completed manifest cannot have resume_cursor.{cursor_key}")
+            if self._string_list(cursor.get("blockers")):
+                result.errors.append("completed manifest cannot have resume_cursor.blockers")
         last_execution_workitem_id = str(cursor.get("last_execution_workitem_id", ""))
         if last_execution_workitem_id and last_execution_workitem_id not in workitem_ids:
             result.errors.append(
