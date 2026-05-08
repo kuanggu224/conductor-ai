@@ -561,6 +561,8 @@ external worker is stale, and should pass `claim_token` back on
 当前内置预设包括 `openai`、`jiutian` 和 `lmstudio`。保存时前端可以在
 `local.preset_id` 或 `cloud.preset_id` 中传入预设 id；后端会使用预设的
 `base_url`、`model_name` 和 `timeout_seconds`，API key 仍由用户本地填写。
+该接口不会返回真实 API key，只返回 `api_key_present`。保存时如果 `api_key`
+字段为空或缺失，后端会保留本地已有 key，避免切换 preset 时误清空密钥。
 
 `GET /api/diagnostics` 默认只读取本地配置和已发现 CLI，不访问网络。
 如需探测已启用的 OpenAI-compatible LLM `/models` 接口，可传 `?probe_llm=true`。

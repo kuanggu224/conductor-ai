@@ -5,9 +5,10 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from app import board
+from conductor.agents.llm import LLMHTTPConfig
 from conductor.config.cli import load_cli_selection_config
 from conductor.config.execution import load_execution_scope_config
-from conductor.config.llm import load_llm_runtime_config
+from conductor.config.llm import LLMRuntimeConfig, LLMUsagePolicy, load_llm_runtime_config
 
 
 def test_llm_settings_page_renders() -> None:
@@ -59,6 +60,31 @@ def test_llm_settings_api_exposes_provider_presets() -> None:
     assert any(item["id"] == "jiutian" for item in payload["provider_presets"])
 
 
+def test_llm_settings_api_redacts_existing_api_keys(monkeypatch) -> None:
+    monkeypatch.setattr(board, "load_llm_runtime_config", lambda: build_llm_config_with_keys())
+    client = TestClient(board.app)
+
+    response = client.get("/api/settings/llm")
+
+    payload = response.json()
+    assert response.status_code == 200
+    assert "sk-cloud-secret" not in response.text
+    assert payload["cloud"]["api_key"] is None
+    assert payload["cloud"]["api_key_present"] is True
+    assert payload["local"]["api_key_present"] is True
+
+
+def test_llm_settings_page_redacts_existing_api_keys(monkeypatch) -> None:
+    monkeypatch.setattr(board, "load_llm_runtime_config", lambda: build_llm_config_with_keys())
+    client = TestClient(board.app)
+
+    response = client.get("/settings/llm")
+
+    assert response.status_code == 200
+    assert "sk-cloud-secret" not in response.text
+    assert "已配置，留空保留原 key" in response.text
+
+
 def test_save_llm_settings_api_can_apply_cloud_preset(monkeypatch) -> None:
     captured = {}
     monkeypatch.setattr(board, "save_llm_runtime_config", lambda config: captured.setdefault("config", config))
@@ -85,6 +111,51 @@ def test_save_llm_settings_api_can_apply_cloud_preset(monkeypatch) -> None:
     assert saved.cloud.model_name == "jiutian-lan-comv3"
     assert saved.cloud.timeout_seconds == 120.0
     assert saved.cloud.api_key == "sk-demo"
+
+
+def test_save_llm_settings_api_preserves_existing_api_key_when_blank(monkeypatch) -> None:
+    captured = {}
+    monkeypatch.setattr(board, "load_llm_runtime_config", lambda: build_llm_config_with_keys())
+    monkeypatch.setattr(board, "save_llm_runtime_config", lambda config: captured.setdefault("config", config))
+    monkeypatch.setattr(board, "refresh_engine_llm_backend", lambda: None)
+    client = TestClient(board.app)
+
+    response = client.post(
+        "/api/settings/llm",
+        json={
+            "cloud": {
+                "base_url": "https://example.com/v1",
+                "model_name": "cloud-model",
+                "api_key": "",
+                "enabled": True,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured["config"].cloud.api_key == "sk-cloud-secret"
+
+
+def test_save_llm_settings_form_preserves_existing_api_key_when_blank(monkeypatch) -> None:
+    captured = {}
+    monkeypatch.setattr(board, "load_llm_runtime_config", lambda: build_llm_config_with_keys())
+    monkeypatch.setattr(board, "save_llm_runtime_config", lambda config: captured.setdefault("config", config))
+    monkeypatch.setattr(board, "refresh_engine_llm_backend", lambda: None)
+    client = TestClient(board.app)
+
+    response = client.post(
+        "/settings/llm",
+        data={
+            "cloud_base_url": "https://example.com/v1",
+            "cloud_model": "cloud-model",
+            "cloud_timeout": "45",
+            "cloud_enabled": "on",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert captured["config"].cloud.api_key == "sk-cloud-secret"
 
 
 def test_execution_settings_page_renders() -> None:
@@ -169,6 +240,24 @@ def save_cli_config_for_test(config, config_path):
     from conductor.config.cli import save_cli_selection_config
 
     return save_cli_selection_config(config, config_path)
+
+
+def build_llm_config_with_keys() -> LLMRuntimeConfig:
+    return LLMRuntimeConfig(
+        local=LLMHTTPConfig(
+            base_url="http://127.0.0.1:1234/v1",
+            model_name="local-model",
+            api_key="sk-local-secret",
+            enabled=True,
+        ),
+        cloud=LLMHTTPConfig(
+            base_url="https://jiutian.10086.cn/largemodel/moma/api/v3",
+            model_name="jiutian-lan-comv3",
+            api_key="sk-cloud-secret",
+            enabled=True,
+        ),
+        usage=LLMUsagePolicy(runner_enabled=True),
+    )
 
 
 def test_folder_picker_page_renders(tmp_path) -> None:

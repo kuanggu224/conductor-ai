@@ -160,7 +160,7 @@
                     <input id="local_model" name="local_model" value="{{ config.local.model_name }}">
 
                     <label for="local_api_key">API Key</label>
-                    <input id="local_api_key" name="local_api_key" type="password" value="{{ config.local.api_key or '' }}">
+                    <input id="local_api_key" name="local_api_key" type="password" value="" placeholder="{% if local_api_key_present %}已配置，留空保留原 key{% else %}未配置{% endif %}">
 
                     <label for="local_timeout">超时时间（秒）</label>
                     <input id="local_timeout" name="local_timeout" value="{{ config.local.timeout_seconds }}">
@@ -188,7 +188,7 @@
                     <input id="cloud_model" name="cloud_model" value="{{ config.cloud.model_name }}">
 
                     <label for="cloud_api_key">API Key</label>
-                    <input id="cloud_api_key" name="cloud_api_key" type="password" value="{{ config.cloud.api_key or '' }}">
+                    <input id="cloud_api_key" name="cloud_api_key" type="password" value="" placeholder="{% if cloud_api_key_present %}已配置，留空保留原 key{% else %}未配置{% endif %}">
 
                     <label for="cloud_timeout">超时时间（秒）</label>
                     <input id="cloud_timeout" name="cloud_timeout" value="{{ config.cloud.timeout_seconds }}">

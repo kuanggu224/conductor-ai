@@ -264,6 +264,41 @@ def match_llm_provider_preset_id(base_url: str, model_name: str, backend: str) -
     return ""
 
 
+def redacted_llm_runtime_config(config: LLMRuntimeConfig) -> LLMRuntimeConfig:
+    """Return LLM config safe for HTML/JSON rendering."""
+    return LLMRuntimeConfig(
+        local=replace(config.local, api_key=None),
+        cloud=replace(config.cloud, api_key=None),
+        usage=config.usage,
+    )
+
+
+def llm_settings_payload(config: LLMRuntimeConfig) -> dict[str, object]:
+    """Build the public LLM settings payload without exposing API keys."""
+    payload = asdict(redacted_llm_runtime_config(config))
+    payload["local"]["api_key_present"] = bool(config.local.api_key)
+    payload["cloud"]["api_key_present"] = bool(config.cloud.api_key)
+    payload["provider_presets"] = [asdict(preset) for preset in list_llm_provider_presets()]
+    return payload
+
+
+def _payload_api_key(payload: dict, current_api_key: str | None) -> str | None:
+    """Preserve existing API keys when a settings payload leaves the field blank."""
+    if "api_key" not in payload:
+        return current_api_key
+    value = payload.get("api_key")
+    if value is None:
+        return current_api_key
+    text = str(value).strip()
+    return text or current_api_key
+
+
+def _form_api_key(form: dict[str, list[str]], name: str, current_api_key: str | None) -> str | None:
+    """Preserve existing API keys when an HTML form leaves the field blank."""
+    value = _optional_form_value(form, name)
+    return value if value is not None else current_api_key
+
+
 def get_project_task_status(project_id: str) -> ProjectTaskStatus:
     """读取项目后台任务状态。"""
     with task_lock:
@@ -1071,9 +1106,7 @@ async def save_cli_settings_api(request: Request) -> JSONResponse:
 def llm_settings_api() -> JSONResponse:
     """Return LLM settings."""
     config = load_llm_runtime_config()
-    payload = asdict(config)
-    payload["provider_presets"] = [asdict(preset) for preset in list_llm_provider_presets()]
-    return JSONResponse(payload)
+    return JSONResponse(llm_settings_payload(config))
 
 
 @app.get("/api/diagnostics")
@@ -1104,20 +1137,21 @@ async def save_llm_settings_api(request: Request) -> JSONResponse:
     payload = await request.json()
     local_payload = dict(payload.get("local", {}))
     cloud_payload = dict(payload.get("cloud", {}))
+    existing_config = load_llm_runtime_config()
     local_preset = get_llm_provider_preset(local_payload.get("preset_id"))
     cloud_preset = get_llm_provider_preset(cloud_payload.get("preset_id"))
     config = LLMRuntimeConfig(
         local=LLMHTTPConfig(
             base_url=str((local_preset.base_url if local_preset else None) or local_payload.get("base_url") or "http://127.0.0.1:11434/v1"),
             model_name=str((local_preset.model_name if local_preset else None) or local_payload.get("model_name") or "local-demo-model"),
-            api_key=local_payload.get("api_key"),
+            api_key=_payload_api_key(local_payload, existing_config.local.api_key),
             timeout_seconds=float((local_preset.timeout_seconds if local_preset else None) or local_payload.get("timeout_seconds") or 30.0),
             enabled=bool(local_payload.get("enabled", False)),
         ),
         cloud=LLMHTTPConfig(
             base_url=str((cloud_preset.base_url if cloud_preset else None) or cloud_payload.get("base_url") or "https://api.openai.com/v1"),
             model_name=str((cloud_preset.model_name if cloud_preset else None) or cloud_payload.get("model_name") or "gpt-demo-model"),
-            api_key=cloud_payload.get("api_key"),
+            api_key=_payload_api_key(cloud_payload, existing_config.cloud.api_key),
             timeout_seconds=float((cloud_preset.timeout_seconds if cloud_preset else None) or cloud_payload.get("timeout_seconds") or 30.0),
             enabled=bool(cloud_payload.get("enabled", False)),
         ),
@@ -1259,11 +1293,12 @@ def run_project(project_id: str) -> RedirectResponse:
 def llm_settings_page(request: Request, saved: str | None = None) -> HTMLResponse:
     """渲染 LLM 配置页面。"""
     config = load_llm_runtime_config()
+    public_config = redacted_llm_runtime_config(config)
     return templates.TemplateResponse(
         request=request,
         name="llm_config.html",
         context={
-            "config": config,
+            "config": public_config,
             "provider_presets": list_llm_provider_presets(),
             "local_preset_id": match_llm_provider_preset_id(
                 config.local.base_url,
@@ -1275,6 +1310,8 @@ def llm_settings_page(request: Request, saved: str | None = None) -> HTMLRespons
                 config.cloud.model_name,
                 "cloud",
             ),
+            "local_api_key_present": bool(config.local.api_key),
+            "cloud_api_key_present": bool(config.cloud.api_key),
             "saved": saved == "1",
         },
     )
@@ -1285,20 +1322,21 @@ async def save_llm_settings(request: Request) -> RedirectResponse:
     """保存 LLM 配置并热更新 Agent backend。"""
     body = (await request.body()).decode("utf-8")
     form = parse_qs(body)
+    existing_config = load_llm_runtime_config()
     local_preset = get_llm_provider_preset(_form_value(form, "local_preset_id", ""))
     cloud_preset = get_llm_provider_preset(_form_value(form, "cloud_preset_id", ""))
     config = LLMRuntimeConfig(
         local=LLMHTTPConfig(
             base_url=local_preset.base_url if local_preset else _form_value(form, "local_base_url", "http://127.0.0.1:11434/v1"),
             model_name=local_preset.model_name if local_preset else _form_value(form, "local_model", "local-demo-model"),
-            api_key=_optional_form_value(form, "local_api_key"),
+            api_key=_form_api_key(form, "local_api_key", existing_config.local.api_key),
             timeout_seconds=local_preset.timeout_seconds if local_preset else float(_form_value(form, "local_timeout", "30.0")),
             enabled=_form_checked(form, "local_enabled"),
         ),
         cloud=LLMHTTPConfig(
             base_url=cloud_preset.base_url if cloud_preset else _form_value(form, "cloud_base_url", "https://api.openai.com/v1"),
             model_name=cloud_preset.model_name if cloud_preset else _form_value(form, "cloud_model", "gpt-demo-model"),
-            api_key=_optional_form_value(form, "cloud_api_key"),
+            api_key=_form_api_key(form, "cloud_api_key", existing_config.cloud.api_key),
             timeout_seconds=cloud_preset.timeout_seconds if cloud_preset else float(_form_value(form, "cloud_timeout", "30.0")),
             enabled=_form_checked(form, "cloud_enabled"),
         ),
