@@ -81,13 +81,18 @@ def _verify_bundle_directory(
     ]
     error_count = sum(int(result.get("error_count", 0)) for result in results)
     warning_count = sum(int(result.get("warning_count", 0)) for result in results)
+    failed_bundle_count = sum(1 for result in results if result.get("passed") is not True)
+    warning_bundle_count = sum(1 for result in results if int(result.get("warning_count", 0)) > 0)
     errors = [] if bundle_paths else [f"no audit bundles found under: {directory}"]
     if not bundle_paths:
         error_count = 1
+        failed_bundle_count = 1
     passed = error_count == 0 and (not fail_on_warnings or warning_count == 0)
     return {
         "bundle_dir": str(directory.resolve()),
         "bundle_count": len(bundle_paths),
+        "failed_bundle_count": failed_bundle_count,
+        "warning_bundle_count": warning_bundle_count,
         "passed": passed,
         "error_count": error_count,
         "warning_count": warning_count,

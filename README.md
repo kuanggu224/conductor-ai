@@ -239,7 +239,8 @@ Verify an audit bundle index:
 python -m app.verify_audit_bundle C:\path\to\project\.conductor\replay\project-id.audit.json
 ```
 
-You can also pass a directory to verify every `*.audit.json` under it.
+You can also pass a directory to verify every `*.audit.json` under it; the
+aggregate output includes total, failed, and warning-bearing bundle counts.
 
 The audit bundle verifier checks the bundle index and reruns manifest
 verification, so it can detect stale or corrupted bundle components. It also

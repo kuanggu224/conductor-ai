@@ -175,6 +175,8 @@ def test_verify_audit_bundle_cli_accepts_bundle_directory(tmp_path, capsys) -> N
     report = json.loads(captured.out)
     assert report["passed"] is True
     assert report["bundle_count"] == 1
+    assert report["failed_bundle_count"] == 0
+    assert report["warning_bundle_count"] == 0
     assert report["results"][0]["project_id"] == payload["project_id"]
 
 
@@ -189,6 +191,7 @@ def test_verify_audit_bundle_cli_fails_for_directory_without_bundles(tmp_path, c
     report = json.loads(captured.out)
     assert report["passed"] is False
     assert report["bundle_count"] == 0
+    assert report["failed_bundle_count"] == 1
     assert "no audit bundles found" in report["errors"][0]
 
 
