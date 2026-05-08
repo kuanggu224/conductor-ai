@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 from app.task_center import main
 from conductor.controller.engine import ConductorEngine
-from conductor.domain.models import Artifact, TaskAssignmentStatus, WorkItemStatus
+from conductor.domain.models import Artifact, TaskAssignment, TaskAssignmentStatus, WorkItem, WorkItemStatus
 from conductor.state.file_store import FileStateStore
 
 
@@ -272,6 +272,55 @@ def test_task_center_cli_prints_assignment_context_with_input_artifacts(tmp_path
     assert "parent_artifact_id" in payload["input_artifacts"][0]
     assert "derived_from" in payload["input_artifacts"][0]
     assert "review_of" in payload["input_artifacts"][0]
+
+
+def test_task_center_cli_auto_includes_frozen_requirement_for_downstream_context(tmp_path, capsys) -> None:
+    project_root = tmp_path / "project"
+    state_store = FileStateStore(project_root / ".conductor" / "state")
+    engine = ConductorEngine(
+        log_dir=project_root / ".conductor" / "logs",
+        artifact_dir=project_root / ".conductor" / "artifacts",
+        state_store=state_store,
+    )
+    state = engine.create_project(requirement="Build a local reading list with CSV export", project_root=str(project_root))
+    artifact = engine.artifact_store.save_markdown(
+        Artifact(
+            id="artifact-frozen-auto",
+            project_id=state.project.id,
+            workitem_id="workitem-requirement",
+            agent_id="agent-requirement",
+            kind="frozen_requirement_spec",
+            title="Frozen Requirement",
+            content="Acceptance: add book, persist refresh, export CSV.",
+        ),
+        project_root=state.project.project_root,
+    )
+    downstream = WorkItem(
+        id="workitem-dev-auto",
+        description="Implement downstream work",
+        stage="development",
+        kind="api_implementation",
+    )
+    assignment = TaskAssignment(
+        id="assignment-dev-auto",
+        workitem_id=downstream.id,
+        role="backend_engineer",
+    )
+    state = replace(
+        state,
+        workitems=[*state.workitems, downstream],
+        task_assignments=[*state.task_assignments, assignment],
+        artifacts=[*state.artifacts, artifact],
+    )
+    state_store.save_state(state)
+
+    code = main(["context", assignment.id, "--project-root", str(project_root)])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert payload["frozen_requirement_baseline"]["id"] == artifact.id
+    assert payload["input_artifacts"][0]["id"] == artifact.id
+    assert "Acceptance: add book, persist refresh, export CSV." in payload["input_artifacts"][0]["content"]
 
 
 def test_task_center_cli_prints_assignment_context_as_markdown(tmp_path, capsys) -> None:

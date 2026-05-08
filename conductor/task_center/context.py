@@ -36,6 +36,13 @@ class TaskContextBuilder:
             for artifact_id in assignment.input_artifact_ids
             if (artifact := artifacts_by_id.get(artifact_id)) is not None
         ]
+        self._ensure_frozen_requirement_input(
+            state,
+            workitem.stage,
+            input_artifacts,
+            include_content=include_content,
+            max_content_chars=max_content_chars,
+        )
         frozen_requirement_baseline = self._frozen_requirement_baseline(input_artifacts)
         output_artifacts = [
             self._artifact_payload(artifact, include_content=False, max_content_chars=max_content_chars)
@@ -166,6 +173,34 @@ class TaskContextBuilder:
             if artifact.get("kind") == "frozen_requirement_spec":
                 return artifact
         return {}
+
+    def _ensure_frozen_requirement_input(
+        self,
+        state: SharedProjectState,
+        stage: str,
+        input_artifacts: list[dict[str, object]],
+        *,
+        include_content: bool,
+        max_content_chars: int,
+    ) -> None:
+        """Downstream task contexts must carry the latest frozen requirement."""
+        if stage not in {"design", "development", "testing"}:
+            return
+        if any(artifact.get("kind") == "frozen_requirement_spec" for artifact in input_artifacts):
+            return
+        frozen_requirement = next(
+            (artifact for artifact in reversed(state.artifacts) if artifact.kind == "frozen_requirement_spec"),
+            None,
+        )
+        if frozen_requirement is not None:
+            input_artifacts.insert(
+                0,
+                self._artifact_payload(
+                    frozen_requirement,
+                    include_content=include_content,
+                    max_content_chars=max_content_chars,
+                ),
+            )
 
     def _frozen_requirement_markdown(self, baseline: dict[str, object]) -> list[str]:
         """Render the controlling requirement contract section."""
