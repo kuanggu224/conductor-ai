@@ -512,6 +512,7 @@ def test_manifest_verifier_warns_for_malformed_execution_artifact_ids(tmp_path) 
                     "status": "success",
                     "artifact_ids": "artifact-1",
                     "artifact_files": "artifact-1.md",
+                    "changed_files": "app.py",
                 }
             ]
         },
@@ -522,6 +523,7 @@ def test_manifest_verifier_warns_for_malformed_execution_artifact_ids(tmp_path) 
     assert result.passed is True
     assert "execution for workitem-1 artifact_ids must be a list" in result.warnings
     assert "execution for workitem-1 artifact_files must be a list" in result.warnings
+    assert "execution for workitem-1 changed_files must be a list" in result.warnings
 
 
 def test_manifest_verifier_rejects_unknown_workitem_input_artifacts(tmp_path) -> None:

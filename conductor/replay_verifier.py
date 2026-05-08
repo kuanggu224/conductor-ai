@@ -263,7 +263,12 @@ class ManifestVerifier:
         for execution in executions:
             workitem_id = str(execution.get("workitem_id", "")) if isinstance(execution, dict) else ""
             if isinstance(execution, dict):
-                self._warn_non_list_fields(execution, f"execution for {workitem_id}", ("artifact_ids", "artifact_files"), result)
+                self._warn_non_list_fields(
+                    execution,
+                    f"execution for {workitem_id}",
+                    ("artifact_ids", "artifact_files", "changed_files"),
+                    result,
+                )
             if workitem_id and workitem_id not in workitem_ids:
                 result.errors.append(f"execution references unknown WorkItem: {workitem_id}")
             for artifact_id in self._string_list(execution.get("artifact_ids", []) if isinstance(execution, dict) else []):

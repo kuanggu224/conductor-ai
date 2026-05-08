@@ -524,6 +524,7 @@ Manifest 已能记录主要运行事实和审计摘要，并已完成 LLM 配置
 - Manifest verifier 已覆盖 `files.artifacts` / `files.task_prompts` 与顶层 `artifact_files` / `task_prompt_files` 的双向存在性和索引一致性 warning。
 - Manifest verifier 已覆盖 `TaskAssignment.prompt_file` 存在性和 `task_prompt_files` 索引一致性 warning，避免任务 prompt 归档断链。
 - Manifest verifier 已覆盖 `Execution.artifact_files` 类型、存在性和 `artifact_files` 索引一致性 warning，避免执行产物文件断链。
+- Manifest verifier 已覆盖 `Execution.changed_files` 类型 warning，避免 changed file 统计依赖的执行文件列表被静默忽略。
 - 针对测试：`python -m pytest tests\test_replay_verifier.py -q`，结果 `33 passed`。
 - 已补只读 replay trace：`python -m app.replay_manifest <manifest> --format markdown`，从 manifest 还原 Project/WorkItem/TaskAssignment/Execution/Artifact 时间线，不重跑 Agent；支持 `--output` 归档到文件，且不会输出 claim token。
 - Replay trace 的 artifact 事件已暴露 `derived_from`，Markdown 回放也会显示 artifact id 和 lineage 摘要，便于审计修复产物来自哪些输入。
