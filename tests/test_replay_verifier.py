@@ -192,6 +192,75 @@ def test_manifest_verifier_rejects_bad_summary_and_cursor_reference(tmp_path) ->
     assert any("missing-workitem" in error for error in result.errors)
 
 
+def test_manifest_verifier_rejects_unknown_task_assignment_dependencies(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "task_assignments": [
+                {
+                    "id": "assignment-1",
+                    "workitem_id": "workitem-1",
+                    "role": "tester",
+                    "status": "queued",
+                    "dependencies": ["missing-workitem"],
+                }
+            ]
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert "task assignment assignment-1 dependency references unknown WorkItem: missing-workitem" in result.errors
+
+
+def test_manifest_verifier_rejects_unknown_task_assignment_input_artifacts(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "task_assignments": [
+                {
+                    "id": "assignment-1",
+                    "workitem_id": "workitem-1",
+                    "role": "tester",
+                    "status": "queued",
+                    "input_artifact_ids": ["missing-artifact"],
+                }
+            ]
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert "task assignment assignment-1 input_artifact_ids references unknown Artifact: missing-artifact" in result.errors
+
+
+def test_manifest_verifier_warns_for_unindexed_task_assignment_output_artifacts(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "task_assignments": [
+                {
+                    "id": "assignment-1",
+                    "workitem_id": "workitem-1",
+                    "role": "tester",
+                    "status": "completed",
+                    "output_artifact_ids": ["artifact-external"],
+                }
+            ]
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert (
+        "task assignment assignment-1 output_artifact_ids is not indexed in artifacts: artifact-external"
+        in result.warnings
+    )
+
+
 def test_manifest_verifier_reports_missing_files_as_warnings(tmp_path) -> None:
     manifest_path = _write_manifest(tmp_path, {"artifact_files": [str(tmp_path / "missing.md")]})
 

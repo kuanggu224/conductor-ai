@@ -208,10 +208,11 @@ python -m app.verify_manifest C:\path\to\project\.conductor\manifests\project-id
 Use `--output` to persist the verification report.
 
 The verifier checks schema basics, summary counts, `resume_cursor` references,
-WorkItem/Execution/Artifact links, sensitive provider credential leaks, and
-referenced report/log/artifact files. It returns exit code `0` when the manifest
-is self-consistent and `2` when hard errors are found. Missing referenced files
-are reported as warnings so moved or archived runs can still be inspected.
+WorkItem/Execution/Artifact/TaskAssignment links, sensitive provider credential
+leaks, and referenced report/log/artifact files. It returns exit code `0` when
+the manifest is self-consistent and `2` when hard errors are found. Missing
+referenced files are reported as warnings so moved or archived runs can still be
+inspected.
 
 `python -m app.run_project` also includes `manifest_verification` in its final
 JSON payload immediately after writing the run manifest.
@@ -286,14 +287,14 @@ The default flow is:
 7. Let `LeadController` decide the next action
 
 Current targeted verification for the manifest verifier:
-`11 passed` with `python -m pytest tests\test_replay_verifier.py -q`.
+`14 passed` with `python -m pytest tests\test_replay_verifier.py -q`.
 
 Current targeted verification for read-only replay trace:
-`16 passed` with `python -m pytest tests\test_replay_trace.py tests\test_replay_verifier.py -q`.
+`19 passed` with `python -m pytest tests\test_replay_trace.py tests\test_replay_verifier.py -q`.
 
 Current full verification after preflight gate, diagnostics, manifest hardening,
 task-center recovery work, and manifest verification:
-`396 passed` with `python -m pytest -q`.
+`399 passed` with `python -m pytest -q`.
 
 ## Project Layout
 

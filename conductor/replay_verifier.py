@@ -260,9 +260,25 @@ class ManifestVerifier:
         for assignment in task_assignments:
             if not isinstance(assignment, dict):
                 continue
+            assignment_id = str(assignment.get("id", ""))
             workitem_id = str(assignment.get("workitem_id", ""))
             if workitem_id and workitem_id not in workitem_ids:
                 result.errors.append(f"task assignment references unknown WorkItem: {workitem_id}")
+            for dependency_id in self._string_list(assignment.get("dependencies", [])):
+                if dependency_id not in workitem_ids:
+                    result.errors.append(
+                        f"task assignment {assignment_id} dependency references unknown WorkItem: {dependency_id}"
+                    )
+            for artifact_id in self._string_list(assignment.get("input_artifact_ids", [])):
+                if artifact_id not in artifact_ids:
+                    result.errors.append(
+                        f"task assignment {assignment_id} input_artifact_ids references unknown Artifact: {artifact_id}"
+                    )
+            for artifact_id in self._string_list(assignment.get("output_artifact_ids", [])):
+                if artifact_id not in artifact_ids:
+                    result.warnings.append(
+                        f"task assignment {assignment_id} output_artifact_ids is not indexed in artifacts: {artifact_id}"
+                    )
 
     def _verify_no_secret_leaks(self, payload: dict[str, Any], result: ManifestVerificationResult) -> None:
         """Fail manifests that appear to contain API credentials.
