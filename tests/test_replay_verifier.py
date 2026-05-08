@@ -201,6 +201,15 @@ def test_manifest_verifier_reports_missing_files_as_warnings(tmp_path) -> None:
     assert any("artifact_files entry does not exist" in warning for warning in result.warnings)
 
 
+def test_manifest_verifier_warns_for_non_current_schema_version(tmp_path) -> None:
+    manifest_path = _write_manifest(tmp_path, {"schema_version": "1.0"})
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert "manifest schema_version 1.0 differs from current 1.28" in result.warnings
+
+
 def test_manifest_verifier_rejects_api_key_fields(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,

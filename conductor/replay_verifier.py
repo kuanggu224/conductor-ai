@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from conductor.manifest_schema import RUN_MANIFEST_SCHEMA_VERSION
+
 
 @dataclass(slots=True)
 class ManifestVerificationResult:
@@ -135,6 +137,10 @@ class ManifestVerifier:
                 result.errors.append(f"missing top-level field: {field_name}")
         if not str(payload.get("schema_version", "")):
             result.errors.append("schema_version must be non-empty")
+        elif str(payload.get("schema_version", "")) != RUN_MANIFEST_SCHEMA_VERSION:
+            result.warnings.append(
+                f"manifest schema_version {payload.get('schema_version')} differs from current {RUN_MANIFEST_SCHEMA_VERSION}"
+            )
         if not str(payload.get("project_id", "")):
             result.errors.append("project_id must be non-empty")
 

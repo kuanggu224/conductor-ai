@@ -18,6 +18,7 @@ from conductor.config.llm import LLMRuntimeConfig
 from conductor.diagnostics import build_platform_diagnostics
 from conductor.domain.models import SharedProjectState
 from conductor.execution.failure_policy import remediation_suggestions
+from conductor.manifest_schema import RUN_MANIFEST_SCHEMA_VERSION
 from conductor.preflight_gate import read_preflight_gate
 from conductor.requirement_benchmark import build_requirement_case_from_text, evaluate_requirement_document
 from conductor.task_center.service import TaskCenterService
@@ -107,7 +108,7 @@ class RunManifestWriter:
         llm_cost_estimate = self._llm_cost_estimate(llm_runs, llm_runtime_config)
         resume_cursor = self._resume_cursor(state)
         manifest = RunManifest(
-            schema_version="1.28",
+            schema_version=RUN_MANIFEST_SCHEMA_VERSION,
             run_id=f"{state.project.id}:{generated_at}",
             project_id=state.project.id,
             generated_at=generated_at,

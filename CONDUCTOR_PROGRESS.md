@@ -510,14 +510,14 @@ Manifest 已能记录主要运行事实和审计摘要，并已完成 LLM 配置
 - `python -m app.run_project --write-manifest-verification` 可在项目运行结束时同步归档 manifest 自检 JSON 报告；`--manifest-verification-output` 的相对路径会解析到项目根目录下。
 - `python -m app.run_project --write-replay-trace` 可在项目运行结束时同步归档只读 replay trace。
 - `python -m app.verify_manifest <manifest> --output <file>` 可将自检报告归档到 JSON 文件。
-- 针对测试：`python -m pytest tests\test_replay_verifier.py -q`，结果 `7 passed`。
+- 针对测试：`python -m pytest tests\test_replay_verifier.py -q`，结果 `11 passed`。
 - 已补只读 replay trace：`python -m app.replay_manifest <manifest> --format markdown`，从 manifest 还原 Project/WorkItem/TaskAssignment/Execution/Artifact 时间线，不重跑 Agent；支持 `--output` 归档到文件，且不会输出 claim token。
-- 针对测试：`python -m pytest tests\test_replay_trace.py tests\test_replay_verifier.py -q`，结果 `12 passed`。
+- 针对测试：`python -m pytest tests\test_replay_trace.py tests\test_replay_verifier.py -q`，结果 `16 passed`。
 - Task Center context 已显式暴露 `frozen_requirement_baseline`，Markdown prompt 会单独强调冻结需求是下游设计、开发、测试的控制性合同。
 - 需求评分器已补中文语义 alias 和 `metrics.keyword_matches`，benchmark 报告可看到每个关键词实际命中的表达，便于定位 keyword coverage 误报。
 - 需求评分器已补范围扩张检测，能标记原始需求未要求但文档新增的登录、支付、通知、后台报表等功能；明确写在非目标里的排除项不会被误判。
 - Requirement benchmark Markdown 报告已展示 keyword coverage、缺失关键词、命中 alias 和 scope expansion，方便直接从报告定位评分问题。
-- 当前全量测试：`python -m pytest -q`，结果 `389 passed`。
+- 当前全量测试：`python -m pytest -q`，结果 `396 passed`。
 
 ### 6.5 任务中心仍是轻量实现
 

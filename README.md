@@ -286,14 +286,14 @@ The default flow is:
 7. Let `LeadController` decide the next action
 
 Current targeted verification for the manifest verifier:
-`7 passed` with `python -m pytest tests\test_replay_verifier.py -q`.
+`11 passed` with `python -m pytest tests\test_replay_verifier.py -q`.
 
 Current targeted verification for read-only replay trace:
-`12 passed` with `python -m pytest tests\test_replay_trace.py tests\test_replay_verifier.py -q`.
+`16 passed` with `python -m pytest tests\test_replay_trace.py tests\test_replay_verifier.py -q`.
 
 Current full verification after preflight gate, diagnostics, manifest hardening,
 task-center recovery work, and manifest verification:
-`389 passed` with `python -m pytest -q`.
+`396 passed` with `python -m pytest -q`.
 
 ## Project Layout
 
