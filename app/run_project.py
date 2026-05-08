@@ -9,7 +9,7 @@ from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 
-from conductor.audit_bundle import AUDIT_BUNDLE_SCHEMA_VERSION
+from conductor.audit_bundle import AUDIT_BUNDLE_SCHEMA_VERSION, verify_audit_bundle
 from conductor.config.cli import CLISelectionConfig
 from conductor.config.execution import RunProfile, resolve_run_profile
 from conductor.config.llm import load_llm_runtime_config
@@ -276,6 +276,7 @@ def main(argv: list[str] | None = None) -> int:
         manifest_verification_payload,
         replay_trace_payload,
     )
+    audit_bundle_verification_payload = _verify_audit_bundle_if_written(audit_bundle_payload)
     payload = {
         "project_id": state.project.id,
         "status": state.project_status.value,
@@ -290,6 +291,7 @@ def main(argv: list[str] | None = None) -> int:
         "manifest_verification_report": manifest_verification_payload,
         "replay_trace": replay_trace_payload,
         "audit_bundle": audit_bundle_payload,
+        "audit_bundle_verification": audit_bundle_verification_payload,
         "workitems": [asdict(item) for item in state.workitems],
         "artifacts": [asdict(item) for item in state.artifacts],
     }
@@ -380,6 +382,13 @@ def _write_audit_bundle_index_if_requested(
 
 def _default_audit_bundle_path(project_root: Path, project_id: str) -> Path:
     return project_root / ".conductor" / "replay" / f"{project_id}.audit.json"
+
+
+def _verify_audit_bundle_if_written(audit_bundle_payload: dict[str, object]) -> dict[str, object]:
+    bundle_path = str(audit_bundle_payload.get("path", ""))
+    if not bundle_path:
+        return {}
+    return verify_audit_bundle(bundle_path).to_dict()
 
 
 def _sha256_file(path: Path) -> str:

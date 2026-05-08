@@ -509,7 +509,7 @@ Manifest 已能记录主要运行事实和审计摘要，并已完成 LLM 配置
 - `python -m app.run_project` 的最终 JSON payload 已包含 `manifest_verification`，每次运行后立即暴露归档自检结果。
 - `python -m app.run_project --write-manifest-verification` 可在项目运行结束时同步归档 manifest 自检 JSON 报告；`--manifest-verification-output` 的相对路径会解析到项目根目录下。
 - `python -m app.run_project --write-replay-trace` 可在项目运行结束时同步归档只读 replay trace。
-- `python -m app.run_project --write-audit-bundle` 可一次性归档 manifest 自检报告和 replay trace，并写出 audit bundle index JSON，索引 manifest、report、verification、replay trace 路径、通过状态和 SHA-256。
+- `python -m app.run_project --write-audit-bundle` 可一次性归档 manifest 自检报告和 replay trace，并写出 audit bundle index JSON，索引 manifest、report、verification、replay trace 路径、通过状态和 SHA-256；写出后会立即执行 `verify_audit_bundle` 并把结果放进最终 JSON。
 - `python -m app.verify_audit_bundle <audit.json|directory>` 可校验单个 audit bundle 或递归校验目录下所有 `*.audit.json`，覆盖 index 结构、schema `1.0`、组件文件存在性、SHA-256、verification/replay 摘要状态和 replay trace 身份/pass 标记，并重新执行 manifest verifier 防止 verification 报告过期；结果会返回组件文件索引、checksum 索引、失败 bundle 数和含 warning bundle 数，支持 `--fail-on-warnings`。
 - `python -m app.verify_manifest <manifest> --output <file>` 可将自检报告归档到 JSON 文件。
 - `python -m app.verify_manifest <manifest> --fail-on-warnings` 可把 warning 升级为 CLI 失败，适合 CI/生产门禁；报告内 `passed` 仍表示 hard error 状态。

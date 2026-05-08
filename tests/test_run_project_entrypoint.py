@@ -314,6 +314,8 @@ def test_run_project_can_write_audit_bundle(tmp_path, capsys) -> None:
     assert payload["audit_bundle"]["path"] == str(bundle_path)
     assert payload["audit_bundle"]["manifest_verification_passed"] is True
     assert payload["audit_bundle"]["replay_trace_passed"] is True
+    assert payload["audit_bundle_verification"]["passed"] is True
+    assert payload["audit_bundle_verification"]["project_id"] == payload["project_id"]
     assert verification_path.exists()
     assert trace_path.exists()
     assert bundle["schema_version"] == "1.0"
