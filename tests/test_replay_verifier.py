@@ -284,6 +284,40 @@ def test_manifest_verifier_rejects_bad_summary_execution_status_counts(tmp_path)
     assert any("summary.execution_status_counts" in error for error in result.errors)
 
 
+def test_manifest_verifier_rejects_bad_summary_agent_count(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "summary": {
+                "final_status": "completed",
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "agent_count": 2,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+            },
+            "agents": [
+                {
+                    "agent_id": "agent-1",
+                    "role": "tester",
+                }
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert "summary.agent_count=2 does not match len(agents)=1" in result.errors
+
+
 def test_manifest_verifier_rejects_bad_summary_failed_workitem_ids(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,

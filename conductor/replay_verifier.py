@@ -62,6 +62,7 @@ class ManifestVerifier:
         "workitem_count": "workitems",
         "execution_count": "executions",
         "artifact_count": "artifacts",
+        "agent_count": "agents",
         "artifact_file_count": "artifact_files",
         "task_prompt_file_count": "task_prompt_files",
         "cli_run_count": "cli_runs",
