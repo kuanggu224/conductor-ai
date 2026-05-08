@@ -289,7 +289,7 @@ Summary payloads include:
 
 ## Audit Outputs
 
-Run Manifest schema `1.25` records:
+Run Manifest schema `1.26` records:
 
 - `task_assignments[].claimable`
 - `task_assignments[].unmet_dependency_ids`
@@ -313,10 +313,11 @@ Run Manifest schema `1.25` records:
 - `summary.scope_contract_violation_count`
 - `executions[].execution_duration_ms`
 - `executions[].prompt_hash`
+- `executions[].token_usage`
 - `cli_runs[].prompt_hash`
 - `llm_runs[].prompt_hash`
+- `llm_runs[].token_usage`
 - `llm_runs[].context_length`
-- `summary.llm_context_windows`
 - `artifacts[].workitem_id`
 - `artifacts[].title`
 - `artifacts[].parent_artifact_id`
@@ -337,6 +338,7 @@ Run Manifest schema `1.25` records:
 - `summary.non_retryable_failure_count`
 - `summary.cli_run_count`
 - `summary.llm_run_count`
+- `summary.llm_token_usage`
 - `summary.llm_context_windows`
 - `summary.collaboration_run_count`
 - `summary.changed_files`

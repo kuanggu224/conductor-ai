@@ -35,6 +35,7 @@ class CollaborationRunResult:
     model: str = ""
     output_path: str = ""
     duration_ms: int = 0
+    token_usage: dict[str, int] | None = None
 
 
 class CollaborationRunner:
@@ -169,6 +170,7 @@ class CollaborationRunner:
                             model=revision.model,
                             output_path=revision.output_path,
                             duration_ms=revision.duration_ms,
+                            token_usage=dict(revision.token_usage or {}),
                         )
                     )
                     peer_revision_done = True
@@ -222,6 +224,7 @@ class CollaborationRunner:
                         model=revision.model,
                         output_path=revision.output_path,
                         duration_ms=revision.duration_ms,
+                        token_usage=dict(revision.token_usage or {}),
                     )
                 )
                 collaboration = self._update_collaboration(
@@ -517,6 +520,7 @@ class CollaborationRunner:
             model=result.model,
             output_path=result.output_path,
             duration_ms=result.duration_ms,
+            token_usage=dict(result.token_usage or {}),
         )
 
     def _revise(
@@ -767,6 +771,7 @@ class CollaborationRunner:
                 model=result.model_name,
                 output_path=result.output_path or "",
                 duration_ms=result.duration_ms,
+                token_usage=result.token_usage,
             )
         if self.require_real_outputs:
             raise RuntimeError(self._real_backend_required_message(reviewer, f"协作审阅 LLMHarness 失败: {result.error}"))
@@ -824,6 +829,7 @@ class CollaborationRunner:
                 model=result.model_name,
                 output_path=result.output_path or "",
                 duration_ms=result.duration_ms,
+                token_usage=result.token_usage,
             )
         if self.require_real_outputs:
             raise RuntimeError(self._real_backend_required_message(lead, f"协作修订 LLMHarness 失败: {result.error}"))

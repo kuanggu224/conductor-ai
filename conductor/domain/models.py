@@ -160,6 +160,7 @@ class Execution:
     cli_stderr_tail: str = ""
     failure_type: str = ""
     failure_summary: str = ""
+    token_usage: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(slots=True)

@@ -62,6 +62,7 @@ class WorkItemRunResult:
     validation_success: bool | None = None
     cli_stdout_tail: str = ""
     cli_stderr_tail: str = ""
+    token_usage: dict[str, int] | None = None
 
 
 class Runner:
@@ -167,6 +168,7 @@ class Runner:
             cli_stderr_tail=run_result.cli_stderr_tail,
             failure_type=run_result.failure.failure_type.value if run_result.failure else "",
             failure_summary=run_result.failure.summary if run_result.failure else "",
+            token_usage=dict(run_result.token_usage or {}),
         )
         self.state_store.update_workitem(
             project_id=project_id,
@@ -650,6 +652,9 @@ class Runner:
                 succeeded=False,
                 failure=configuration_required(f"LLMHarness failed: {result.error}"),
                 prompt_hash=self._prompt_hash(prompt),
+                model=self.llm_harness_config.model_name,
+                working_directory=project_root,
+                token_usage=result.token_usage,
             )
         missing_sections = self._missing_llm_harness_sections(result.content, workitem)
         if missing_sections:
@@ -660,6 +665,9 @@ class Runner:
                 succeeded=False,
                 failure=configuration_required(reason),
                 prompt_hash=self._prompt_hash(prompt),
+                model=self.llm_harness_config.model_name,
+                working_directory=project_root,
+                token_usage=result.token_usage,
             )
         scope_result = self._evaluate_scope_contract(project_id, result.content)
         if not scope_result.passed:
@@ -671,11 +679,15 @@ class Runner:
                 model=self.llm_harness_config.model_name,
                 working_directory=project_root,
                 prompt_hash=self._prompt_hash(prompt),
+                token_usage=result.token_usage,
             )
         return WorkItemRunResult(
             content=result.content,
             source_backend=f"llm_harness/{self.llm_harness_config.model_name}",
             prompt_hash=self._prompt_hash(prompt),
+            model=self.llm_harness_config.model_name,
+            working_directory=project_root,
+            token_usage=result.token_usage,
         )
 
     def _run_llm_code_harness(
@@ -732,6 +744,7 @@ class Runner:
                 model=self.llm_harness_config.model_name,
                 working_directory=project_root,
                 prompt_hash=self._prompt_hash(prompt),
+                token_usage=result.token_usage,
             )
         if not result.content.strip():
             return WorkItemRunResult(
@@ -742,6 +755,7 @@ class Runner:
                 model=self.llm_harness_config.model_name,
                 working_directory=project_root,
                 prompt_hash=self._prompt_hash(prompt),
+                token_usage=result.token_usage,
             )
         try:
             generated_files = self._extract_generated_files(result.content)
@@ -770,6 +784,7 @@ class Runner:
                     prompt_hash=self._prompt_hash(prompt),
                     changed_files=[],
                     cli_stdout_tail=self._tail(result.content),
+                    token_usage=result.token_usage,
                 )
             changed_files = self._write_llm_generated_files(project_root, generated_files)
         except Exception as error:
@@ -792,6 +807,7 @@ class Runner:
                 working_directory=project_root,
                 prompt_hash=self._prompt_hash(prompt),
                 cli_stdout_tail=self._tail(result.content),
+                token_usage=result.token_usage,
             )
         if not changed_files:
             return WorkItemRunResult(
@@ -814,6 +830,7 @@ class Runner:
                 prompt_hash=self._prompt_hash(prompt),
                 changed_files=[],
                 cli_stdout_tail=self._tail(result.content),
+                token_usage=result.token_usage,
             )
 
         validation_command = self._select_test_command(project_root)
@@ -874,6 +891,7 @@ class Runner:
             validation_success=validation_passed,
             cli_stdout_tail=self._tail(raw_output),
             cli_stderr_tail=self._tail(validation_result.stderr),
+            token_usage=result.token_usage,
         )
 
     def _run_llm_code_repair(

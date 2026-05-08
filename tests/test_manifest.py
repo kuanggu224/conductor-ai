@@ -27,7 +27,7 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     manifest_path = engine.write_run_manifest(state.project.id, report_path)
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-    assert payload["schema_version"] == "1.25"
+    assert payload["schema_version"] == "1.26"
     assert payload["run_id"].startswith(state.project.id)
     assert payload["project_id"] == state.project.id
     assert payload["run_profile"] == "mock"
@@ -111,6 +111,7 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     assert "retry_attempt_count" in payload["summary"]
     assert payload["summary"]["cli_run_count"] == len(payload["cli_runs"])
     assert payload["summary"]["llm_run_count"] == len(payload["llm_runs"])
+    assert isinstance(payload["summary"]["llm_token_usage"], dict)
     assert isinstance(payload["summary"]["llm_context_windows"], list)
     assert payload["summary"]["collaboration_run_count"] == len(payload["collaboration_runs"])
     assert isinstance(payload["summary"]["changed_files"], list)
@@ -869,6 +870,7 @@ def test_manifest_records_llm_harness_collaboration_runtime(tmp_path) -> None:
                 model="qwen/qwen3.6-35b-a3b",
                 working_directory=str(tmp_path),
                 prompt_hash="b" * 64,
+                token_usage={"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
             )
         ],
         artifacts=[
@@ -923,6 +925,7 @@ def test_manifest_records_llm_harness_collaboration_runtime(tmp_path) -> None:
                         model="qwen/qwen3.6-35b-a3b",
                         output_path=str(tmp_path / "review.md"),
                         duration_ms=1234,
+                        token_usage={"prompt_tokens": "3", "completion_tokens": 4, "total_tokens": 7},
                     )
                 ],
                 draft_versions=[
@@ -935,6 +938,7 @@ def test_manifest_records_llm_harness_collaboration_runtime(tmp_path) -> None:
                         model="qwen/qwen3.6-35b-a3b",
                         output_path=str(tmp_path / "draft.md"),
                         duration_ms=1000,
+                        token_usage={"prompt_tokens": 5, "completion_tokens": 6, "total_tokens": 11},
                     ),
                     CollaborationDraftVersion(
                         version=2,
@@ -946,6 +950,7 @@ def test_manifest_records_llm_harness_collaboration_runtime(tmp_path) -> None:
                         model="qwen/qwen3.6-35b-a3b",
                         output_path=str(tmp_path / "revision.md"),
                         duration_ms=2000,
+                        token_usage={"prompt_tokens": 7, "completion_tokens": 8, "total_tokens": 15},
                     ),
                 ],
                 final_artifact_id="artifact-collaboration-workitem-001",
@@ -967,9 +972,16 @@ def test_manifest_records_llm_harness_collaboration_runtime(tmp_path) -> None:
     assert all("prompt_hash" in run for run in payload["llm_runs"])
     workitem_run = next(run for run in payload["llm_runs"] if run["mode"] == "workitem_execution")
     assert workitem_run["prompt_hash"] == "b" * 64
+    assert workitem_run["token_usage"]["total_tokens"] == 30
     assert all("prompt_hash" in run for run in payload["llm_runs"])
     assert any(run["mode"] == "workitem_execution" for run in payload["llm_runs"])
     assert any(run["mode"] == "collaboration_review" for run in payload["llm_runs"])
     assert any(run["mode"] == "collaboration_revision" for run in payload["llm_runs"])
     assert payload["collaboration_runs"][0]["phases"] == ["design_peer_review"]
     assert payload["collaboration_runs"][0]["reviews"][0]["duration_ms"] == 1234
+    assert payload["collaboration_runs"][0]["reviews"][0]["token_usage"]["total_tokens"] == 7
+    assert payload["summary"]["llm_token_usage"] == {
+        "prompt_tokens": 25,
+        "completion_tokens": 38,
+        "total_tokens": 63,
+    }

@@ -162,6 +162,7 @@ class FileStateStore(InMemoryStateStore):
             cli_stderr_tail=data.get("cli_stderr_tail", ""),
             failure_type=data.get("failure_type", ""),
             failure_summary=data.get("failure_summary", ""),
+            token_usage=self._token_usage(data.get("token_usage", {})),
         )
 
     def _agent_activation(self, data: dict[str, Any]) -> AgentActivation:
@@ -232,6 +233,7 @@ class FileStateStore(InMemoryStateStore):
             model=data.get("model", ""),
             output_path=data.get("output_path", ""),
             duration_ms=int(data.get("duration_ms", 0)),
+            token_usage=self._token_usage(data.get("token_usage", {})),
         )
 
     def _draft_version(self, data: dict[str, Any]) -> CollaborationDraftVersion:
@@ -245,7 +247,19 @@ class FileStateStore(InMemoryStateStore):
             model=data.get("model", ""),
             output_path=data.get("output_path", ""),
             duration_ms=int(data.get("duration_ms", 0)),
+            token_usage=self._token_usage(data.get("token_usage", {})),
         )
+
+    def _token_usage(self, data: Any) -> dict[str, int]:
+        if not isinstance(data, dict):
+            return {}
+        normalized: dict[str, int] = {}
+        for key, value in data.items():
+            if isinstance(value, int):
+                normalized[str(key)] = value
+            elif isinstance(value, str) and value.isdigit():
+                normalized[str(key)] = int(value)
+        return normalized
 
     def _agent_capability_stats(self, data: dict[str, Any]) -> AgentCapabilityStats:
         return AgentCapabilityStats(

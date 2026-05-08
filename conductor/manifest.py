@@ -103,7 +103,7 @@ class RunManifestWriter:
         llm_context_windows = self._llm_context_windows(platform_diagnostics)
         llm_runs = self._llm_runs(state, executions, llm_context_windows)
         manifest = RunManifest(
-            schema_version="1.25",
+            schema_version="1.26",
             run_id=f"{state.project.id}:{generated_at}",
             project_id=state.project.id,
             generated_at=generated_at,
@@ -143,6 +143,7 @@ class RunManifestWriter:
                 "retry_attempt_count": sum(int(item.get("retry_count", 0)) for item in retry_history),
                 "cli_run_count": len(cli_runs),
                 "llm_run_count": len(llm_runs),
+                "llm_token_usage": self._sum_token_usage([dict(run.get("token_usage", {})) for run in llm_runs]),
                 "llm_context_windows": llm_context_windows,
                 "collaboration_run_count": len(collaboration_runs),
                 "changed_file_count": len(self._changed_files(executions)),
@@ -567,6 +568,26 @@ class RunManifestWriter:
             counts[value] = counts.get(value, 0) + 1
         return counts
 
+    def _normalize_token_usage(self, usage: object) -> dict[str, int]:
+        """Return token usage with only integer values."""
+        if not isinstance(usage, dict):
+            return {}
+        normalized: dict[str, int] = {}
+        for key, value in usage.items():
+            if isinstance(value, int):
+                normalized[str(key)] = value
+            elif isinstance(value, str) and value.isdigit():
+                normalized[str(key)] = int(value)
+        return normalized
+
+    def _sum_token_usage(self, usages: list[dict[str, object]]) -> dict[str, int]:
+        """Aggregate known token usage fields across LLM runs."""
+        totals: dict[str, int] = {}
+        for usage in usages:
+            for key, value in self._normalize_token_usage(usage).items():
+                totals[key] = totals.get(key, 0) + value
+        return totals
+
     def _manifest_path(self, project_id: str, project_root: str | Path | None) -> Path:
         root = (Path(project_root) / ".conductor" / "manifests") if project_root else Path(".conductor") / "manifests"
         root.mkdir(parents=True, exist_ok=True)
@@ -596,6 +617,7 @@ class RunManifestWriter:
             "execution_exit_code": execution.execution_exit_code,
             "execution_duration_ms": execution.execution_duration_ms,
             "prompt_hash": execution.prompt_hash,
+            "token_usage": self._normalize_token_usage(execution.token_usage),
             "input_artifact_ids": list(execution.input_artifact_ids),
             "changed_files": list(execution.changed_files),
             "validation_command": list(execution.validation_command),
@@ -698,6 +720,7 @@ class RunManifestWriter:
                         "source_backend": source_backend,
                         "model": model,
                         "context_length": self._context_length_for_model(model, context_windows),
+                        "token_usage": self._normalize_token_usage(record.get("token_usage", {})),
                         "prompt_hash": record.get("prompt_hash", ""),
                         "output_files": record.get("artifact_files", []),
                         "status": record.get("status", ""),
@@ -720,6 +743,7 @@ class RunManifestWriter:
                             "source_backend": runtime["source_backend"],
                             "model": runtime["model"],
                             "context_length": self._context_length_for_model(runtime["model"], context_windows),
+                            "token_usage": self._normalize_token_usage(runtime["token_usage"]),
                             "prompt_hash": "",
                             "output_files": [runtime["output_path"]] if runtime["output_path"] else [],
                             "duration_ms": runtime["duration_ms"],
@@ -739,6 +763,7 @@ class RunManifestWriter:
                             "source_backend": runtime["source_backend"],
                             "model": runtime["model"],
                             "context_length": self._context_length_for_model(runtime["model"], context_windows),
+                            "token_usage": self._normalize_token_usage(runtime["token_usage"]),
                             "prompt_hash": "",
                             "output_files": [runtime["output_path"]] if runtime["output_path"] else [],
                             "duration_ms": runtime["duration_ms"],
@@ -781,6 +806,7 @@ class RunManifestWriter:
                         "model": self._review_runtime_metadata(state, collaboration, review)["model"],
                         "output_path": self._review_runtime_metadata(state, collaboration, review)["output_path"],
                         "duration_ms": self._review_runtime_metadata(state, collaboration, review)["duration_ms"],
+                        "token_usage": self._review_runtime_metadata(state, collaboration, review)["token_usage"],
                     }
                     for review in collaboration.contributions
                 ],
@@ -794,6 +820,7 @@ class RunManifestWriter:
                         "model": self._draft_runtime_metadata(state, collaboration, draft)["model"],
                         "output_path": self._draft_runtime_metadata(state, collaboration, draft)["output_path"],
                         "duration_ms": self._draft_runtime_metadata(state, collaboration, draft)["duration_ms"],
+                        "token_usage": self._draft_runtime_metadata(state, collaboration, draft)["token_usage"],
                     }
                     for draft in collaboration.draft_versions
                 ],
@@ -831,6 +858,7 @@ class RunManifestWriter:
             "model": review.model or self._model_from_source_backend(source_backend),
             "output_path": output_path,
             "duration_ms": review.duration_ms,
+            "token_usage": self._normalize_token_usage(getattr(review, "token_usage", {})),
         }
 
     def _draft_runtime_metadata(self, state: SharedProjectState, collaboration, draft) -> dict[str, object]:
@@ -842,6 +870,7 @@ class RunManifestWriter:
             "model": draft.model or self._model_from_source_backend(source_backend),
             "output_path": output_path,
             "duration_ms": draft.duration_ms,
+            "token_usage": self._normalize_token_usage(getattr(draft, "token_usage", {})),
         }
 
     def _default_llm_source_backend_for_workitem(self, state: SharedProjectState, workitem_id: str) -> str:

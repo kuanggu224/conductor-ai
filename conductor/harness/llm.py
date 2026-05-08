@@ -45,6 +45,7 @@ class LLMHarnessResult:
     output_path: str | None = None
     error: str = ""
     raw_response: dict[str, Any] | None = None
+    token_usage: dict[str, int] = field(default_factory=dict)
 
 
 class OpenAICompatibleLLMHarness:
@@ -73,6 +74,7 @@ class OpenAICompatibleLLMHarness:
                 model_name=request.config.model_name,
                 output_path=str(output_path) if output_path else None,
                 raw_response=response_payload,
+                token_usage=self._extract_token_usage(response_payload),
             )
         except Exception as error:
             return self._failed(request, started, str(error))
@@ -134,6 +136,20 @@ class OpenAICompatibleLLMHarness:
         if content:
             return str(content)
         return str(message.get("reasoning_content") or "")
+
+    def _extract_token_usage(self, response_payload: dict[str, Any]) -> dict[str, int]:
+        """Return normalized token usage if the provider exposes it."""
+        usage = response_payload.get("usage")
+        if not isinstance(usage, dict):
+            return {}
+        normalized: dict[str, int] = {}
+        for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+            value = usage.get(key)
+            if isinstance(value, int):
+                normalized[key] = value
+            elif isinstance(value, str) and value.isdigit():
+                normalized[key] = int(value)
+        return normalized
 
     def _write_output_file(self, request: LLMHarnessRequest, content: str) -> Path | None:
         if not request.output_path:

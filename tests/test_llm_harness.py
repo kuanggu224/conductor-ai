@@ -26,7 +26,13 @@ def test_llm_harness_writes_controlled_output_file(tmp_path) -> None:
                         "content": "# 目标\n真实设计\n\n## 验收标准\n- 可验证",
                     }
                 }
-            ]
+            ],
+            "usage": {
+                "prompt_tokens": "12",
+                "completion_tokens": 34,
+                "total_tokens": 46,
+                "ignored": "not-a-number",
+            },
         }
     )
 
@@ -50,6 +56,11 @@ def test_llm_harness_writes_controlled_output_file(tmp_path) -> None:
     assert output_path.read_text(encoding="utf-8").startswith("# 目标")
     assert harness.last_path == "/chat/completions"
     assert harness.last_payload["messages"][0]["role"] == "system"
+    assert result.token_usage == {
+        "prompt_tokens": 12,
+        "completion_tokens": 34,
+        "total_tokens": 46,
+    }
 
 
 def test_llm_harness_rejects_output_path_outside_workspace(tmp_path) -> None:
@@ -90,6 +101,39 @@ def test_llm_harness_uses_reasoning_content_when_content_empty(tmp_path) -> None
 
     assert result.success is True
     assert result.content == "fallback"
+
+
+def test_llm_harness_extracts_token_usage(tmp_path) -> None:
+    harness = FakeLLMHarness(
+        {
+            "choices": [{"message": {"content": "content"}}],
+            "usage": {
+                "prompt_tokens": "12",
+                "completion_tokens": 7,
+                "total_tokens": 19,
+                "ignored": 1,
+            },
+        }
+    )
+
+    result = harness.run(
+        LLMHarnessRequest(
+            prompt="Generate a design document.",
+            working_directory=str(tmp_path),
+            config=LLMHTTPConfig(
+                base_url="http://127.0.0.1:1234/v1",
+                model_name="qwen-local",
+                enabled=True,
+            ),
+        )
+    )
+
+    assert result.success is True
+    assert result.token_usage == {
+        "prompt_tokens": 12,
+        "completion_tokens": 7,
+        "total_tokens": 19,
+    }
 
 
 def test_llm_harness_disables_reasoning_for_qwen_models(tmp_path) -> None:

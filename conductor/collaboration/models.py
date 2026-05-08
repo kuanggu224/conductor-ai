@@ -37,6 +37,7 @@ class ReviewContribution:
     model: str = ""
     output_path: str = ""
     duration_ms: int = 0
+    token_usage: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -52,6 +53,7 @@ class CollaborationDraftVersion:
     model: str = ""
     output_path: str = ""
     duration_ms: int = 0
+    token_usage: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
