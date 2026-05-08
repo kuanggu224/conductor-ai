@@ -297,8 +297,10 @@ class BoardService:
     def build_project_summaries(self, states: list[SharedProjectState]) -> list[BoardProjectSummary]:
         """构建项目列表摘要。"""
         sorted_states = sorted(states, key=lambda item: item.project.id, reverse=True)
-        return [
-            BoardProjectSummary(
+        summaries: list[BoardProjectSummary] = []
+        for state in sorted_states:
+            preflight_gate = read_preflight_gate(state.project.project_root)
+            summaries.append(BoardProjectSummary(
                 project_id=state.project.id,
                 goal=state.project.goal,
                 project_root=state.project.project_root,
@@ -306,9 +308,10 @@ class BoardService:
                 status_label=PROJECT_STATUS_LABELS.get(state.project_status.value, state.project_status.value),
                 current_stage=state.current_stage or "-",
                 current_stage_label=label_stage(state.current_stage or "-"),
-            )
-            for state in sorted_states
-        ]
+                preflight_gate_status=preflight_gate.status,
+                preflight_gate_status_label=preflight_gate.status_label,
+            ))
+        return summaries
 
     def build_role_labels(self, roles: list[str]) -> list[str]:
         """构建角色中文展示名。"""

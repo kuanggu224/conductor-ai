@@ -199,6 +199,8 @@ type BoardProjectSummary = {
   status_label: string
   current_stage: string
   current_stage_label: string
+  preflight_gate_status: "not_recorded" | "pass" | "fail" | "unknown" | "unreadable"
+  preflight_gate_status_label: string
 }
 ```
 

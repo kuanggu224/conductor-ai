@@ -230,3 +230,5 @@ class BoardProjectSummary:
     current_stage: str
     status_label: str = ""
     current_stage_label: str = ""
+    preflight_gate_status: str = "not_recorded"
+    preflight_gate_status_label: str = "未记录"

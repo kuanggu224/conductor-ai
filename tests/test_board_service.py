@@ -205,6 +205,41 @@ def test_board_service_exposes_preflight_gate_summary(tmp_path) -> None:
     assert snapshot.preflight_gate.errors == ["local LLM preflight failed"]
 
 
+def test_board_service_project_summaries_include_preflight_gate_status(tmp_path) -> None:
+    project_root = tmp_path / "project"
+    gate_path = project_root / ".conductor" / "diagnostics" / "run-preflight" / "preflight-gate.json"
+    gate_path.parent.mkdir(parents=True)
+    gate_path.write_text(
+        json.dumps(
+            {
+                "ok": True,
+                "preflight_gate": {
+                    "errors": [],
+                    "diagnostics_path": str(gate_path),
+                },
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    state = SharedProjectState(
+        project=Project(
+            id="project-preflight-summary",
+            goal="show summary gate",
+            current_stage="requirement",
+            project_root=str(project_root),
+        ),
+        project_status=ProjectStatus.IN_PROGRESS,
+        current_stage="requirement",
+    )
+
+    summaries = BoardService().build_project_summaries([state])
+
+    assert summaries[0].preflight_gate_status == "pass"
+    assert summaries[0].preflight_gate_status_label == "通过"
+
+
 def test_board_service_exposes_task_center_readiness() -> None:
     state = SharedProjectState(
         project=Project(id="project-task-center", goal="task center readiness", current_stage="development"),
