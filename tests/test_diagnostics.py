@@ -1,5 +1,6 @@
 """Platform diagnostics tests."""
 
+from conductor.preflight_gate import write_preflight_gate_payload
 from conductor.config.cli import CLISelectionConfig
 from conductor.agents.llm import LLMHTTPConfig
 from conductor.config.llm import LLMRuntimeConfig, LLMUsagePolicy
@@ -32,6 +33,7 @@ def test_platform_diagnostics_marks_ready_bindings(monkeypatch, tmp_path) -> Non
     assert diagnostics.to_dict()["project_root"] == str(tmp_path.resolve())
     assert diagnostics.encoding.preferred_encoding
     assert "encoding" in diagnostics.to_dict()
+    assert diagnostics.to_dict()["preflight_gate"]["recorded"] is False
 
 
 def test_platform_diagnostics_warns_for_missing_or_unselected_cli(monkeypatch) -> None:
@@ -267,6 +269,29 @@ def test_platform_diagnostics_warns_when_configured_llm_model_is_not_listed(monk
     assert local.health_status == "warning"
     assert "Choose one of the listed models" in local.recommendation
     assert any("missing-model" in warning for warning in diagnostics.warnings)
+
+
+def test_platform_diagnostics_includes_persisted_preflight_gate_snapshot(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr("conductor.diagnostics.discover_cli_tools", lambda: [])
+    write_preflight_gate_payload(
+        tmp_path,
+        {
+            "ok": False,
+            "preflight_gate": {
+                "errors": ["local LLM preflight failed"],
+                "recommendations": ["Check local server"],
+            },
+        },
+    )
+
+    diagnostics = build_platform_diagnostics(cli_config=CLISelectionConfig(), project_root=tmp_path)
+    payload = diagnostics.to_dict()
+
+    assert diagnostics.ok is True
+    assert payload["preflight_gate"]["recorded"] is True
+    assert payload["preflight_gate"]["status"] == "fail"
+    assert payload["preflight_gate"]["errors"] == ["local LLM preflight failed"]
+    assert payload["preflight_gate"]["recommendations"] == ["Check local server"]
 
 
 def test_requirement_llm_preflight_probe_selects_backend_config(monkeypatch, tmp_path) -> None:

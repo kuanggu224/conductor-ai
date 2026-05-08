@@ -33,3 +33,5 @@ def test_diagnostics_cli_prints_platform_snapshot(monkeypatch, tmp_path, capsys)
     assert "available_cli_names" in payload
     assert "llm_backends" in payload
     assert payload["llm_backends"][0]["server_status"] == "not_checked"
+    assert "preflight_gate" in payload
+    assert payload["preflight_gate"]["recorded"] is False

@@ -594,6 +594,8 @@ external worker is stale, and should pass `claim_token` back on
 LLM 后端诊断项会返回 `health_status`、`recommendation`、`available_models`、
 `selected_model_available`、`context_length`、`timeout_seconds`、`preflight_success`
 等字段，前端可直接用于展示“当前模型是否可用”和“下一步修复建议”。
+Diagnostics 响应也会包含 `preflight_gate`，结构与 `BoardPreflightGateView`
+一致，用于展示当前项目根目录下已保存的运行前 gate 状态。
 
 但这不是当前必须项。
 

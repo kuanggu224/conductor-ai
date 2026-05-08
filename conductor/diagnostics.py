@@ -19,6 +19,7 @@ from conductor.config.execution import EXECUTION_CONFIG_PATH
 from conductor.config.llm import LLMRuntimeConfig, load_llm_runtime_config
 from conductor.config.system import SYSTEM_CONFIG_PATH
 from conductor.io.encoding import utf8_subprocess_environment
+from conductor.preflight_gate import read_preflight_gate
 
 
 @dataclass(slots=True)
@@ -96,6 +97,7 @@ class PlatformDiagnostics:
     cli_tools: list[CLIToolDiagnostic] = field(default_factory=list)
     role_bindings: list[RoleBindingDiagnostic] = field(default_factory=list)
     llm_backends: list[LLMBackendDiagnostic] = field(default_factory=list)
+    preflight_gate: dict[str, object] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, object]:
@@ -147,9 +149,10 @@ def build_platform_diagnostics(
         preflight_probe=preflight_probe,
     )
     warnings = _build_warnings(selected_cli_names, available_by_name, role_bindings, llm_backends, cli_tools)
+    resolved_project_root = Path(project_root or Path.cwd()).expanduser().resolve()
     return PlatformDiagnostics(
         ok=not warnings,
-        project_root=str(Path(project_root or Path.cwd()).expanduser().resolve()),
+        project_root=str(resolved_project_root),
         config_paths={
             "cli": str(CLI_CONFIG_PATH),
             "system": str(SYSTEM_CONFIG_PATH),
@@ -162,6 +165,7 @@ def build_platform_diagnostics(
         cli_tools=cli_tools,
         role_bindings=role_bindings,
         llm_backends=llm_backends,
+        preflight_gate=asdict(read_preflight_gate(resolved_project_root)),
         warnings=warnings,
     )
 

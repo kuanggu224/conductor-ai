@@ -114,7 +114,8 @@ The `probe_llm=true` variant checks enabled OpenAI-compatible model endpoints.
 The `preflight_llm=true` variant also runs a lightweight chat-completion probe.
 LLM diagnostics include the configured model, timeout, available model list,
 detected context length, whether the selected model is listed, a compact health
-status, and a remediation recommendation.
+status, and a remediation recommendation. Diagnostics output also includes the
+persisted `preflight_gate` snapshot for the selected `--project-root`.
 
 `python -m app.run_project` runs a preflight gate before real Agent execution.
 For `design_cli_only`, `code_cli`, `full_cli`, or explicit `--llm-harness`
