@@ -167,9 +167,18 @@ def test_run_project_parser_accepts_replay_trace_options() -> None:
 
 
 def test_run_project_parser_accepts_audit_bundle_option() -> None:
-    args = build_parser().parse_args(["--requirement", "demo", "--write-audit-bundle"])
+    args = build_parser().parse_args(
+        [
+            "--requirement",
+            "demo",
+            "--write-audit-bundle",
+            "--audit-bundle-output",
+            "audit/bundle.json",
+        ]
+    )
 
     assert args.write_audit_bundle is True
+    assert args.audit_bundle_output == "audit/bundle.json"
 
 
 def test_run_project_parser_accepts_manifest_verification_output_options() -> None:
@@ -294,14 +303,46 @@ def test_run_project_can_write_audit_bundle(tmp_path, capsys) -> None:
     payload = json.loads(capsys.readouterr().out)
     verification_path = tmp_path / ".conductor" / "replay" / f"{payload['project_id']}.verification.json"
     trace_path = tmp_path / ".conductor" / "replay" / f"{payload['project_id']}.replay.md"
+    bundle_path = tmp_path / ".conductor" / "replay" / f"{payload['project_id']}.audit.json"
+    bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
 
     assert exit_code == 1
     assert payload["manifest_verification_report"]["path"] == str(verification_path)
     assert payload["manifest_verification_report"]["passed"] is True
     assert payload["replay_trace"]["path"] == str(trace_path)
     assert payload["replay_trace"]["passed"] is True
+    assert payload["audit_bundle"]["path"] == str(bundle_path)
+    assert payload["audit_bundle"]["manifest_verification_passed"] is True
+    assert payload["audit_bundle"]["replay_trace_passed"] is True
     assert verification_path.exists()
     assert trace_path.exists()
+    assert bundle["files"]["manifest"] == payload["manifest_path"]
+    assert bundle["files"]["report"] == payload["report_path"]
+    assert bundle["files"]["manifest_verification"] == str(verification_path)
+    assert bundle["files"]["replay_trace"] == str(trace_path)
+
+
+def test_run_project_resolves_relative_audit_bundle_output_under_project_root(tmp_path, capsys) -> None:
+    exit_code = run_project.main(
+        [
+            "--project-root",
+            str(tmp_path),
+            "--requirement",
+            "Build a small reading list",
+            "--max-steps",
+            "1",
+            "--skip-preflight-gate",
+            "--write-audit-bundle",
+            "--audit-bundle-output",
+            "audit/bundle.json",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+    bundle_path = tmp_path / "audit" / "bundle.json"
+
+    assert exit_code == 1
+    assert payload["audit_bundle"]["path"] == str(bundle_path.resolve())
+    assert bundle_path.exists()
 
 
 def test_run_project_resolves_relative_replay_trace_output_under_project_root(tmp_path, capsys) -> None:

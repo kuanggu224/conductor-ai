@@ -126,6 +126,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="After writing the run manifest, write both manifest verification and replay trace artifacts.",
     )
     parser.add_argument(
+        "--audit-bundle-output",
+        help="Optional audit bundle index output path. Defaults under .conductor/replay.",
+    )
+    parser.add_argument(
         "--write-manifest-verification",
         action="store_true",
         help="After writing the run manifest, also write the JSON manifest verification report.",
@@ -259,6 +263,17 @@ def main(argv: list[str] | None = None) -> int:
         manifest_verification,
     )
     replay_trace_payload = _write_replay_trace_if_requested(args, project_root, manifest_path)
+    audit_bundle_payload = _write_audit_bundle_index_if_requested(
+        args,
+        project_root,
+        state.project.id,
+        state.project_status.value,
+        run_profile.profile.value,
+        manifest_path,
+        report_path,
+        manifest_verification_payload,
+        replay_trace_payload,
+    )
     payload = {
         "project_id": state.project.id,
         "status": state.project_status.value,
@@ -272,6 +287,7 @@ def main(argv: list[str] | None = None) -> int:
         "manifest_verification": manifest_verification.to_dict(),
         "manifest_verification_report": manifest_verification_payload,
         "replay_trace": replay_trace_payload,
+        "audit_bundle": audit_bundle_payload,
         "workitems": [asdict(item) for item in state.workitems],
         "artifacts": [asdict(item) for item in state.artifacts],
     }
@@ -306,6 +322,55 @@ def _write_manifest_verification_if_requested(
 
 def _default_manifest_verification_path(project_root: Path, project_id: str) -> Path:
     return project_root / ".conductor" / "replay" / f"{project_id}.verification.json"
+
+
+def _write_audit_bundle_index_if_requested(
+    args,
+    project_root: Path,
+    project_id: str,
+    project_status: str,
+    run_profile: str,
+    manifest_path: Path,
+    report_path: Path,
+    manifest_verification_payload: dict[str, object],
+    replay_trace_payload: dict[str, object],
+) -> dict[str, object]:
+    """Write an optional audit bundle index for downstream tooling."""
+    if not getattr(args, "write_audit_bundle", False):
+        return {}
+    output_path = (
+        _resolve_project_output_path(project_root, args.audit_bundle_output)
+        if getattr(args, "audit_bundle_output", None)
+        else _default_audit_bundle_path(project_root, project_id)
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "project_id": project_id,
+        "status": project_status,
+        "run_profile": run_profile,
+        "generated_at": datetime.now().isoformat(),
+        "files": {
+            "manifest": str(manifest_path),
+            "report": str(report_path),
+            "manifest_verification": str(manifest_verification_payload.get("path", "")),
+            "replay_trace": str(replay_trace_payload.get("path", "")),
+        },
+        "summary": {
+            "manifest_verification_passed": bool(manifest_verification_payload.get("passed")),
+            "replay_trace_passed": bool(replay_trace_payload.get("passed")),
+        },
+    }
+    output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {
+        "path": str(output_path),
+        "format": "json",
+        "manifest_verification_passed": payload["summary"]["manifest_verification_passed"],
+        "replay_trace_passed": payload["summary"]["replay_trace_passed"],
+    }
+
+
+def _default_audit_bundle_path(project_root: Path, project_id: str) -> Path:
+    return project_root / ".conductor" / "replay" / f"{project_id}.audit.json"
 
 
 def _resolve_agent_cli(use_codex: bool, agent_cli: str | None) -> str | None:
