@@ -225,6 +225,7 @@ class ManifestVerifier:
         self._verify_summary_retry_attempt_count(summary, self._list(payload.get("retry_history")), result)
         self._verify_task_center_summary(summary, self._list(payload.get("task_assignments")), result)
         self._verify_summary_blockers(summary, self._dict(payload.get("resume_cursor")), result)
+        self._verify_summary_validation_failure_count(summary, self._list(payload.get("executions")), result)
 
         changed_files = self._list(summary.get("changed_files"))
         if "changed_files" in summary and not isinstance(summary.get("changed_files"), list):
@@ -393,6 +394,30 @@ class ManifestVerifier:
                 result.errors.append(
                     f"summary.blocked_reasons={blocked_reasons} does not match resume_cursor.blockers={cursor_blockers}"
                 )
+
+    def _verify_summary_validation_failure_count(
+        self,
+        summary: dict[str, Any],
+        executions: list[Any],
+        result: ManifestVerificationResult,
+    ) -> None:
+        if "validation_failure_count" not in summary:
+            return
+        actual = self._as_int(summary.get("validation_failure_count"))
+        if actual is None:
+            result.errors.append("summary.validation_failure_count must be an integer")
+            return
+        expected = len(
+            [
+                execution
+                for execution in executions
+                if isinstance(execution, dict) and execution.get("validation_success") is False
+            ]
+        )
+        if actual != expected:
+            result.errors.append(
+                f"summary.validation_failure_count={actual} does not match failed validations={expected}"
+            )
 
     def _verify_resume_cursor(self, payload: dict[str, Any], result: ManifestVerificationResult) -> None:
         cursor = self._dict(payload.get("resume_cursor"))
