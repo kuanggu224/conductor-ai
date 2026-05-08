@@ -881,6 +881,7 @@ class ManifestVerifier:
             raw_path = str(files.get(label, ""))
             if raw_path and not self._path_exists(raw_path, manifest_path, project_root):
                 result.warnings.append(f"files.{label} does not exist: {raw_path}")
+        self._verify_preflight_gate_file(manifest_path, project_root, payload, files, result)
 
         indexed_manifest_path = str(files.get("manifest", ""))
         if indexed_manifest_path and not self._same_path(indexed_manifest_path, manifest_path):
@@ -958,6 +959,53 @@ class ManifestVerifier:
                 if raw_path and not self._path_exists(raw_path, manifest_path, project_root):
                     result.warnings.append(f"agents[{index}].output_files entry does not exist: {raw_path}")
 
+    def _verify_preflight_gate_file(
+        self,
+        manifest_path: Path,
+        project_root: Path | None,
+        payload: dict[str, Any],
+        files: dict[str, Any],
+        result: ManifestVerificationResult,
+    ) -> None:
+        raw_path = str(files.get("preflight_gate", ""))
+        if not raw_path:
+            return
+        gate_path = self._resolve_existing_path(raw_path, manifest_path, project_root)
+        if gate_path is None:
+            return
+        try:
+            gate_payload = json.loads(gate_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            result.warnings.append(f"files.preflight_gate is not readable JSON: {error}")
+            return
+        if not isinstance(gate_payload, dict):
+            result.errors.append("files.preflight_gate payload must be an object")
+            return
+        gate = gate_payload.get("preflight_gate", {})
+        if not isinstance(gate, dict):
+            gate = {}
+        expected_ok = gate_payload.get("ok") if isinstance(gate_payload.get("ok"), bool) else None
+        expected_errors = self._string_list(gate.get("errors", []))
+        expected_recommendations = self._string_list(gate.get("recommendations", []))
+        summary = self._dict(payload.get("summary"))
+        if "preflight_gate_ok" in summary and summary.get("preflight_gate_ok") != expected_ok:
+            result.errors.append(
+                f"summary.preflight_gate_ok={summary.get('preflight_gate_ok')} does not match preflight gate ok={expected_ok}"
+            )
+        if "preflight_gate_errors" in summary and self._string_list(summary.get("preflight_gate_errors")) != expected_errors:
+            result.errors.append(
+                f"summary.preflight_gate_errors={self._string_list(summary.get('preflight_gate_errors'))} "
+                f"does not match preflight gate errors={expected_errors}"
+            )
+        if (
+            "preflight_gate_recommendations" in summary
+            and self._string_list(summary.get("preflight_gate_recommendations")) != expected_recommendations
+        ):
+            result.errors.append(
+                f"summary.preflight_gate_recommendations={self._string_list(summary.get('preflight_gate_recommendations'))} "
+                f"does not match preflight gate recommendations={expected_recommendations}"
+            )
+
     def _ids_with_duplicate_check(
         self,
         label: str,
@@ -1028,6 +1076,17 @@ class ManifestVerifier:
             candidates.append(project_root / path)
         candidates.append(manifest_path.parent / path)
         return any(candidate.exists() for candidate in candidates)
+
+    def _resolve_existing_path(self, raw_path: str, manifest_path: Path, project_root: Path | None) -> Path | None:
+        path = Path(raw_path)
+        candidates = [path] if path.is_absolute() else []
+        if project_root is not None:
+            candidates.append(project_root / path)
+        candidates.append(manifest_path.parent / path)
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+        return None
 
     def _same_path(self, raw_path: str, manifest_path: Path) -> bool:
         try:

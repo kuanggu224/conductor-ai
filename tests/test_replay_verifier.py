@@ -1304,6 +1304,119 @@ def test_manifest_verifier_warns_for_malformed_files_indexes(tmp_path) -> None:
     assert "files task_prompts must be a list" in result.warnings
 
 
+def test_manifest_verifier_rejects_preflight_gate_summary_mismatch(tmp_path) -> None:
+    gate_path = tmp_path / "project" / ".conductor" / "diagnostics" / "run-preflight" / "preflight-gate.json"
+    gate_path.parent.mkdir(parents=True, exist_ok=True)
+    gate_path.write_text(
+        json.dumps(
+            {
+                "ok": False,
+                "preflight_gate": {
+                    "errors": ["local server unavailable"],
+                    "recommendations": ["Start LM Studio"],
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "summary": {
+                "final_status": "completed",
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+                "preflight_gate_ok": True,
+                "preflight_gate_errors": [],
+                "preflight_gate_recommendations": [],
+            },
+            "files": {
+                "log": str(tmp_path / "project" / ".conductor" / "logs" / "project-1.jsonl"),
+                "report": str(tmp_path / "project" / ".conductor" / "reports" / "project-1.md"),
+                "manifest": str(tmp_path / "project" / ".conductor" / "manifests" / "project-1.manifest.json"),
+                "artifacts": [str(tmp_path / "project" / ".conductor" / "artifacts" / "artifact-1.md")],
+                "task_prompts": [str(tmp_path / "project" / ".conductor" / "task_prompts" / "task-1.md")],
+                "preflight_gate": str(gate_path),
+            },
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert "summary.preflight_gate_ok=True does not match preflight gate ok=False" in result.errors
+    assert (
+        "summary.preflight_gate_errors=[] does not match preflight gate errors=['local server unavailable']"
+        in result.errors
+    )
+    assert (
+        "summary.preflight_gate_recommendations=[] does not match preflight gate recommendations=['Start LM Studio']"
+        in result.errors
+    )
+
+
+def test_manifest_verifier_accepts_matching_preflight_gate_summary(tmp_path) -> None:
+    gate_path = tmp_path / "project" / ".conductor" / "diagnostics" / "run-preflight" / "preflight-gate.json"
+    gate_path.parent.mkdir(parents=True, exist_ok=True)
+    gate_path.write_text(
+        json.dumps(
+            {
+                "ok": False,
+                "preflight_gate": {
+                    "errors": ["local server unavailable"],
+                    "recommendations": ["Start LM Studio"],
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "summary": {
+                "final_status": "completed",
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+                "preflight_gate_ok": False,
+                "preflight_gate_errors": ["local server unavailable"],
+                "preflight_gate_recommendations": ["Start LM Studio"],
+            },
+            "files": {
+                "log": str(tmp_path / "project" / ".conductor" / "logs" / "project-1.jsonl"),
+                "report": str(tmp_path / "project" / ".conductor" / "reports" / "project-1.md"),
+                "manifest": str(tmp_path / "project" / ".conductor" / "manifests" / "project-1.manifest.json"),
+                "artifacts": [str(tmp_path / "project" / ".conductor" / "artifacts" / "artifact-1.md")],
+                "task_prompts": [str(tmp_path / "project" / ".conductor" / "task_prompts" / "task-1.md")],
+                "preflight_gate": str(gate_path),
+            },
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+
+
 def test_manifest_verifier_warns_for_files_artifact_index_mismatch(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,
