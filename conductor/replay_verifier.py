@@ -383,6 +383,13 @@ class ManifestVerifier:
             for raw_path in self._string_list(payload.get(field_name, [])):
                 if raw_path and not self._path_exists(raw_path, manifest_path, project_root):
                     result.warnings.append(f"{field_name} entry does not exist: {raw_path}")
+        for files_key, top_level_key in (("artifacts", "artifact_files"), ("task_prompts", "task_prompt_files")):
+            top_level_paths = set(self._string_list(payload.get(top_level_key, [])))
+            for raw_path in self._string_list(files.get(files_key, [])):
+                if raw_path and not self._path_exists(raw_path, manifest_path, project_root):
+                    result.warnings.append(f"files.{files_key} entry does not exist: {raw_path}")
+                if raw_path and raw_path not in top_level_paths:
+                    result.warnings.append(f"files.{files_key} entry is not indexed in {top_level_key}: {raw_path}")
 
         artifact_files = set(self._string_list(payload.get("artifact_files", [])))
         for artifact in self._list(payload.get("artifacts")):

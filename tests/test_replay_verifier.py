@@ -264,6 +264,30 @@ def test_manifest_verifier_warns_for_malformed_files_indexes(tmp_path) -> None:
     assert "files task_prompts must be a list" in result.warnings
 
 
+def test_manifest_verifier_warns_for_files_artifact_index_mismatch(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "files": {
+                "log": str(tmp_path / "project" / ".conductor" / "logs" / "project-1.jsonl"),
+                "report": str(tmp_path / "project" / ".conductor" / "reports" / "project-1.md"),
+                "manifest": str(tmp_path / "project" / ".conductor" / "manifests" / "project-1.manifest.json"),
+                "artifacts": [str(tmp_path / "missing-artifact.md")],
+                "task_prompts": [str(tmp_path / "missing-prompt.md")],
+                "preflight_gate": "",
+            },
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert any("files.artifacts entry does not exist" in warning for warning in result.warnings)
+    assert any("files.task_prompts entry does not exist" in warning for warning in result.warnings)
+    assert any("files.artifacts entry is not indexed in artifact_files" in warning for warning in result.warnings)
+    assert any("files.task_prompts entry is not indexed in task_prompt_files" in warning for warning in result.warnings)
+
+
 def test_manifest_verifier_rejects_unknown_task_assignment_dependencies(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,
