@@ -335,7 +335,17 @@ def test_testing_failure_creates_development_feedback_rework() -> None:
         max_retries=0,
         result="按钮点击后没有更新列表",
     )
+    failed_test_artifact = Artifact(
+        id="artifact-failed-ui-validation",
+        project_id=state.project.id,
+        workitem_id=failed_test.id,
+        agent_id="agent-tester",
+        kind="ui_validation",
+        title="Failed UI Validation",
+        content="Clicking the button did not update the visible list.",
+    )
     state.workitems = [design, development, failed_test]
+    state.artifacts = [failed_test_artifact]
     state.current_stage = "testing"
     state.project.current_stage = "testing"
     state.project_status = ProjectStatus.IN_PROGRESS
@@ -349,8 +359,10 @@ def test_testing_failure_creates_development_feedback_rework() -> None:
     assert len(rework_items) == 1
     assert rework_items[0].kind == "ui_implementation"
     assert rework_items[0].rework_of == development.id
+    assert rework_items[0].input_artifact_ids == [failed_test_artifact.id]
     assert state.pending_test_scope == ["ui_validation"]
-    assert any(assignment.workitem_id == rework_items[0].id for assignment in state.task_assignments)
+    rework_assignment = next(assignment for assignment in state.task_assignments if assignment.workitem_id == rework_items[0].id)
+    assert failed_test_artifact.id in rework_assignment.input_artifact_ids
     assert any("测试失败回流" in event for event in state.recent_events)
 
 

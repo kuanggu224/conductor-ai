@@ -519,6 +519,7 @@ class LeadController:
         for failed in failed_tests:
             target_kind = self._feedback_target_kind(failed)
             pending_test_scope.extend(self._feedback_test_scope(failed))
+            failed_artifact_ids = self._workitem_artifact_ids(latest, failed.id)
             rework_items.append(
                 WorkItem(
                     id=self._next_workitem_id(latest, [*rework_items]),
@@ -533,6 +534,7 @@ class LeadController:
                         f"修复测试反馈 {failed.id}",
                         "完成后重新进入测试阶段验证",
                     ],
+                    input_artifact_ids=failed_artifact_ids,
                     feedback_from=[failed.id],
                     rework_of=self._primary_development_workitem_id(latest, target_kind),
                 )
@@ -690,6 +692,10 @@ class LeadController:
             for item in state.workitems
             if item.stage == "design" and item.status == WorkItemStatus.DONE
         ]
+
+    def _workitem_artifact_ids(self, state: SharedProjectState, workitem_id: str) -> list[str]:
+        """Return artifacts produced by one WorkItem in stable order."""
+        return [artifact.id for artifact in state.artifacts if artifact.workitem_id == workitem_id]
 
     def _primary_development_workitem_id(self, state: SharedProjectState, target_kind: str) -> str | None:
         """Find the original development WorkItem for lineage."""
