@@ -246,6 +246,7 @@ class ManifestVerifier:
         self._verify_summary_changed_files(summary, self._list(payload.get("executions")), result)
         if "llm_token_usage" in summary:
             self._verify_token_usage(summary.get("llm_token_usage"), "summary.llm_token_usage", result)
+            self._verify_summary_llm_token_usage(summary, self._list(payload.get("llm_runs")), result)
         if "llm_cost_estimate" in summary:
             self._verify_llm_cost_estimate(summary.get("llm_cost_estimate"), "summary.llm_cost_estimate", result)
 
@@ -267,6 +268,30 @@ class ManifestVerifier:
         if actual_changed_files != expected_changed_files:
             result.errors.append(
                 f"summary.changed_files={actual_changed_files} does not match execution changed_files={expected_changed_files}"
+            )
+
+    def _verify_summary_llm_token_usage(
+        self,
+        summary: dict[str, Any],
+        llm_runs: list[Any],
+        result: ManifestVerificationResult,
+    ) -> None:
+        actual_usage = self._safe_token_usage(summary.get("llm_token_usage"))
+        if actual_usage is None:
+            return
+
+        expected_usage: dict[str, int] = {}
+        for run in llm_runs:
+            if not isinstance(run, dict):
+                continue
+            usage = self._safe_token_usage(run.get("token_usage"))
+            if usage is None:
+                continue
+            for key, value in usage.items():
+                expected_usage[key] = expected_usage.get(key, 0) + value
+        if actual_usage != expected_usage:
+            result.errors.append(
+                f"summary.llm_token_usage={actual_usage} does not match llm_runs token_usage={expected_usage}"
             )
 
     def _verify_summary_status_counts(
@@ -984,6 +1009,18 @@ class ManifestVerifier:
                 result.warnings.append(f"{owner}.{key} must be an integer")
             elif parsed < 0:
                 result.warnings.append(f"{owner}.{key} must be non-negative")
+
+    def _safe_token_usage(self, value: Any) -> dict[str, int] | None:
+        """Return token usage when every value is a non-negative integer."""
+        if not isinstance(value, dict):
+            return None
+        parsed_usage: dict[str, int] = {}
+        for key, token_count in value.items():
+            parsed = self._as_int(token_count)
+            if parsed is None or parsed < 0:
+                return None
+            parsed_usage[str(key)] = parsed
+        return parsed_usage
 
     def _verify_llm_cost_estimate(self, value: Any, owner: str, result: ManifestVerificationResult) -> None:
         """Warn when cost estimate fields cannot be safely audited."""
