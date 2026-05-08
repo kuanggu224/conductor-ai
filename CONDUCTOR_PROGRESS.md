@@ -338,7 +338,7 @@ python -m pytest -q
 最近一次验证结果：
 
 ```text
-376 passed
+460 passed
 ```
 
 ### 4.2 运行 Board
@@ -534,7 +534,8 @@ Manifest 已能记录主要运行事实和审计摘要，并已完成 LLM 配置
 - Manifest verifier 已覆盖 agents 索引校验；当 manifest 存在 `agents` 列表时，Execution、Artifact、TaskAssignment 和 Collaboration 中的 Agent 引用断链会被 warning 标记，agents 索引自身缺失/重复会报 hard error；专业化评审席位如 `agent-designer:interaction` 会按基础 Agent `agent-designer` 识别。
 - Manifest verifier 已覆盖 `agents[].workitem_ids`、`agents[].artifact_ids` 和 `agents[].output_files` 的类型、引用和文件存在性 warning，避免 Agent 索引自身断链。
 - Manifest verifier 已覆盖 CLI 配置形状校验；`selected_cli_names` 必须是 list，`role_cli_bindings` 必须是 object，角色绑定到未启用 CLI 会产生 warning。
-- 针对测试：`python -m pytest tests\test_replay_verifier.py -q`，结果 `49 passed`。
+- Manifest verifier 已覆盖状态一致性校验；`status`、`final_status` 与 `summary.final_status` 不一致时会报 hard error，避免 resume/replay 基于冲突终态继续推进。
+- 针对测试：`python -m pytest tests\test_replay_verifier.py -q`，结果 `51 passed`。
 - 已补只读 replay trace：`python -m app.replay_manifest <manifest> --format markdown`，从 manifest 还原 Project/WorkItem/TaskAssignment/Execution/Artifact 时间线，不重跑 Agent；支持 `--output` 归档到文件，且不会输出 claim token。
 - Replay trace 的 artifact 事件已暴露 `derived_from`，Markdown 回放也会显示 artifact id 和 lineage 摘要，便于审计修复产物来自哪些输入。
 - 针对测试：`python -m pytest tests\test_replay_trace.py tests\test_replay_verifier.py -q`，结果 `24 passed`。

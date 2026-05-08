@@ -192,6 +192,42 @@ def test_manifest_verifier_rejects_bad_summary_and_cursor_reference(tmp_path) ->
     assert any("missing-workitem" in error for error in result.errors)
 
 
+def test_manifest_verifier_rejects_status_final_status_mismatch(tmp_path) -> None:
+    manifest_path = _write_manifest(tmp_path, {"status": "in_progress", "final_status": "completed"})
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert "manifest.status does not match manifest.final_status" in result.errors
+
+
+def test_manifest_verifier_rejects_summary_final_status_mismatch(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "summary": {
+                "final_status": "blocked",
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+            },
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert "summary.final_status does not match manifest.final_status" in result.errors
+
+
 def test_manifest_verifier_checks_cli_config_shape_and_bindings(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,

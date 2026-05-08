@@ -108,6 +108,7 @@ class ManifestVerifier:
         result.schema_version = str(payload.get("schema_version", ""))
         self._verify_required_fields(payload, result)
         self._verify_types(payload, result)
+        self._verify_status_consistency(payload, result)
         self._verify_summary_counts(payload, result)
         self._verify_resume_cursor(payload, result)
         self._verify_links(payload, result)
@@ -179,6 +180,18 @@ class ManifestVerifier:
                 continue
             if selected and cli_name not in selected:
                 result.warnings.append(f"role_cli_bindings.{role} references unselected CLI: {cli_name}")
+
+    def _verify_status_consistency(self, payload: dict[str, Any], result: ManifestVerificationResult) -> None:
+        status = str(payload.get("status", ""))
+        final_status = str(payload.get("final_status", ""))
+        if status and final_status and status != final_status:
+            result.errors.append("manifest.status does not match manifest.final_status")
+
+        summary = self._dict(payload.get("summary"))
+        if summary:
+            summary_final_status = str(summary.get("final_status", ""))
+            if summary_final_status and final_status and summary_final_status != final_status:
+                result.errors.append("summary.final_status does not match manifest.final_status")
 
     def _verify_summary_counts(self, payload: dict[str, Any], result: ManifestVerificationResult) -> None:
         summary = self._dict(payload.get("summary"))
