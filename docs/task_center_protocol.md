@@ -369,6 +369,10 @@ Run Manifest schema `1.28` records:
 Project reports include a `## Task Center` section with summary counts and one
 line per assignment.
 
+Use `python -m app.verify_manifest <manifest>` for read-only manifest
+self-consistency checks. Use `python -m app.replay_manifest <manifest>` to build
+a read-only replay trace from archived Project/WorkItem/Execution/Artifact facts.
+
 Board snapshots expose readiness through `BoardTaskAssignmentView.claimable`,
 `BoardTaskAssignmentView.unmet_dependency_ids`,
 `BoardTaskAssignmentView.claimed_age_seconds`,

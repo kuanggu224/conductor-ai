@@ -497,16 +497,18 @@ AspireCode 内置 agent prompt 很长，本地模型 4096 context 会失败。�
 
 ### 6.4 Manifest 仍可继续加强
 
-Manifest 已能记录主要运行事实和审计摘要，并已完成 LLM 配置、命令行密钥脱敏、`resume_cursor`、基础 token usage 和可配置成本估算。后续可以继续补：
+Manifest 已能记录主要运行事实和审计摘要，并已完成 LLM 配置、命令行密钥脱敏、`resume_cursor`、基础 token usage、可配置成本估算和只读 replay trace。后续可以继续补：
 
-- replay trace executor
+- side-effect replay executor
 
 已补一个只读 manifest verifier：
 - `python -m app.verify_manifest <manifest>`
 - 检查 schema 基础字段、summary 计数、`resume_cursor`、WorkItem/Execution/Artifact 链接和引用文件。
 - 当前它不重跑 Agent，也不恢复状态；定位是 replay/resume 前的归档自检层。
 - 针对测试：`python -m pytest tests\test_replay_verifier.py -q`，结果 `6 passed`。
-- 当前全量测试：`python -m pytest -q`，结果 `376 passed`。
+- 已补只读 replay trace：`python -m app.replay_manifest <manifest> --format markdown`，从 manifest 还原 Project/WorkItem/Execution/Artifact 时间线，不重跑 Agent。
+- 针对测试：`python -m pytest tests\test_replay_trace.py tests\test_replay_verifier.py -q`，结果 `10 passed`。
+- 当前全量测试：`python -m pytest -q`，结果 `380 passed`。
 
 ### 6.5 任务中心仍是轻量实现
 

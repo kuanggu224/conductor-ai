@@ -211,6 +211,16 @@ returns exit code `0` when the manifest is self-consistent and `2` when hard
 errors are found. Missing referenced files are reported as warnings so moved or
 archived runs can still be inspected.
 
+Build a read-only replay trace from the same manifest:
+
+```powershell
+python -m app.replay_manifest C:\path\to\project\.conductor\manifests\project-id.manifest.json --format markdown
+```
+
+This reconstructs a deterministic Project/WorkItem/Execution/Artifact timeline
+from archived manifest facts. It does not rerun Agent CLI commands and does not
+write project state.
+
 ### Windows PowerShell UTF-8
 
 If Chinese text appears as mojibake when reading logs or reports in PowerShell,
@@ -249,9 +259,12 @@ The default flow is:
 Current targeted verification for the manifest verifier:
 `6 passed` with `python -m pytest tests\test_replay_verifier.py -q`.
 
+Current targeted verification for read-only replay trace:
+`10 passed` with `python -m pytest tests\test_replay_trace.py tests\test_replay_verifier.py -q`.
+
 Current full verification after preflight gate, diagnostics, manifest hardening,
 task-center recovery work, and manifest verification:
-`376 passed` with `python -m pytest -q`.
+`380 passed` with `python -m pytest -q`.
 
 ## Project Layout
 
