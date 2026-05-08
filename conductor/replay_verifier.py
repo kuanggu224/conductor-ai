@@ -221,6 +221,7 @@ class ManifestVerifier:
             self._status_counts(self._list(payload.get("executions"))),
             result,
         )
+        self._verify_summary_failure_counts(summary, self._list(payload.get("workitems")), result)
 
         changed_files = self._list(summary.get("changed_files"))
         if "changed_files" in summary and not isinstance(summary.get("changed_files"), list):
@@ -262,6 +263,41 @@ class ManifestVerifier:
             result.errors.append(
                 f"summary.{summary_key}={actual_counts} does not match actual status counts={expected_counts}"
             )
+
+    def _verify_summary_failure_counts(
+        self,
+        summary: dict[str, Any],
+        workitems: list[Any],
+        result: ManifestVerificationResult,
+    ) -> None:
+        failed_items = [
+            item
+            for item in workitems
+            if isinstance(item, dict) and str(item.get("status", "")) == "failed"
+        ]
+        failed_ids = [str(item.get("id", "")) for item in failed_items if str(item.get("id", ""))]
+        if "failed_workitem_ids" in summary:
+            if not isinstance(summary.get("failed_workitem_ids"), list):
+                result.errors.append("summary.failed_workitem_ids must be a list")
+            else:
+                actual_ids = self._string_list(summary.get("failed_workitem_ids"))
+                if actual_ids != failed_ids:
+                    result.errors.append(
+                        f"summary.failed_workitem_ids={actual_ids} does not match failed WorkItems={failed_ids}"
+                    )
+        expected_retryable = len([item for item in failed_items if item.get("retryable") is True])
+        expected_non_retryable = len([item for item in failed_items if item.get("retryable") is not True])
+        for summary_key, expected in (
+            ("retryable_failure_count", expected_retryable),
+            ("non_retryable_failure_count", expected_non_retryable),
+        ):
+            if summary_key not in summary:
+                continue
+            actual = self._as_int(summary.get(summary_key))
+            if actual is None:
+                result.errors.append(f"summary.{summary_key} must be an integer")
+            elif actual != expected:
+                result.errors.append(f"summary.{summary_key}={actual} does not match failed WorkItems={expected}")
 
     def _verify_resume_cursor(self, payload: dict[str, Any], result: ManifestVerificationResult) -> None:
         cursor = self._dict(payload.get("resume_cursor"))
