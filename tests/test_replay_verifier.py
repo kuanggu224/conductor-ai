@@ -581,6 +581,101 @@ def test_manifest_verifier_warns_for_malformed_retry_history_fields(tmp_path) ->
     assert "retry_history[0] related_gate_history must be a list" in result.warnings
 
 
+def test_manifest_verifier_checks_collaboration_run_links(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "summary": {
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 1,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+            },
+            "collaboration_runs": [
+                {
+                    "id": "collaboration-1",
+                    "workitem_id": "missing-workitem",
+                    "final_artifact_id": "missing-artifact",
+                    "reviewer_agent_ids": ["agent-reviewer"],
+                    "review_count": 2,
+                    "draft_version_count": 2,
+                    "reviews": [
+                        {
+                            "id": "review-1",
+                            "agent_id": "agent-reviewer",
+                            "decision": "request_changes",
+                        }
+                    ],
+                    "draft_versions": [
+                        {
+                            "version": 1,
+                            "review_ids": ["missing-review"],
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert "collaboration_runs[0] references unknown WorkItem: missing-workitem" in result.errors
+    assert "collaboration_runs[0] final_artifact_id is not indexed in artifacts: missing-artifact" in result.warnings
+    assert "collaboration_runs[0].review_count does not match len(reviews)" in result.warnings
+    assert "collaboration_runs[0].draft_version_count does not match len(draft_versions)" in result.warnings
+    assert "collaboration_runs[0].draft_versions[0] references unknown review_id: missing-review" in result.warnings
+
+
+def test_manifest_verifier_warns_for_malformed_collaboration_run_lists(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "summary": {
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 1,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+            },
+            "collaboration_runs": [
+                {
+                    "id": "collaboration-1",
+                    "workitem_id": "workitem-1",
+                    "reviewer_agent_ids": "agent-reviewer",
+                    "reviews": "review-1",
+                    "draft_versions": [
+                        {
+                            "version": 1,
+                            "review_ids": "review-1",
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert "collaboration_runs[0] reviewer_agent_ids must be a list" in result.warnings
+    assert "collaboration_runs[0] reviews must be a list" in result.warnings
+    assert "collaboration_runs[0].draft_versions[0] review_ids must be a list" in result.warnings
+
+
 def test_manifest_verifier_rejects_unknown_task_assignment_dependencies(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,

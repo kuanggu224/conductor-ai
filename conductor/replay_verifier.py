@@ -237,6 +237,7 @@ class ManifestVerifier:
         executions = self._list(payload.get("executions"))
         task_assignments = self._list(payload.get("task_assignments"))
         retry_history = self._list(payload.get("retry_history"))
+        collaboration_runs = self._list(payload.get("collaboration_runs"))
 
         workitem_ids = self._ids_with_duplicate_check("workitems", workitems, result)
         artifact_ids = self._ids_with_duplicate_check("artifacts", artifacts, result)
@@ -360,6 +361,41 @@ class ManifestVerifier:
                         result.warnings.append(f"retry_history[{index}].{field_name} must be an integer")
                     elif parsed < 0:
                         result.warnings.append(f"retry_history[{index}].{field_name} must be non-negative")
+
+        for index, collaboration in enumerate(collaboration_runs):
+            if not isinstance(collaboration, dict):
+                continue
+            collaboration_id = str(collaboration.get("id", ""))
+            workitem_id = str(collaboration.get("workitem_id", ""))
+            if workitem_id and workitem_id not in workitem_ids:
+                result.errors.append(f"collaboration_runs[{index}] references unknown WorkItem: {workitem_id}")
+            final_artifact_id = str(collaboration.get("final_artifact_id", ""))
+            if final_artifact_id and final_artifact_id not in artifact_ids:
+                result.warnings.append(
+                    f"collaboration_runs[{index}] final_artifact_id is not indexed in artifacts: {final_artifact_id}"
+                )
+            reviews = self._list(collaboration.get("reviews", []))
+            draft_versions = self._list(collaboration.get("draft_versions", []))
+            review_ids = {str(review.get("id", "")) for review in reviews if isinstance(review, dict) and review.get("id")}
+            self._warn_non_list_fields(collaboration, f"collaboration_runs[{index}]", ("reviewer_agent_ids", "reviews", "draft_versions"), result)
+            if "review_count" in collaboration and self._as_int(collaboration.get("review_count")) != len(reviews):
+                result.warnings.append(f"collaboration_runs[{index}].review_count does not match len(reviews)")
+            if "draft_version_count" in collaboration and self._as_int(collaboration.get("draft_version_count")) != len(draft_versions):
+                result.warnings.append(f"collaboration_runs[{index}].draft_version_count does not match len(draft_versions)")
+            for draft_index, draft in enumerate(draft_versions):
+                if not isinstance(draft, dict):
+                    continue
+                self._warn_non_list_fields(
+                    draft,
+                    f"collaboration_runs[{index}].draft_versions[{draft_index}]",
+                    ("review_ids",),
+                    result,
+                )
+                for review_id in self._string_list(draft.get("review_ids", [])):
+                    if review_id not in review_ids:
+                        result.warnings.append(
+                            f"collaboration_runs[{index}].draft_versions[{draft_index}] references unknown review_id: {review_id}"
+                        )
 
     def _warn_non_list_fields(
         self,
