@@ -508,6 +508,79 @@ def test_manifest_verifier_warns_for_malformed_llm_run_token_usage(tmp_path) -> 
     assert "llm_runs[0].token_usage.completion_tokens must be an integer" in result.warnings
 
 
+def test_manifest_verifier_rejects_unknown_retry_history_workitem(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "summary": {
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 0,
+                "retry_history_count": 1,
+                "changed_file_count": 0,
+                "changed_files": [],
+            },
+            "retry_history": [
+                {
+                    "workitem_id": "missing-workitem",
+                    "retry_count": 1,
+                    "max_retries": 2,
+                    "related_events": [],
+                    "related_gate_history": [],
+                }
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert "retry_history[0] references unknown WorkItem: missing-workitem" in result.errors
+
+
+def test_manifest_verifier_warns_for_malformed_retry_history_fields(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "summary": {
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 0,
+                "retry_history_count": 1,
+                "changed_file_count": 0,
+                "changed_files": [],
+            },
+            "retry_history": [
+                {
+                    "workitem_id": "workitem-1",
+                    "retry_count": -1,
+                    "max_retries": "many",
+                    "related_events": "event",
+                    "related_gate_history": "testing:retry",
+                }
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert "retry_history[0].retry_count must be non-negative" in result.warnings
+    assert "retry_history[0].max_retries must be an integer" in result.warnings
+    assert "retry_history[0] related_events must be a list" in result.warnings
+    assert "retry_history[0] related_gate_history must be a list" in result.warnings
+
+
 def test_manifest_verifier_rejects_unknown_task_assignment_dependencies(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,

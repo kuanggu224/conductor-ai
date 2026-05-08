@@ -236,6 +236,7 @@ class ManifestVerifier:
         artifacts = self._list(payload.get("artifacts"))
         executions = self._list(payload.get("executions"))
         task_assignments = self._list(payload.get("task_assignments"))
+        retry_history = self._list(payload.get("retry_history"))
 
         workitem_ids = self._ids_with_duplicate_check("workitems", workitems, result)
         artifact_ids = self._ids_with_duplicate_check("artifacts", artifacts, result)
@@ -339,6 +340,26 @@ class ManifestVerifier:
                 self._warn_non_list_fields(run, f"{run_list_name}[{index}]", ("output_files",), result)
                 if run_list_name == "llm_runs" and "token_usage" in run:
                     self._verify_token_usage(run.get("token_usage"), f"llm_runs[{index}].token_usage", result)
+
+        for index, retry_record in enumerate(retry_history):
+            if not isinstance(retry_record, dict):
+                continue
+            workitem_id = str(retry_record.get("workitem_id", ""))
+            if workitem_id and workitem_id not in workitem_ids:
+                result.errors.append(f"retry_history[{index}] references unknown WorkItem: {workitem_id}")
+            self._warn_non_list_fields(
+                retry_record,
+                f"retry_history[{index}]",
+                ("related_events", "related_gate_history"),
+                result,
+            )
+            for field_name in ("retry_count", "max_retries"):
+                if field_name in retry_record:
+                    parsed = self._as_int(retry_record.get(field_name))
+                    if parsed is None:
+                        result.warnings.append(f"retry_history[{index}].{field_name} must be an integer")
+                    elif parsed < 0:
+                        result.warnings.append(f"retry_history[{index}].{field_name} must be non-negative")
 
     def _warn_non_list_fields(
         self,
