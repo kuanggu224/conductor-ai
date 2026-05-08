@@ -364,6 +364,75 @@ def test_manifest_verifier_rejects_completed_cursor_with_blockers(tmp_path) -> N
     assert "completed manifest cannot have resume_cursor.blockers" in result.errors
 
 
+def test_manifest_verifier_rejects_pending_cursor_with_done_workitem(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "status": "in_progress",
+            "final_status": "in_progress",
+            "summary": {
+                "final_status": "in_progress",
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+            },
+            "resume_cursor": {
+                "project_id": "project-1",
+                "project_status": "in_progress",
+                "current_stage": "testing",
+                "next_action": "execute_workitem",
+                "terminal": False,
+                "blocked": False,
+                "next_pending_workitem_ids": ["workitem-1"],
+                "running_workitem_ids": [],
+                "retryable_failed_workitem_ids": [],
+                "terminal_failed_workitem_ids": [],
+                "completed_workitem_ids": [],
+            },
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert (
+        "resume_cursor.next_pending_workitem_ids references WorkItem workitem-1 "
+        "with status done, expected pending"
+    ) in result.errors
+
+
+def test_manifest_verifier_rejects_completed_cursor_with_failed_workitem(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "workitems": [
+                {
+                    "id": "workitem-1",
+                    "stage": "testing",
+                    "kind": "acceptance_check",
+                    "status": "failed",
+                }
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert (
+        "resume_cursor.completed_workitem_ids references WorkItem workitem-1 "
+        "with status failed, expected done"
+    ) in result.errors
+
+
 def test_manifest_verifier_checks_cli_config_shape_and_bindings(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,

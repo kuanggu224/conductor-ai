@@ -256,12 +256,18 @@ class ManifestVerifier:
             result.warnings.append("resume_cursor.blockers must be a list")
 
         workitem_ids = self._id_set(self._list(payload.get("workitems")))
+        workitem_statuses = {
+            str(item.get("id", "")): str(item.get("status", ""))
+            for item in self._list(payload.get("workitems"))
+            if isinstance(item, dict) and str(item.get("id", ""))
+        }
         for cursor_key in self.CURSOR_WORKITEM_LISTS:
             if cursor_key in cursor and not isinstance(cursor.get(cursor_key), list):
                 result.warnings.append(f"resume_cursor.{cursor_key} must be a list")
             for workitem_id in self._string_list(cursor.get(cursor_key)):
                 if workitem_id not in workitem_ids:
                     result.errors.append(f"resume_cursor.{cursor_key} references unknown WorkItem: {workitem_id}")
+        self._verify_cursor_workitem_statuses(cursor, workitem_statuses, result)
         if final_status == "completed":
             for cursor_key in (
                 "next_pending_workitem_ids",
@@ -278,6 +284,28 @@ class ManifestVerifier:
             result.errors.append(
                 f"resume_cursor.last_execution_workitem_id references unknown WorkItem: {last_execution_workitem_id}"
             )
+
+    def _verify_cursor_workitem_statuses(
+        self,
+        cursor: dict[str, Any],
+        workitem_statuses: dict[str, str],
+        result: ManifestVerificationResult,
+    ) -> None:
+        expected_statuses = {
+            "next_pending_workitem_ids": "pending",
+            "running_workitem_ids": "running",
+            "retryable_failed_workitem_ids": "failed",
+            "terminal_failed_workitem_ids": "failed",
+            "completed_workitem_ids": "done",
+        }
+        for cursor_key, expected_status in expected_statuses.items():
+            for workitem_id in self._string_list(cursor.get(cursor_key)):
+                actual_status = workitem_statuses.get(workitem_id)
+                if actual_status and actual_status != expected_status:
+                    result.errors.append(
+                        f"resume_cursor.{cursor_key} references WorkItem {workitem_id} "
+                        f"with status {actual_status}, expected {expected_status}"
+                    )
 
     def _verify_links(self, payload: dict[str, Any], result: ManifestVerificationResult) -> None:
         project_id = str(payload.get("project_id", ""))
