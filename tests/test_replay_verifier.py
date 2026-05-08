@@ -665,6 +665,87 @@ def test_manifest_verifier_rejects_bad_summary_validation_failure_count(tmp_path
     assert "summary.validation_failure_count=0 does not match failed validations=1" in result.errors
 
 
+def test_manifest_verifier_rejects_summary_changed_files_mismatch_executions(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "summary": {
+                "final_status": "completed",
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 1,
+                "changed_files": ["ghost.py"],
+            },
+            "executions": [
+                {
+                    "workitem_id": "workitem-1",
+                    "agent_id": "agent-1",
+                    "status": "success",
+                    "artifact_ids": ["artifact-1"],
+                    "artifact_files": [],
+                    "changed_files": ["app.py"],
+                }
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert "summary.changed_files=['ghost.py'] does not match execution changed_files=['app.py']" in result.errors
+
+
+def test_manifest_verifier_accepts_deduped_summary_changed_files(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "summary": {
+                "final_status": "completed",
+                "workitem_count": 1,
+                "execution_count": 2,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 1,
+                "changed_files": ["app.py"],
+            },
+            "executions": [
+                {
+                    "workitem_id": "workitem-1",
+                    "agent_id": "agent-1",
+                    "status": "failed",
+                    "artifact_ids": ["artifact-1"],
+                    "artifact_files": [],
+                    "changed_files": ["app.py"],
+                },
+                {
+                    "workitem_id": "workitem-1",
+                    "agent_id": "agent-1",
+                    "status": "success",
+                    "artifact_ids": ["artifact-1"],
+                    "artifact_files": [],
+                    "changed_files": ["app.py"],
+                },
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+
+
 def test_manifest_verifier_rejects_terminal_status_without_terminal_cursor(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,

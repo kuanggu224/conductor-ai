@@ -239,10 +239,31 @@ class ManifestVerifier:
                 result.errors.append(
                     f"summary.changed_file_count={actual} does not match len(summary.changed_files)={len(changed_files)}"
                 )
+        self._verify_summary_changed_files(summary, self._list(payload.get("executions")), result)
         if "llm_token_usage" in summary:
             self._verify_token_usage(summary.get("llm_token_usage"), "summary.llm_token_usage", result)
         if "llm_cost_estimate" in summary:
             self._verify_llm_cost_estimate(summary.get("llm_cost_estimate"), "summary.llm_cost_estimate", result)
+
+    def _verify_summary_changed_files(
+        self,
+        summary: dict[str, Any],
+        executions: list[Any],
+        result: ManifestVerificationResult,
+    ) -> None:
+        if "changed_files" not in summary or not isinstance(summary.get("changed_files"), list):
+            return
+        actual_changed_files = self._string_list(summary.get("changed_files"))
+        expected_changed_files: list[str] = []
+        for execution in executions:
+            if not isinstance(execution, dict):
+                continue
+            expected_changed_files.extend(self._string_list(execution.get("changed_files", [])))
+        expected_changed_files = self._dedupe(expected_changed_files)
+        if actual_changed_files != expected_changed_files:
+            result.errors.append(
+                f"summary.changed_files={actual_changed_files} does not match execution changed_files={expected_changed_files}"
+            )
 
     def _verify_summary_status_counts(
         self,
@@ -1035,6 +1056,16 @@ class ManifestVerifier:
                 continue
             counts[status] = counts.get(status, 0) + 1
         return counts
+
+    def _dedupe(self, values: list[str]) -> list[str]:
+        seen: set[str] = set()
+        result: list[str] = []
+        for value in values:
+            if value in seen:
+                continue
+            seen.add(value)
+            result.append(value)
+        return result
 
     def _as_int(self, value: Any) -> int | None:
         if isinstance(value, bool):
