@@ -85,7 +85,6 @@ class RunManifestWriter:
         cli_runs = [
             record for record in executions if str(record.get("source_backend", "")).startswith(("agent_cli/", "cli/"))
         ]
-        llm_runs = self._llm_runs(state, executions)
         collaboration_runs = self._collaboration_runs(state)
         retry_history = self._retry_history(state)
         requirement_evaluations = self._requirement_evaluations(state)
@@ -101,8 +100,10 @@ class RunManifestWriter:
             llm_runtime_config=llm_runtime_config,
             probe_llm=False,
         ).to_dict()
+        llm_context_windows = self._llm_context_windows(platform_diagnostics)
+        llm_runs = self._llm_runs(state, executions, llm_context_windows)
         manifest = RunManifest(
-            schema_version="1.24",
+            schema_version="1.25",
             run_id=f"{state.project.id}:{generated_at}",
             project_id=state.project.id,
             generated_at=generated_at,
@@ -142,6 +143,7 @@ class RunManifestWriter:
                 "retry_attempt_count": sum(int(item.get("retry_count", 0)) for item in retry_history),
                 "cli_run_count": len(cli_runs),
                 "llm_run_count": len(llm_runs),
+                "llm_context_windows": llm_context_windows,
                 "collaboration_run_count": len(collaboration_runs),
                 "changed_file_count": len(self._changed_files(executions)),
                 "changed_files": self._changed_files(executions),
@@ -385,6 +387,48 @@ class RunManifestWriter:
         if any(result.get("required_rules") for result in results):
             return "pass"
         return "no_rules"
+
+    def _llm_context_windows(self, platform_diagnostics: dict[str, object]) -> list[dict[str, object]]:
+        """Return compact LLM context window records for manifest consumers."""
+        records: list[dict[str, object]] = []
+        llm_backends = platform_diagnostics.get("llm_backends", [])
+        if not isinstance(llm_backends, list):
+            return records
+        for backend in llm_backends:
+            if not isinstance(backend, dict):
+                continue
+            context_length = backend.get("context_length")
+            if isinstance(context_length, str) and context_length.isdigit():
+                context_length = int(context_length)
+            elif not isinstance(context_length, int):
+                context_length = None
+            records.append(
+                {
+                    "backend": str(backend.get("backend", "")),
+                    "model": str(backend.get("model", "")),
+                    "enabled": bool(backend.get("enabled", False)),
+                    "server_status": str(backend.get("server_status", "")),
+                    "health_status": str(backend.get("health_status", "")),
+                    "selected_model_available": backend.get("selected_model_available"),
+                    "context_length": context_length,
+                }
+            )
+        return records
+
+    def _context_length_for_model(
+        self,
+        model: str,
+        llm_context_windows: list[dict[str, object]],
+    ) -> int | None:
+        """Return a known context length for a model from diagnostics records."""
+        if not model:
+            return None
+        for record in llm_context_windows:
+            if str(record.get("model", "")) != model:
+                continue
+            context_length = record.get("context_length")
+            return context_length if isinstance(context_length, int) else None
+        return None
 
     def _scope_contract_results(self, state: SharedProjectState) -> list[dict[str, object]]:
         """Evaluate downstream artifacts against frozen requirement hard exclusions."""
@@ -633,19 +677,27 @@ class RunManifestWriter:
             "revision_count": len([item for _, item in draft_versions if item.round_index > 0]),
         }
 
-    def _llm_runs(self, state: SharedProjectState, executions: list[dict[str, object]]) -> list[dict[str, object]]:
+    def _llm_runs(
+        self,
+        state: SharedProjectState,
+        executions: list[dict[str, object]],
+        llm_context_windows: list[dict[str, object]] | None = None,
+    ) -> list[dict[str, object]]:
         """Return all LLM-backed calls known to the run manifest."""
         runs: list[dict[str, object]] = []
+        context_windows = llm_context_windows or []
         for record in executions:
             source_backend = str(record.get("source_backend", ""))
             if source_backend.startswith(("llm/", "llm_harness/", "llm_harness_code/")):
+                model = str(record.get("model") or self._model_from_source_backend(source_backend))
                 runs.append(
                     {
                         "mode": "workitem_execution",
                         "workitem_id": record.get("workitem_id", ""),
                         "agent_id": record.get("agent_id", ""),
                         "source_backend": source_backend,
-                        "model": record.get("model") or self._model_from_source_backend(source_backend),
+                        "model": model,
+                        "context_length": self._context_length_for_model(model, context_windows),
                         "prompt_hash": record.get("prompt_hash", ""),
                         "output_files": record.get("artifact_files", []),
                         "status": record.get("status", ""),
@@ -667,6 +719,7 @@ class RunManifestWriter:
                             "decision": review.decision.value,
                             "source_backend": runtime["source_backend"],
                             "model": runtime["model"],
+                            "context_length": self._context_length_for_model(runtime["model"], context_windows),
                             "prompt_hash": "",
                             "output_files": [runtime["output_path"]] if runtime["output_path"] else [],
                             "duration_ms": runtime["duration_ms"],
@@ -685,6 +738,7 @@ class RunManifestWriter:
                             "version": draft.version,
                             "source_backend": runtime["source_backend"],
                             "model": runtime["model"],
+                            "context_length": self._context_length_for_model(runtime["model"], context_windows),
                             "prompt_hash": "",
                             "output_files": [runtime["output_path"]] if runtime["output_path"] else [],
                             "duration_ms": runtime["duration_ms"],

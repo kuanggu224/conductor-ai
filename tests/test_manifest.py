@@ -27,7 +27,7 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     manifest_path = engine.write_run_manifest(state.project.id, report_path)
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-    assert payload["schema_version"] == "1.24"
+    assert payload["schema_version"] == "1.25"
     assert payload["run_id"].startswith(state.project.id)
     assert payload["project_id"] == state.project.id
     assert payload["run_profile"] == "mock"
@@ -111,6 +111,7 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     assert "retry_attempt_count" in payload["summary"]
     assert payload["summary"]["cli_run_count"] == len(payload["cli_runs"])
     assert payload["summary"]["llm_run_count"] == len(payload["llm_runs"])
+    assert isinstance(payload["summary"]["llm_context_windows"], list)
     assert payload["summary"]["collaboration_run_count"] == len(payload["collaboration_runs"])
     assert isinstance(payload["summary"]["changed_files"], list)
     assert payload["summary"]["changed_file_count"] == len(payload["summary"]["changed_files"])
@@ -256,6 +257,89 @@ def test_manifest_does_not_persist_llm_api_keys(tmp_path) -> None:
     assert "sk-local-secret" not in manifest_text
     assert cloud["api_key_present"] is True
     assert "api_key" not in cloud
+
+
+def test_manifest_summarizes_llm_context_windows(tmp_path, monkeypatch) -> None:
+    from dataclasses import replace
+    from conductor.domain.models import Execution, ExecutionStatus
+
+    project_root = tmp_path / "project"
+
+    class FakeDiagnostics:
+        def to_dict(self) -> dict[str, object]:
+            return {
+                "project_root": str(project_root),
+                "config_paths": {},
+                "llm_backends": [
+                    {
+                        "backend": "local",
+                        "enabled": True,
+                        "model": "qwen2.5-coder-14b-instruct",
+                        "server_status": "reachable",
+                        "health_status": "ready",
+                        "selected_model_available": True,
+                        "context_length": "32768",
+                    },
+                    {
+                        "backend": "cloud",
+                        "enabled": False,
+                        "model": "jiutian-lan-comv3",
+                        "server_status": "not_checked",
+                        "health_status": "disabled",
+                        "selected_model_available": None,
+                        "context_length": None,
+                    },
+                ],
+            }
+
+    monkeypatch.setattr("conductor.manifest.build_platform_diagnostics", lambda **_: FakeDiagnostics())
+    engine = ConductorEngine(
+        log_dir=tmp_path / "logs",
+        artifact_dir=tmp_path / "artifacts",
+        cli_selection_config=CLISelectionConfig(),
+        run_profile=RunProfile.MOCK,
+    )
+    state = engine.create_project("Build a local reading list", project_root=str(project_root))
+    state = replace(
+        state,
+        executions=[
+            Execution(
+                workitem_id=state.workitems[0].id,
+                agent_id="agent-requirement-designer",
+                result="ok",
+                status=ExecutionStatus.SUCCESS,
+                source_backend="llm_harness/qwen2.5-coder-14b-instruct",
+                model="qwen2.5-coder-14b-instruct",
+            )
+        ],
+    )
+    engine.state_store.save_state(state)
+    report_path = engine.write_project_report(state.project.id)
+
+    manifest_path = engine.write_run_manifest(state.project.id, report_path)
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert payload["summary"]["llm_context_windows"] == [
+        {
+            "backend": "local",
+            "model": "qwen2.5-coder-14b-instruct",
+            "enabled": True,
+            "server_status": "reachable",
+            "health_status": "ready",
+            "selected_model_available": True,
+            "context_length": 32768,
+        },
+        {
+            "backend": "cloud",
+            "model": "jiutian-lan-comv3",
+            "enabled": False,
+            "server_status": "not_checked",
+            "health_status": "disabled",
+            "selected_model_available": None,
+            "context_length": None,
+        },
+    ]
+    assert payload["llm_runs"][0]["context_length"] == 32768
 
 
 def test_manifest_redacts_secret_command_arguments(tmp_path, monkeypatch) -> None:
