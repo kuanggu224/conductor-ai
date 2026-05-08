@@ -359,6 +359,31 @@ def test_manifest_verifier_warns_for_self_referential_artifact_lineage(tmp_path)
     assert "artifact artifact-1 has self-referential derived_from" in result.warnings
 
 
+def test_manifest_verifier_warns_for_malformed_artifact_lineage_type(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "artifacts": [
+                {
+                    "id": "artifact-1",
+                    "project_id": "project-1",
+                    "workitem_id": "workitem-1",
+                    "title": "Report",
+                    "kind": "test_report",
+                    "agent_id": "agent-1",
+                    "path": str(tmp_path / "project" / ".conductor" / "artifacts" / "artifact-1.md"),
+                    "derived_from": "artifact-input",
+                }
+            ]
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert "artifact artifact-1 derived_from must be a list" in result.warnings
+
+
 def test_verify_manifest_cli_can_fail_on_unresolved_artifact_lineage_warning(tmp_path, capsys) -> None:
     manifest_path = _write_manifest(
         tmp_path,

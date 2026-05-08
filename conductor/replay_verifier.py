@@ -271,6 +271,8 @@ class ManifestVerifier:
                     result.warnings.append(f"artifact {artifact_id} has self-referential {field_name}")
                 elif linked_id and linked_id not in artifact_ids:
                     result.warnings.append(f"artifact {artifact.get('id', '')} has unresolved {field_name}: {linked_id}")
+            if "derived_from" in artifact and not isinstance(artifact.get("derived_from"), list):
+                result.warnings.append(f"artifact {artifact_id} derived_from must be a list")
             for linked_id in self._string_list(artifact.get("derived_from", [])):
                 if linked_id == artifact_id:
                     result.warnings.append(f"artifact {artifact_id} has self-referential derived_from")
