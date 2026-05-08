@@ -228,6 +228,7 @@ class ManifestVerifier:
         self._verify_summary_blockers(summary, self._dict(payload.get("resume_cursor")), result)
         self._verify_summary_validation_failure_count(summary, self._list(payload.get("executions")), result)
         self._verify_requirement_quality_score(summary, self._list(payload.get("requirement_evaluations")), result)
+        self._verify_requirement_coverage_status(summary, self._list(payload.get("requirement_coverage_results")), result)
 
         changed_files = self._list(summary.get("changed_files"))
         if "changed_files" in summary and not isinstance(summary.get("changed_files"), list):
@@ -372,6 +373,31 @@ class ManifestVerifier:
             result.errors.append(
                 f"summary.requirement_quality_score={actual} does not match max(requirement_evaluations.score)={expected}"
             )
+
+    def _verify_requirement_coverage_status(
+        self,
+        summary: dict[str, Any],
+        coverage_results: list[Any],
+        result: ManifestVerificationResult,
+    ) -> None:
+        if "requirement_coverage_status" not in summary:
+            return
+        expected = self._requirement_coverage_status(coverage_results)
+        actual = str(summary.get("requirement_coverage_status", ""))
+        if actual != expected:
+            result.errors.append(
+                f"summary.requirement_coverage_status={actual} does not match requirement coverage results={expected}"
+            )
+
+    def _requirement_coverage_status(self, coverage_results: list[Any]) -> str:
+        records = [item for item in coverage_results if isinstance(item, dict)]
+        if not records:
+            return "not_evaluated"
+        if any(record.get("passed") is False for record in records):
+            return "missing_coverage"
+        if any(bool(self._string_list(record.get("required_rules", []))) for record in records):
+            return "pass"
+        return "no_rules"
 
     def _verify_task_center_summary(
         self,

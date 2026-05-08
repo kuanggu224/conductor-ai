@@ -733,6 +733,75 @@ def test_manifest_verifier_accepts_requirement_quality_score_without_evaluations
     assert result.passed is True
 
 
+def test_manifest_verifier_rejects_bad_requirement_coverage_status(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "summary": {
+                "final_status": "completed",
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+                "requirement_coverage_status": "pass",
+            },
+            "requirement_coverage_results": [
+                {
+                    "workitem_id": "workitem-1",
+                    "artifact_id": "artifact-1",
+                    "passed": False,
+                    "required_rules": ["add_item", "export_csv"],
+                    "covered_rules": ["add_item"],
+                    "missing_rules": ["export_csv"],
+                }
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert (
+        "summary.requirement_coverage_status=pass "
+        "does not match requirement coverage results=missing_coverage"
+    ) in result.errors
+
+
+def test_manifest_verifier_accepts_requirement_coverage_status_without_results(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "summary": {
+                "final_status": "completed",
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+                "requirement_coverage_status": "not_evaluated",
+            },
+            "requirement_coverage_results": [],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+
+
 def test_manifest_verifier_rejects_summary_changed_files_mismatch_executions(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,

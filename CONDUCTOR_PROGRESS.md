@@ -338,7 +338,7 @@ python -m pytest -q
 最近一次验证结果：
 
 ```text
-488 passed
+490 passed
 ```
 
 ### 4.2 运行 Board
@@ -550,7 +550,8 @@ Manifest 已能记录主要运行事实和审计摘要，并已完成 LLM 配置
 - Manifest verifier 已覆盖 `summary.changed_files` 聚合校验，确保变更文件摘要和 `executions[].changed_files` 去重明细一致。
 - Manifest verifier 已覆盖 preflight gate 摘要校验；当 `files.preflight_gate` 存在时，`summary.preflight_gate_ok`、errors、recommendations 必须和 gate JSON 证据一致。
 - Manifest verifier 已覆盖 `summary.requirement_quality_score` 聚合校验，确保需求质量分数等于 `requirement_evaluations[].score` 最大值；无评估时为 0。
-- 针对测试：`python -m pytest tests\test_replay_verifier.py -q`，结果 `79 passed`。
+- Manifest verifier 已覆盖 `summary.requirement_coverage_status` 聚合校验，确保需求覆盖状态和 `requirement_coverage_results` 明细一致。
+- 针对测试：`python -m pytest tests\test_replay_verifier.py -q`，结果 `81 passed`。
 - 已补只读 replay trace：`python -m app.replay_manifest <manifest> --format markdown`，从 manifest 还原 Project/WorkItem/TaskAssignment/Execution/Artifact 时间线，不重跑 Agent；支持 `--output` 归档到文件，且不会输出 claim token。
 - Replay trace 的 artifact 事件已暴露 `derived_from`，Markdown 回放也会显示 artifact id 和 lineage 摘要，便于审计修复产物来自哪些输入。
 - 针对测试：`python -m pytest tests\test_replay_trace.py tests\test_replay_verifier.py -q`，结果 `24 passed`。
