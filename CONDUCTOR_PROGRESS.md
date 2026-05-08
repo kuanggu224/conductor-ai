@@ -497,14 +497,14 @@ AspireCode 内置 agent prompt 很长，本地模型 4096 context 会失败。�
 
 ### 6.4 Manifest 仍可继续加强
 
-Manifest 已能记录主要运行事实和审计摘要，并已完成 LLM 配置与命令行密钥脱敏。后续可以继续补：
+Manifest 已能记录主要运行事实和审计摘要，并已完成 LLM 配置、命令行密钥脱敏、`resume_cursor` 和基础 token usage。后续可以继续补：
 
 - cost
-- replay runner
+- replay trace / deterministic replay verifier
 
 ### 6.5 任务中心仍是轻量实现
 
-目前已有 TaskAssignment、上下文渲染、prompt 归档和 stale release，但还不是独立队列或可并发多 worker 长期抢占式领取任务的系统。
+目前已有 TaskAssignment、上下文渲染、prompt 归档、heartbeat、stale release、resume 前 stale cleanup、文件锁和损坏 state 隔离，但还不是独立分布式队列。
 
 ## 7. 建议下一步
 
@@ -514,7 +514,7 @@ Manifest 已能记录主要运行事实和审计摘要，并已完成 LLM 配置
 2. 跑动态评审真实 benchmark，对比 direct plain、static review、dynamic review 的质量和成本。
 3. 强化 frozen requirement 到 design/development/testing 的上下文传递，保证后续阶段以冻结需求为基线。
 4. 做一个小型真实项目闭环：静态 Web 项目优先，从需求冻结、设计、代码生成、StaticWebHarness 验证到 manifest/report 归档。
-5. 继续产品化 Task Center：增加 replay/resume 边界、worker 心跳、长期 claimed task 管理和并发安全策略。
+5. 继续产品化 Task Center：增加更完整的 lease 策略、并发压力测试、长期 worker 审计和分布式队列边界。
 6. 开始把开发/测试阶段也做成类似需求阶段的产品级闭环。
 7. 继续强化运行前 gate：对失败类型做更细分的降级策略，并把 gate 结果接入更明确的运行前操作提示。
 

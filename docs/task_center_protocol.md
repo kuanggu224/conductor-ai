@@ -179,9 +179,9 @@ WorkItem back to `pending`. Completed assignments cannot be released.
 }
 ```
 
-`release-stale` bulk releases claimed assignments whose `claimed_at` age is
-greater than or equal to the threshold, and returns `released_count`, `summary`,
-and the released task payloads.
+`release-stale` bulk releases claimed assignments whose heartbeat age is greater
+than or equal to the threshold, falling back to `claimed_at` when no heartbeat
+exists. It returns `released_count`, `summary`, and the released task payloads.
 
 When `output_artifact_content` is present, the platform creates and persists a
 new artifact with source backend `task_center/external`, appends its id to
