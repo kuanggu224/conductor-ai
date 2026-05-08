@@ -133,6 +133,11 @@ templates/board.html       当前 Board 页面
 
 - 可接本地 LM Studio。
 - 可接云端 OpenAI-compatible API。
+- 已接入并验证九天 `jiutian-lan-comv3` 云端后端。
+- LLM 配置支持 provider preset：`openai`、`jiutian`、`lmstudio`。
+- Board LLM 设置页支持本地/云端连接预检。
+- 设置接口只返回 `api_key_present`，不会回显真实 API key。
+- 保存设置时空 key 会保留本地既有密钥，避免页面编辑误清空。
 - 平台负责写入受控 artifact 文件。
 - 对 Qwen thinking 模型默认使用 `reasoning_effort=none`。
 - 支持 CLI 参数 `--llm-reasoning-effort none|low|medium|high`。
@@ -141,6 +146,8 @@ templates/board.html       当前 Board 页面
 
 - LM Studio + `qwen/qwen3.6-35b-a3b` 可直连。
 - 设计协作流程可以由本地 Qwen3.6 真实产出和评审。
+- 九天云端 preflight 返回 `conductor-requirement-preflight-ok`。
+- 九天云端 `reading_list` smoke 中，平台需求产物评分 100，direct baseline 评分 58，manifest 记录 `llm_run_count=9`。
 
 ### 3.6 Agent CLI 接入
 
@@ -273,6 +280,8 @@ Manifest 现在能正确显示：
 - artifact lineage：parent、derived_from、review_of、version、collaboration_session_id。
 - execution command、exit code、duration，Agent CLI prompt 会脱敏。
 - runtime environment 和 platform diagnostics。
+- `llm_runtime_config` 只记录 key 是否存在，不记录真实 API key。
+- `run_environment.command_argv` 会脱敏 `key`、`token`、`secret`、`password` 相关参数。
 - summary 聚合：状态计数、失败 WorkItem、可重试/不可重试失败数、CLI/LLM/collaboration 运行数、变更文件数、artifact 文件数、验证失败数。
 
 示例真实项目：
@@ -308,7 +317,7 @@ python -m pytest -q
 最近一次验证结果：
 
 ```text
-308 passed
+333 passed
 ```
 
 ### 4.2 运行 Board
@@ -467,7 +476,7 @@ AspireCode 内置 agent prompt 很长，本地模型 4096 context 会失败。�
 
 ### 6.4 Manifest 仍可继续加强
 
-Manifest 已能记录主要运行事实和审计摘要，但后续可以继续补：
+Manifest 已能记录主要运行事实和审计摘要，并已完成 LLM 配置与命令行密钥脱敏。后续可以继续补：
 
 - token usage
 - cost
@@ -490,6 +499,7 @@ Manifest 已能记录主要运行事实和审计摘要，但后续可以继续�
 4. 做一个小型真实项目闭环：静态 Web 项目优先，从需求冻结、设计、代码生成、StaticWebHarness 验证到 manifest/report 归档。
 5. 继续产品化 Task Center：增加 replay/resume 边界、worker 心跳、长期 claimed task 管理和并发安全策略。
 6. 开始把开发/测试阶段也做成类似需求阶段的产品级闭环。
+7. 增强 LLM/CLI 健康检查：记录模型 context、超时、可用模型、最近 preflight 和失败建议。
 
 ## 8. 当前关键命令备忘
 

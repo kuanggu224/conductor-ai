@@ -119,6 +119,11 @@ Conductor can use Jiutian through the existing OpenAI-compatible cloud backend.
 Keep the real API key only in `.conductor/llm.config.json`, which is ignored by
 Git.
 
+The Board LLM settings page exposes provider presets for OpenAI, Jiutian, and
+LM Studio. The API reports only whether a key is present; it does not return the
+stored key. Leaving the key field blank while saving preserves the existing
+local key.
+
 Minimal cloud config:
 
 ```json
@@ -184,7 +189,8 @@ The default flow is:
 6. Update shared state
 7. Let `LeadController` decide the next action
 
-Current test status in this workspace: `264 passed` with `python -m pytest -q`.
+Current full verification after LLM settings and manifest redaction hardening:
+`333 passed` with `python -m pytest -q`.
 
 ## Project Layout
 
