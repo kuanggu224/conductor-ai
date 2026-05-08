@@ -510,6 +510,7 @@ Manifest 已能记录主要运行事实和审计摘要，并已完成 LLM 配置
 - `python -m app.run_project --write-manifest-verification` 可在项目运行结束时同步归档 manifest 自检 JSON 报告；`--manifest-verification-output` 的相对路径会解析到项目根目录下。
 - `python -m app.run_project --write-replay-trace` 可在项目运行结束时同步归档只读 replay trace。
 - `python -m app.run_project --write-audit-bundle` 可一次性归档 manifest 自检报告和 replay trace，并写出 audit bundle index JSON，索引 manifest、report、verification、replay trace 路径和通过状态。
+- `python -m app.verify_audit_bundle <audit.json>` 可校验 audit bundle index 结构、组件文件存在性和 verification/replay 摘要状态。
 - `python -m app.verify_manifest <manifest> --output <file>` 可将自检报告归档到 JSON 文件。
 - `python -m app.verify_manifest <manifest> --fail-on-warnings` 可把 warning 升级为 CLI 失败，适合 CI/生产门禁；报告内 `passed` 仍表示 hard error 状态。
 - 针对测试：`python -m pytest tests\test_replay_verifier.py -q`，结果 `16 passed`。
@@ -519,7 +520,7 @@ Manifest 已能记录主要运行事实和审计摘要，并已完成 LLM 配置
 - 需求评分器已补中文语义 alias 和 `metrics.keyword_matches`，benchmark 报告可看到每个关键词实际命中的表达，便于定位 keyword coverage 误报。
 - 需求评分器已补范围扩张检测，能标记原始需求未要求但文档新增的登录、支付、通知、后台报表等功能；明确写在非目标里的排除项不会被误判。
 - Requirement benchmark Markdown 报告已展示 keyword coverage、缺失关键词、命中 alias 和 scope expansion，方便直接从报告定位评分问题。
-- 当前全量测试：`python -m pytest -q`，结果 `404 passed`。
+- 当前全量测试：`python -m pytest -q`，结果 `409 passed`。
 
 ### 6.5 任务中心仍是轻量实现
 

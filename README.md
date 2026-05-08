@@ -232,6 +232,12 @@ Use `--write-audit-bundle` to write both the manifest verification report and
 the replay trace in one project run. It also writes an audit bundle index JSON
 that points to the manifest, report, verification report, and replay trace.
 
+Verify an audit bundle index:
+
+```powershell
+python -m app.verify_audit_bundle C:\path\to\project\.conductor\replay\project-id.audit.json
+```
+
 To write the replay trace as part of a project run:
 
 ```powershell
@@ -300,7 +306,7 @@ Current targeted verification for read-only replay trace:
 
 Current full verification after preflight gate, diagnostics, manifest hardening,
 task-center recovery work, and manifest verification:
-`404 passed` with `python -m pytest -q`.
+`409 passed` with `python -m pytest -q`.
 
 ## Project Layout
 
