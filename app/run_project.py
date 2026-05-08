@@ -135,6 +135,7 @@ def main(argv: list[str] | None = None) -> int:
                 agent_cli=agent_cli,
                 llm_harness_backend=args.llm_harness,
             )
+        gate_payload.setdefault("project_root", str(project_root))
         print(json.dumps(gate_payload, ensure_ascii=False, indent=2))
         return 0 if gate_payload["ok"] is True else 2
 

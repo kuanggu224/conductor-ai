@@ -130,7 +130,12 @@ def test_run_project_preflight_only_can_skip_without_requirement(tmp_path, capsy
 
     payload = json.loads(capsys.readouterr().out)
     assert exit_code == 0
-    assert payload == {"ok": True, "skipped": True, "reason": "skip_preflight_gate"}
+    assert payload == {
+        "ok": True,
+        "skipped": True,
+        "reason": "skip_preflight_gate",
+        "project_root": str(tmp_path),
+    }
     assert not (tmp_path / ".conductor" / "state").exists()
 
 
@@ -155,6 +160,7 @@ def test_run_project_preflight_only_blocks_real_profile_without_backend(monkeypa
     payload = json.loads(capsys.readouterr().out)
     assert exit_code == 2
     assert payload["ok"] is False
+    assert payload["project_root"] == str(tmp_path)
     assert "requires real outputs" in payload["preflight_gate"]["errors"][0]
     assert not (tmp_path / ".conductor" / "state").exists()
 
