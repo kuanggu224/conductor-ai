@@ -237,6 +237,11 @@ and `release` include:
 - `summary`
 - `task`
 
+External CLI mutations after `claim` are guarded. `complete`, `fail`,
+`heartbeat`, and worker `release` must pass both `--agent-id` and the
+`--claim-token` returned by the claim response. `release-stale` is an operator
+cleanup action and can release expired claimed tasks without a worker token.
+
 When `--with-context` or `include_context=true` is used on claim operations,
 the response also includes `context`, with the same shape as the standalone
 context endpoint.

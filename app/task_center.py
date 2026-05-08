@@ -109,7 +109,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     store = FileStateStore(_resolve_state_dir(args))
     state = _resolve_state(store, args.project_id)
-    service = TaskCenterService(store, event_prefix="TaskCenterCLI")
+    service = TaskCenterService(store, event_prefix="TaskCenterCLI", require_claim_guard=True)
 
     try:
         _validate_prompt_file_before_mutation(args, state)

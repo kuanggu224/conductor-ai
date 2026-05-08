@@ -149,6 +149,37 @@ def test_task_center_cli_rejects_complete_for_stale_claim_token(tmp_path, capsys
     assert "claim token does not match" in captured.err
 
 
+def test_task_center_cli_requires_claim_token_for_guarded_return(tmp_path, capsys) -> None:
+    project_root = tmp_path / "project"
+    state_store = FileStateStore(project_root / ".conductor" / "state")
+    engine = ConductorEngine(
+        log_dir=project_root / ".conductor" / "logs",
+        artifact_dir=project_root / ".conductor" / "artifacts",
+        state_store=state_store,
+    )
+    state = engine.create_project(requirement="Build a local reading list", project_root=str(project_root))
+    assignment_id = state.task_assignments[0].id
+    assert main(["claim", assignment_id, "--project-root", str(project_root), "--agent-id", "agent-owner"]) == 0
+    capsys.readouterr()
+
+    code = main(
+        [
+            "complete",
+            assignment_id,
+            "--project-root",
+            str(project_root),
+            "--agent-id",
+            "agent-owner",
+            "--result-summary",
+            "done",
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert code == 2
+    assert "requires claim token guard" in captured.err
+
+
 def test_task_center_cli_rejects_complete_for_wrong_agent(tmp_path, capsys) -> None:
     project_root = tmp_path / "project"
     state_store = FileStateStore(project_root / ".conductor" / "state")
@@ -526,13 +557,17 @@ def test_task_center_cli_release_requeues_claimed_assignment(tmp_path, capsys) -
             "agent-external",
         ]
     )
-    capsys.readouterr()
+    claim_payload = json.loads(capsys.readouterr().out)
     release_code = main(
         [
             "release",
             assignment_id,
             "--project-root",
             str(project_root),
+            "--agent-id",
+            "agent-external",
+            "--claim-token",
+            claim_payload["task"]["claim_token"],
             "--release-reason",
             "worker interrupted",
         ]
@@ -695,7 +730,7 @@ def test_task_center_cli_complete_can_create_output_artifact_from_file(tmp_path,
     state = engine.create_project(requirement="Build a local reading list", project_root=str(project_root))
     assignment_id = state.task_assignments[0].id
     assert main(["claim", assignment_id, "--project-root", str(project_root), "--agent-id", "agent-external"]) == 0
-    capsys.readouterr()
+    claim_payload = json.loads(capsys.readouterr().out)
 
     code = main(
         [
@@ -703,6 +738,10 @@ def test_task_center_cli_complete_can_create_output_artifact_from_file(tmp_path,
             assignment_id,
             "--project-root",
             str(project_root),
+            "--agent-id",
+            "agent-external",
+            "--claim-token",
+            claim_payload["task"]["claim_token"],
             "--result-summary",
             "done",
             "--output-file",

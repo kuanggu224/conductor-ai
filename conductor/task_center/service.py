@@ -40,9 +40,16 @@ class TaskCenterBulkTransition:
 class TaskCenterService:
     """Coordinate TaskAssignment transitions with WorkItem lifecycle updates."""
 
-    def __init__(self, state_store: InMemoryStateStore, event_prefix: str = "TaskCenter") -> None:
+    def __init__(
+        self,
+        state_store: InMemoryStateStore,
+        event_prefix: str = "TaskCenter",
+        *,
+        require_claim_guard: bool = False,
+    ) -> None:
         self.state_store = state_store
         self.event_prefix = event_prefix
+        self.require_claim_guard = require_claim_guard
 
     def list_assignments(self, project_id: str, status: str | None = None) -> list[TaskAssignment]:
         """Return assignments for a project, optionally filtered by status value."""
@@ -190,7 +197,12 @@ class TaskCenterService:
             ]
             released: list[TaskAssignment] = []
             for assignment in stale_assignments:
-                transition = self._release_assignment(project_id, assignment, release_reason=release_reason)
+                transition = self._release_assignment(
+                    project_id,
+                    assignment,
+                    release_reason=release_reason,
+                    validate_claim_guard=False,
+                )
                 released.append(transition.assignment)
             return TaskCenterBulkTransition(state=self._state(project_id), assignments=released)
 
@@ -306,10 +318,12 @@ class TaskCenterService:
         release_reason: str = "",
         agent_id: str = "",
         claim_token: str = "",
+        validate_claim_guard: bool = True,
     ) -> TaskCenterTransition:
         if assignment.status not in {TaskAssignmentStatus.CLAIMED, TaskAssignmentStatus.FAILED}:
             raise TaskCenterError(f"Task assignment cannot be released: {assignment.status.value}")
-        self._validate_claim_guard(assignment, agent_id=agent_id, claim_token=claim_token)
+        if validate_claim_guard:
+            self._validate_claim_guard(assignment, agent_id=agent_id, claim_token=claim_token)
         updated = replace(
             assignment,
             status=TaskAssignmentStatus.QUEUED,
@@ -407,6 +421,10 @@ class TaskCenterService:
             )
         if claim_token and assignment.claim_token and assignment.claim_token != claim_token:
             raise TaskCenterError("Task assignment claim token does not match.", status_code=403)
+        if self.require_claim_guard and assignment.assigned_agent_id and not agent_id:
+            raise TaskCenterError("Task assignment requires agent id guard.", status_code=403)
+        if self.require_claim_guard and assignment.claim_token and not claim_token:
+            raise TaskCenterError("Task assignment requires claim token guard.", status_code=403)
 
     def _sync_workitem_claim(self, project_id: str, assignment: TaskAssignment, agent_id: str) -> None:
         try:
