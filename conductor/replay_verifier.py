@@ -223,6 +223,7 @@ class ManifestVerifier:
         )
         self._verify_summary_failure_counts(summary, self._list(payload.get("workitems")), result)
         self._verify_summary_retry_attempt_count(summary, self._list(payload.get("retry_history")), result)
+        self._verify_task_center_summary(summary, self._list(payload.get("task_assignments")), result)
 
         changed_files = self._list(summary.get("changed_files"))
         if "changed_files" in summary and not isinstance(summary.get("changed_files"), list):
@@ -321,6 +322,49 @@ class ManifestVerifier:
                 expected += parsed
         if actual != expected:
             result.errors.append(f"summary.retry_attempt_count={actual} does not match retry_history total={expected}")
+
+    def _verify_task_center_summary(
+        self,
+        summary: dict[str, Any],
+        task_assignments: list[Any],
+        result: ManifestVerificationResult,
+    ) -> None:
+        if "task_center_summary" not in summary:
+            return
+        task_summary = summary.get("task_center_summary")
+        if not isinstance(task_summary, dict):
+            result.errors.append("summary.task_center_summary must be an object")
+            return
+        expected_counts = {
+            "total": len([item for item in task_assignments if isinstance(item, dict)]),
+            "claimable": len([item for item in task_assignments if isinstance(item, dict) and item.get("claimable") is True]),
+            "blocked_by_dependencies": len(
+                [
+                    item
+                    for item in task_assignments
+                    if isinstance(item, dict)
+                    and str(item.get("status", "")) == "queued"
+                    and bool(self._string_list(item.get("unmet_dependency_ids", [])))
+                ]
+            ),
+            "stale_claimed": len([item for item in task_assignments if isinstance(item, dict) and item.get("stale_claimed") is True]),
+        }
+        for assignment in task_assignments:
+            if not isinstance(assignment, dict):
+                continue
+            status = str(assignment.get("status", ""))
+            if status:
+                expected_counts[status] = expected_counts.get(status, 0) + 1
+        for summary_key, expected in expected_counts.items():
+            if summary_key not in task_summary:
+                continue
+            actual = self._as_int(task_summary.get(summary_key))
+            if actual is None:
+                result.errors.append(f"summary.task_center_summary.{summary_key} must be an integer")
+            elif actual != expected:
+                result.errors.append(
+                    f"summary.task_center_summary.{summary_key}={actual} does not match task_assignments={expected}"
+                )
 
     def _verify_resume_cursor(self, payload: dict[str, Any], result: ManifestVerificationResult) -> None:
         cursor = self._dict(payload.get("resume_cursor"))

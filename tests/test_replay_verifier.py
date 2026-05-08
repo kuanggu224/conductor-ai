@@ -400,6 +400,116 @@ def test_manifest_verifier_rejects_bad_summary_retry_attempt_count(tmp_path) -> 
     assert "summary.retry_attempt_count=3 does not match retry_history total=1" in result.errors
 
 
+def test_manifest_verifier_rejects_bad_task_center_summary_counts(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "summary": {
+                "final_status": "completed",
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+                "task_center_summary": {
+                    "total": 2,
+                    "claimable": 1,
+                    "completed": 0,
+                },
+            },
+            "task_assignments": [
+                {
+                    "id": "assignment-1",
+                    "workitem_id": "workitem-1",
+                    "role": "tester",
+                    "status": "completed",
+                    "claimable": False,
+                    "unmet_dependency_ids": [],
+                    "stale_claimed": False,
+                }
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert "summary.task_center_summary.total=2 does not match task_assignments=1" in result.errors
+    assert "summary.task_center_summary.claimable=1 does not match task_assignments=0" in result.errors
+    assert "summary.task_center_summary.completed=0 does not match task_assignments=1" in result.errors
+
+
+def test_manifest_verifier_rejects_bad_task_center_summary_stale_and_blocked_counts(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "status": "in_progress",
+            "final_status": "in_progress",
+            "summary": {
+                "final_status": "in_progress",
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+                "task_center_summary": {
+                    "blocked_by_dependencies": 0,
+                    "stale_claimed": 0,
+                    "queued": 1,
+                },
+            },
+            "workitems": [
+                {
+                    "id": "workitem-1",
+                    "stage": "testing",
+                    "kind": "acceptance_check",
+                    "status": "pending",
+                }
+            ],
+            "resume_cursor": {
+                "project_id": "project-1",
+                "project_status": "in_progress",
+                "current_stage": "testing",
+                "next_action": "execute_workitem",
+                "terminal": False,
+                "blocked": False,
+                "next_pending_workitem_ids": ["workitem-1"],
+                "completed_workitem_ids": [],
+                "last_execution_workitem_id": "workitem-1",
+            },
+            "task_assignments": [
+                {
+                    "id": "assignment-1",
+                    "workitem_id": "workitem-1",
+                    "role": "tester",
+                    "status": "queued",
+                    "claimable": False,
+                    "unmet_dependency_ids": ["workitem-upstream"],
+                    "stale_claimed": True,
+                }
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert "summary.task_center_summary.blocked_by_dependencies=0 does not match task_assignments=1" in result.errors
+    assert "summary.task_center_summary.stale_claimed=0 does not match task_assignments=1" in result.errors
+
+
 def test_manifest_verifier_rejects_terminal_status_without_terminal_cursor(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,
