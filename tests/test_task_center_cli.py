@@ -344,6 +344,18 @@ def test_task_center_cli_context_marks_rework_feedback_inputs(tmp_path, capsys) 
         ),
         project_root=state.project.project_root,
     )
+    original_artifact = engine.artifact_store.save_markdown(
+        Artifact(
+            id="artifact-original-ui",
+            project_id=state.project.id,
+            workitem_id="workitem-original-ui",
+            agent_id="agent-frontend",
+            kind="ui_implementation",
+            title="Original UI Implementation",
+            content="Initial UI implementation details.",
+        ),
+        project_root=state.project.project_root,
+    )
     rework = WorkItem(
         id="workitem-rework-ui",
         description="Fix failed UI validation",
@@ -356,13 +368,13 @@ def test_task_center_cli_context_marks_rework_feedback_inputs(tmp_path, capsys) 
         id="assignment-rework-ui",
         workitem_id=rework.id,
         role="frontend_engineer",
-        input_artifact_ids=[failed_artifact.id],
+        input_artifact_ids=[failed_artifact.id, original_artifact.id],
     )
     state = replace(
         state,
         workitems=[*state.workitems, rework],
         task_assignments=[*state.task_assignments, assignment],
-        artifacts=[*state.artifacts, failed_artifact],
+        artifacts=[*state.artifacts, failed_artifact, original_artifact],
     )
     state_store.save_state(state)
 
@@ -374,6 +386,7 @@ def test_task_center_cli_context_marks_rework_feedback_inputs(tmp_path, capsys) 
     assert payload["rework_context"]["feedback_from"] == ["workitem-failed-ui-test"]
     assert payload["rework_context"]["rework_of"] == "workitem-original-ui"
     assert payload["rework_context"]["feedback_artifacts"][0]["id"] == failed_artifact.id
+    assert payload["rework_context"]["original_artifacts"][0]["id"] == original_artifact.id
     assert "Rework Context" in payload["execution_brief"]
 
     code = main(["context", assignment.id, "--project-root", str(project_root), "--format", "markdown"])
@@ -383,6 +396,8 @@ def test_task_center_cli_context_marks_rework_feedback_inputs(tmp_path, capsys) 
     assert "## Rework Context" in output
     assert "Feedback From: workitem-failed-ui-test" in output
     assert "artifact-failed-ui-test" in output
+    assert "Original Artifacts" in output
+    assert "artifact-original-ui" in output
 
 
 def test_task_center_cli_prints_assignment_context_as_markdown(tmp_path, capsys) -> None:

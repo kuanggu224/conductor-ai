@@ -201,11 +201,22 @@ class TaskContextBuilder:
             for artifact in input_artifacts
             if artifact.get("workitem_id") in feedback_from
         ]
+        original_artifacts = [
+            {
+                "id": artifact.get("id", ""),
+                "kind": artifact.get("kind", ""),
+                "title": artifact.get("title", ""),
+                "workitem_id": artifact.get("workitem_id", ""),
+            }
+            for artifact in input_artifacts
+            if rework_of and artifact.get("workitem_id") == rework_of
+        ]
         return {
             "is_rework": bool(feedback_from or rework_of),
             "feedback_from": feedback_from,
             "rework_of": rework_of,
             "feedback_artifacts": feedback_artifacts,
+            "original_artifacts": original_artifacts,
         }
 
     def _ensure_frozen_requirement_input(
@@ -259,12 +270,20 @@ class TaskContextBuilder:
             for artifact in feedback_artifacts
             if isinstance(artifact, dict)
         ]
+        original_artifacts = _list_payload(context.get("original_artifacts"))
+        original_artifact_lines = [
+            f"- {artifact.get('id', '')} ({artifact.get('kind', '')}) from {artifact.get('workitem_id', '')}"
+            for artifact in original_artifacts
+            if isinstance(artifact, dict)
+        ]
         return [
             "- This is a rework task. Preserve the frozen requirement scope and fix only the referenced feedback.",
             f"- Rework Of: {context.get('rework_of', '') or '-'}",
             f"- Feedback From: {_join_or_none(_list_payload(context.get('feedback_from')))}",
             "- Feedback Artifacts:",
             *(artifact_lines or ["- None"]),
+            "- Original Artifacts:",
+            *(original_artifact_lines or ["- None"]),
         ]
 
     def _execution_brief(
