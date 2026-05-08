@@ -9,7 +9,7 @@ from conductor.config.cli import CLISelectionConfig
 from conductor.config.execution import RunProfile
 from conductor.config.llm import LLMRuntimeConfig, LLMUsagePolicy
 from conductor.controller.engine import ConductorEngine
-from conductor.domain.models import TaskAssignmentStatus
+from conductor.domain.models import ProjectStatus, TaskAssignmentStatus, WorkItemStatus
 from conductor.agents.llm import LLMHTTPConfig
 
 
@@ -27,7 +27,7 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     manifest_path = engine.write_run_manifest(state.project.id, report_path)
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-    assert payload["schema_version"] == "1.26"
+    assert payload["schema_version"] == "1.27"
     assert payload["run_id"].startswith(state.project.id)
     assert payload["project_id"] == state.project.id
     assert payload["run_profile"] == "mock"
@@ -125,6 +125,12 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     assert payload["summary"]["task_center_summary"]["total"] == len(state.task_assignments)
     assert "claimable" in payload["summary"]["task_center_summary"]
     assert "blocked_by_dependencies" in payload["summary"]["task_center_summary"]
+    assert payload["resume_cursor"]["project_id"] == state.project.id
+    assert payload["resume_cursor"]["project_status"] == state.project_status.value
+    assert payload["resume_cursor"]["current_stage"] == state.current_stage
+    assert "next_action" in payload["resume_cursor"]
+    assert isinstance(payload["resume_cursor"]["next_pending_workitem_ids"], list)
+    assert isinstance(payload["resume_cursor"]["last_execution_workitem_id"], str)
     assert payload["run_environment"]["python_executable"]
     assert payload["run_environment"]["python_version"]
     assert payload["run_environment"]["process_cwd"]
@@ -171,6 +177,41 @@ def test_manifest_indexes_preflight_gate_file(tmp_path) -> None:
     assert payload["summary"]["preflight_gate_ok"] is False
     assert payload["summary"]["preflight_gate_errors"] == ["local LLM preflight failed"]
     assert payload["summary"]["preflight_gate_recommendations"] == ["Check local server"]
+
+
+def test_manifest_resume_cursor_marks_blocked_failed_workitems(tmp_path) -> None:
+    engine = ConductorEngine(
+        log_dir=tmp_path / "logs",
+        artifact_dir=tmp_path / "artifacts",
+        cli_selection_config=CLISelectionConfig(),
+        run_profile=RunProfile.MOCK,
+    )
+    state = engine.create_project("Build a reading list")
+    failed_workitem = replace(
+        state.workitems[0],
+        status=WorkItemStatus.FAILED,
+        retry_count=1,
+        max_retries=1,
+        retryable=True,
+        blocked_reason="retry limit reached",
+    )
+    state = replace(
+        state,
+        project_status=ProjectStatus.BLOCKED,
+        workitems=[failed_workitem],
+        blockers=["retry limit reached"],
+    )
+    engine.state_store.save_state(state)
+    report_path = engine.write_project_report(state.project.id)
+
+    manifest_path = engine.write_run_manifest(state.project.id, report_path)
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert payload["resume_cursor"]["next_action"] == "blocked"
+    assert payload["resume_cursor"]["blocked"] is True
+    assert payload["resume_cursor"]["terminal"] is True
+    assert payload["resume_cursor"]["terminal_failed_workitem_ids"] == [failed_workitem.id]
+    assert payload["resume_cursor"]["blockers"] == ["retry limit reached"]
 
 
 def test_manifest_indexes_task_prompt_files(tmp_path) -> None:

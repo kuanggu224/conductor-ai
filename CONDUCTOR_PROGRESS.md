@@ -273,7 +273,7 @@ Static Web Harness 能检查：
 - log path
 - report path
 
-当前 schema：`1.26`
+当前 schema：`1.27`
 
 Manifest 现在能正确显示：
 
@@ -290,6 +290,7 @@ Manifest 现在能正确显示：
 - `executions[].prompt_hash`、`cli_runs[].prompt_hash` 与 `llm_runs[].prompt_hash` 记录不可逆 prompt 指纹，支持复现审计和 prompt 变更对比。
 - `executions[].token_usage`、`llm_runs[].token_usage` 与 `summary.llm_token_usage` 记录模型实际返回的 token usage，不做估算。
 - `summary.llm_context_windows` 与 `llm_runs[].context_length` 记录可用模型上下文窗口，便于判断本地模型是否适合多 Agent 长上下文任务。
+- `resume_cursor` 记录当前阶段、下一批待执行 WorkItem、运行中/失败 WorkItem、阻塞原因和建议恢复动作。
 - `requirement-generated-suite.json` 记录 `run_config.requirement_review_mode` 和 `platform_runs[].requirement_review_mode`，便于后续真实对比 static review 与 dynamic review。
 - runtime environment 和 platform diagnostics。
 - `llm_runtime_config` 只记录 key 是否存在，不记录真实 API key。
@@ -495,7 +496,7 @@ AspireCode 内置 agent prompt 很长，本地模型 4096 context 会失败。�
 Manifest 已能记录主要运行事实和审计摘要，并已完成 LLM 配置与命令行密钥脱敏。后续可以继续补：
 
 - cost
-- replay/resume cursor
+- replay runner
 
 ### 6.5 任务中心仍是轻量实现
 

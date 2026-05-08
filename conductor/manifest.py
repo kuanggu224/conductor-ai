@@ -42,6 +42,7 @@ class RunManifest:
     selected_cli_names: list[str]
     role_cli_bindings: dict[str, str | None]
     summary: dict[str, object]
+    resume_cursor: dict[str, object]
     run_environment: dict[str, object]
     platform_diagnostics: dict[str, object]
     agents: list[dict[str, object]]
@@ -102,8 +103,9 @@ class RunManifestWriter:
         ).to_dict()
         llm_context_windows = self._llm_context_windows(platform_diagnostics)
         llm_runs = self._llm_runs(state, executions, llm_context_windows)
+        resume_cursor = self._resume_cursor(state)
         manifest = RunManifest(
-            schema_version="1.26",
+            schema_version="1.27",
             run_id=f"{state.project.id}:{generated_at}",
             project_id=state.project.id,
             generated_at=generated_at,
@@ -155,6 +157,7 @@ class RunManifestWriter:
                 "preflight_gate_errors": preflight_gate.errors,
                 "preflight_gate_recommendations": preflight_gate.recommendations,
             },
+            resume_cursor=resume_cursor,
             run_environment=self._run_environment_snapshot(),
             platform_diagnostics=platform_diagnostics,
             agents=[self._agent_record(state, activation, cli_config) for activation in state.agent_activations],
@@ -567,6 +570,51 @@ class RunManifestWriter:
                 continue
             counts[value] = counts.get(value, 0) + 1
         return counts
+
+    def _resume_cursor(self, state: SharedProjectState) -> dict[str, object]:
+        """Return a compact cursor for resuming controller-driven execution."""
+        current_stage = state.current_stage or ""
+        stage_workitems = [item for item in state.workitems if item.stage == current_stage] if current_stage else []
+        pending = [item for item in stage_workitems if item.status.value == "pending"]
+        running = [item for item in stage_workitems if item.status.value == "running"]
+        retryable_failed = [
+            item
+            for item in stage_workitems
+            if item.status.value == "failed" and item.retryable and item.retry_count < item.max_retries
+        ]
+        terminal_failed = [
+            item
+            for item in stage_workitems
+            if item.status.value == "failed" and (not item.retryable or item.retry_count >= item.max_retries)
+        ]
+        if state.project_status.value == "completed":
+            next_action = "complete"
+        elif state.project_status.value == "blocked" or state.blockers or terminal_failed:
+            next_action = "blocked"
+        elif running:
+            next_action = "inspect_running"
+        elif pending:
+            next_action = "execute_pending"
+        elif retryable_failed:
+            next_action = "retry_failed"
+        else:
+            next_action = "advance_or_wait"
+        return {
+            "project_id": state.project.id,
+            "project_status": state.project_status.value,
+            "current_stage": current_stage,
+            "next_action": next_action,
+            "terminal": state.project_status.value in {"completed", "blocked"},
+            "blocked": bool(state.blockers or terminal_failed),
+            "blockers": list(state.blockers),
+            "next_pending_workitem_ids": [item.id for item in pending],
+            "running_workitem_ids": [item.id for item in running],
+            "retryable_failed_workitem_ids": [item.id for item in retryable_failed],
+            "terminal_failed_workitem_ids": [item.id for item in terminal_failed],
+            "completed_workitem_ids": [item.id for item in state.workitems if item.status.value == "done"],
+            "last_execution_workitem_id": state.executions[-1].workitem_id if state.executions else "",
+            "last_event": state.recent_events[-1] if state.recent_events else "",
+        }
 
     def _normalize_token_usage(self, usage: object) -> dict[str, int]:
         """Return token usage with only integer values."""
