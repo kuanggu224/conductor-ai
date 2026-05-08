@@ -195,6 +195,24 @@ def test_verify_audit_bundle_cli_fails_for_directory_without_bundles(tmp_path, c
     assert "no audit bundles found" in report["errors"][0]
 
 
+def test_verify_audit_bundle_cli_directory_can_fail_on_warnings(tmp_path, capsys) -> None:
+    _, bundle_path = _write_project_audit_bundle(tmp_path, capsys)
+    bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+    bundle["schema_version"] = "0.1"
+    bundle_path.write_text(json.dumps(bundle, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    exit_code = verify_audit_bundle_main([str(tmp_path), "--fail-on-warnings"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 2
+    report = json.loads(captured.out)
+    assert report["passed"] is False
+    assert report["bundle_count"] == 1
+    assert report["failed_bundle_count"] == 0
+    assert report["warning_bundle_count"] == 1
+    assert report["warning_count"] > 0
+
+
 def test_verify_audit_bundle_cli_writes_output_file(tmp_path, capsys) -> None:
     _, bundle_path = _write_project_audit_bundle(tmp_path, capsys)
     output_path = tmp_path / "audit" / "bundle-verification.json"

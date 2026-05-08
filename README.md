@@ -316,7 +316,7 @@ Current targeted verification for read-only replay trace:
 
 Current full verification after preflight gate, diagnostics, manifest hardening,
 task-center recovery work, and manifest verification:
-`419 passed` with `python -m pytest -q`.
+`420 passed` with `python -m pytest -q`.
 
 ## Project Layout
 
