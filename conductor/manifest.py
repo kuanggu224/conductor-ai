@@ -667,6 +667,7 @@ class RunManifestWriter:
                             "decision": review.decision.value,
                             "source_backend": runtime["source_backend"],
                             "model": runtime["model"],
+                            "prompt_hash": "",
                             "output_files": [runtime["output_path"]] if runtime["output_path"] else [],
                             "duration_ms": runtime["duration_ms"],
                         }
@@ -684,6 +685,7 @@ class RunManifestWriter:
                             "version": draft.version,
                             "source_backend": runtime["source_backend"],
                             "model": runtime["model"],
+                            "prompt_hash": "",
                             "output_files": [runtime["output_path"]] if runtime["output_path"] else [],
                             "duration_ms": runtime["duration_ms"],
                             "review_ids": list(draft.review_ids),

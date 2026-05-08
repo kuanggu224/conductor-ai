@@ -880,8 +880,10 @@ def test_manifest_records_llm_harness_collaboration_runtime(tmp_path) -> None:
     assert reviewer["review_count"] == 1
     assert reviewer["model"] == "qwen/qwen3.6-35b-a3b"
     assert len(payload["llm_runs"]) == 4
+    assert all("prompt_hash" in run for run in payload["llm_runs"])
     workitem_run = next(run for run in payload["llm_runs"] if run["mode"] == "workitem_execution")
     assert workitem_run["prompt_hash"] == "b" * 64
+    assert all("prompt_hash" in run for run in payload["llm_runs"])
     assert any(run["mode"] == "workitem_execution" for run in payload["llm_runs"])
     assert any(run["mode"] == "collaboration_review" for run in payload["llm_runs"])
     assert any(run["mode"] == "collaboration_revision" for run in payload["llm_runs"])
