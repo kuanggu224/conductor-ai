@@ -7,6 +7,7 @@ import os
 import time
 from contextlib import contextmanager
 from dataclasses import asdict
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -46,6 +47,7 @@ class FileStateStore(InMemoryStateStore):
         super().__init__()
         self.root_dir = Path(root_dir)
         self.root_dir.mkdir(parents=True, exist_ok=True)
+        self.corrupt_state_files: list[str] = []
         self._load_existing_states()
 
     def save_state(self, state: SharedProjectState) -> None:
@@ -101,7 +103,10 @@ class FileStateStore(InMemoryStateStore):
 
     def _load_existing_states(self) -> None:
         for path in sorted(self.root_dir.glob("*.state.json")):
-            self._load_state_path(path)
+            try:
+                self._load_state_path(path)
+            except Exception:
+                self._quarantine_state_path(path)
 
     def _reload_state(self, project_id: str) -> None:
         path = self._state_path(project_id)
@@ -112,6 +117,16 @@ class FileStateStore(InMemoryStateStore):
         data = json.loads(path.read_text(encoding="utf-8"))
         state = self._state_from_dict(data)
         self._states[state.project.id] = state
+
+    def _quarantine_state_path(self, path: Path) -> None:
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+        target = path.with_name(f"{path.name}.corrupt-{timestamp}")
+        counter = 1
+        while target.exists():
+            target = path.with_name(f"{path.name}.corrupt-{timestamp}-{counter}")
+            counter += 1
+        self._replace_with_retry(path, target)
+        self.corrupt_state_files.append(str(target))
 
     def _state_from_dict(self, data: dict[str, Any]) -> SharedProjectState:
         return SharedProjectState(

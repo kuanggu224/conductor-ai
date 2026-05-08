@@ -66,6 +66,7 @@ templates/board.html       当前 Board 页面
 - 状态里已有 `TaskAssignment`。
 - 支持 CLI 和 Board API 的 `claim`、`claim-next`、`complete`、`fail`、`release`、`release-stale`。
 - 文件版 Task Center 变更会使用项目级 `.lock` 文件并在写入前重新读取 state，降低多进程 worker 重复领取同一任务的风险。
+- 文件版 StateStore 启动时会隔离损坏的 `*.state.json` 为 `.corrupt-*`，避免单个坏快照拖垮所有项目加载。
 - 支持领取时生成 JSON/Markdown 上下文，包含项目目标、WorkItem、验收标准、输入 artifact 内容和归还协议。
 - 支持 `prompt_file` 归档，方便外部 CLI Agent 领取任务后保留可审计 prompt。
 - 目前仍是轻量任务中心，不是完整分布式队列。

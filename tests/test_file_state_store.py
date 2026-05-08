@@ -68,3 +68,18 @@ def test_file_state_store_persists_execution_token_usage(tmp_path) -> None:
         "completion_tokens": 8,
         "total_tokens": 20,
     }
+
+
+def test_file_state_store_quarantines_corrupt_state_files(tmp_path) -> None:
+    state_dir = tmp_path / "state"
+    state_dir.mkdir()
+    corrupt_path = state_dir / "project-bad.state.json"
+    corrupt_path.write_text("{not-json", encoding="utf-8")
+
+    store = FileStateStore(state_dir)
+
+    assert store.list_states() == []
+    assert not corrupt_path.exists()
+    quarantined = list(state_dir.glob("project-bad.state.json.corrupt-*"))
+    assert len(quarantined) == 1
+    assert store.corrupt_state_files == [str(quarantined[0])]

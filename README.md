@@ -96,7 +96,9 @@ Task payloads expose `claimable` and `unmet_dependency_ids`. Summaries expose
 reports also include Task Center readiness for audit and replay. File-backed
 Task Center mutations use a per-project lock file and refresh state from disk
 before writes, so stale worker processes are less likely to duplicate-claim the
-same assignment.
+same assignment. Corrupt persisted state files are quarantined as
+`*.state.json.corrupt-*` during load so one damaged snapshot does not prevent
+other projects from starting.
 
 ## Diagnostics
 

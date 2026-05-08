@@ -33,6 +33,9 @@ Claim rules:
   refresh state from disk before claim/return/heartbeat/release transitions.
   This reduces duplicate claims when multiple worker processes use the same
   `.conductor/state` directory.
+- Corrupt persisted `*.state.json` files are quarantined as
+  `*.state.json.corrupt-*` during `FileStateStore` startup so other valid
+  project states can still load.
 
 ## CLI
 
