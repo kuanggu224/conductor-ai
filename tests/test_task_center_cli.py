@@ -323,6 +323,68 @@ def test_task_center_cli_auto_includes_frozen_requirement_for_downstream_context
     assert "Acceptance: add book, persist refresh, export CSV." in payload["input_artifacts"][0]["content"]
 
 
+def test_task_center_cli_context_marks_rework_feedback_inputs(tmp_path, capsys) -> None:
+    project_root = tmp_path / "project"
+    state_store = FileStateStore(project_root / ".conductor" / "state")
+    engine = ConductorEngine(
+        log_dir=project_root / ".conductor" / "logs",
+        artifact_dir=project_root / ".conductor" / "artifacts",
+        state_store=state_store,
+    )
+    state = engine.create_project(requirement="Build a local reading list with CSV export", project_root=str(project_root))
+    failed_artifact = engine.artifact_store.save_markdown(
+        Artifact(
+            id="artifact-failed-ui-test",
+            project_id=state.project.id,
+            workitem_id="workitem-failed-ui-test",
+            agent_id="agent-tester",
+            kind="ui_validation",
+            title="Failed UI Validation",
+            content="The add button does not update the visible list.",
+        ),
+        project_root=state.project.project_root,
+    )
+    rework = WorkItem(
+        id="workitem-rework-ui",
+        description="Fix failed UI validation",
+        stage="development",
+        kind="ui_implementation",
+        feedback_from=["workitem-failed-ui-test"],
+        rework_of="workitem-original-ui",
+    )
+    assignment = TaskAssignment(
+        id="assignment-rework-ui",
+        workitem_id=rework.id,
+        role="frontend_engineer",
+        input_artifact_ids=[failed_artifact.id],
+    )
+    state = replace(
+        state,
+        workitems=[*state.workitems, rework],
+        task_assignments=[*state.task_assignments, assignment],
+        artifacts=[*state.artifacts, failed_artifact],
+    )
+    state_store.save_state(state)
+
+    code = main(["context", assignment.id, "--project-root", str(project_root)])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert payload["rework_context"]["is_rework"] is True
+    assert payload["rework_context"]["feedback_from"] == ["workitem-failed-ui-test"]
+    assert payload["rework_context"]["rework_of"] == "workitem-original-ui"
+    assert payload["rework_context"]["feedback_artifacts"][0]["id"] == failed_artifact.id
+    assert "Rework Context" in payload["execution_brief"]
+
+    code = main(["context", assignment.id, "--project-root", str(project_root), "--format", "markdown"])
+    output = capsys.readouterr().out
+
+    assert code == 0
+    assert "## Rework Context" in output
+    assert "Feedback From: workitem-failed-ui-test" in output
+    assert "artifact-failed-ui-test" in output
+
+
 def test_task_center_cli_prints_assignment_context_as_markdown(tmp_path, capsys) -> None:
     project_root = tmp_path / "project"
     state_store = FileStateStore(project_root / ".conductor" / "state")

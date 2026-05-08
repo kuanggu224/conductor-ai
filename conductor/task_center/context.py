@@ -44,6 +44,7 @@ class TaskContextBuilder:
             max_content_chars=max_content_chars,
         )
         frozen_requirement_baseline = self._frozen_requirement_baseline(input_artifacts)
+        rework_context = self._rework_context(workitem, input_artifacts)
         output_artifacts = [
             self._artifact_payload(artifact, include_content=False, max_content_chars=max_content_chars)
             for artifact in state.artifacts
@@ -54,8 +55,15 @@ class TaskContextBuilder:
             "project_id": state.project.id,
             "project_goal": state.project.goal,
             "project_root": state.project.project_root,
-            "execution_brief": self._execution_brief(state, assignment, input_artifacts, frozen_requirement_baseline),
+            "execution_brief": self._execution_brief(
+                state,
+                assignment,
+                input_artifacts,
+                frozen_requirement_baseline,
+                rework_context,
+            ),
             "frozen_requirement_baseline": frozen_requirement_baseline,
+            "rework_context": rework_context,
             "assignment": {
                 **asdict(assignment),
                 "status": assignment.status.value,
@@ -74,6 +82,7 @@ class TaskContextBuilder:
         input_artifacts = _list_payload(payload.get("input_artifacts"))
         output_artifacts = _list_payload(payload.get("output_artifacts"))
         frozen_requirement_baseline = _dict_payload(payload.get("frozen_requirement_baseline"))
+        rework_context = _dict_payload(payload.get("rework_context"))
         acceptance_criteria = _list_payload(workitem.get("acceptance_criteria"))
 
         lines = [
@@ -109,6 +118,9 @@ class TaskContextBuilder:
             "",
             "## Frozen Requirement Baseline",
             *self._frozen_requirement_markdown(frozen_requirement_baseline),
+            "",
+            "## Rework Context",
+            *self._rework_markdown(rework_context),
             "",
             "## Execution Brief",
             _fenced(str(payload.get("execution_brief", "") or "")),
@@ -174,6 +186,28 @@ class TaskContextBuilder:
                 return artifact
         return {}
 
+    def _rework_context(self, workitem: object, input_artifacts: list[dict[str, object]]) -> dict[str, object]:
+        """Return explicit rework metadata for agents handling feedback loops."""
+        workitem_payload = asdict(workitem)
+        feedback_from = _list_payload(workitem_payload.get("feedback_from"))
+        rework_of = str(workitem_payload.get("rework_of") or "")
+        feedback_artifacts = [
+            {
+                "id": artifact.get("id", ""),
+                "kind": artifact.get("kind", ""),
+                "title": artifact.get("title", ""),
+                "workitem_id": artifact.get("workitem_id", ""),
+            }
+            for artifact in input_artifacts
+            if artifact.get("workitem_id") in feedback_from
+        ]
+        return {
+            "is_rework": bool(feedback_from or rework_of),
+            "feedback_from": feedback_from,
+            "rework_of": rework_of,
+            "feedback_artifacts": feedback_artifacts,
+        }
+
     def _ensure_frozen_requirement_input(
         self,
         state: SharedProjectState,
@@ -215,16 +249,36 @@ class TaskContextBuilder:
             "- Full content is included again under `Input Artifacts`.",
         ]
 
+    def _rework_markdown(self, context: dict[str, object]) -> list[str]:
+        """Render feedback-loop guidance when the task is a rework item."""
+        if not context.get("is_rework"):
+            return ["- None"]
+        feedback_artifacts = _list_payload(context.get("feedback_artifacts"))
+        artifact_lines = [
+            f"- {artifact.get('id', '')} ({artifact.get('kind', '')}) from {artifact.get('workitem_id', '')}"
+            for artifact in feedback_artifacts
+            if isinstance(artifact, dict)
+        ]
+        return [
+            "- This is a rework task. Preserve the frozen requirement scope and fix only the referenced feedback.",
+            f"- Rework Of: {context.get('rework_of', '') or '-'}",
+            f"- Feedback From: {_join_or_none(_list_payload(context.get('feedback_from')))}",
+            "- Feedback Artifacts:",
+            *(artifact_lines or ["- None"]),
+        ]
+
     def _execution_brief(
         self,
         state: SharedProjectState,
         assignment: TaskAssignment,
         input_artifacts: list[dict[str, object]],
         frozen_requirement_baseline: dict[str, object],
+        rework_context: dict[str, object],
     ) -> str:
         criteria = "\n".join(f"- {item}" for item in self._workitem_criteria(state, assignment)) or "- Not specified"
         inputs = "\n".join(f"- {item['id']} ({item['kind']}): {item['title']}" for item in input_artifacts) or "- None"
         frozen_requirement = self._frozen_requirement_brief(frozen_requirement_baseline)
+        rework_brief = "\n".join(self._rework_markdown(rework_context))
         return (
             f"Project: {state.project.goal}\n"
             f"TaskAssignment: {assignment.id}\n"
@@ -232,6 +286,8 @@ class TaskContextBuilder:
             f"Role: {assignment.role}\n\n"
             "Frozen Requirement Baseline:\n"
             f"{frozen_requirement}\n\n"
+            "Rework Context:\n"
+            f"{rework_brief}\n\n"
             "Acceptance Criteria:\n"
             f"{criteria}\n\n"
             "Input Artifacts To Read:\n"
