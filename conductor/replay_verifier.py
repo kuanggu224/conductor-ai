@@ -222,6 +222,7 @@ class ManifestVerifier:
             result,
         )
         self._verify_summary_failure_counts(summary, self._list(payload.get("workitems")), result)
+        self._verify_summary_retry_attempt_count(summary, self._list(payload.get("retry_history")), result)
 
         changed_files = self._list(summary.get("changed_files"))
         if "changed_files" in summary and not isinstance(summary.get("changed_files"), list):
@@ -298,6 +299,28 @@ class ManifestVerifier:
                 result.errors.append(f"summary.{summary_key} must be an integer")
             elif actual != expected:
                 result.errors.append(f"summary.{summary_key}={actual} does not match failed WorkItems={expected}")
+
+    def _verify_summary_retry_attempt_count(
+        self,
+        summary: dict[str, Any],
+        retry_history: list[Any],
+        result: ManifestVerificationResult,
+    ) -> None:
+        if "retry_attempt_count" not in summary:
+            return
+        actual = self._as_int(summary.get("retry_attempt_count"))
+        if actual is None:
+            result.errors.append("summary.retry_attempt_count must be an integer")
+            return
+        expected = 0
+        for retry_record in retry_history:
+            if not isinstance(retry_record, dict):
+                continue
+            parsed = self._as_int(retry_record.get("retry_count", 0))
+            if parsed is not None:
+                expected += parsed
+        if actual != expected:
+            result.errors.append(f"summary.retry_attempt_count={actual} does not match retry_history total={expected}")
 
     def _verify_resume_cursor(self, payload: dict[str, Any], result: ManifestVerificationResult) -> None:
         cursor = self._dict(payload.get("resume_cursor"))

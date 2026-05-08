@@ -365,6 +365,41 @@ def test_manifest_verifier_rejects_bad_summary_failure_counts(tmp_path) -> None:
     assert "summary.non_retryable_failure_count=1 does not match failed WorkItems=0" in result.errors
 
 
+def test_manifest_verifier_rejects_bad_summary_retry_attempt_count(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "summary": {
+                "final_status": "completed",
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 0,
+                "retry_history_count": 1,
+                "retry_attempt_count": 3,
+                "changed_file_count": 0,
+                "changed_files": [],
+            },
+            "retry_history": [
+                {
+                    "workitem_id": "workitem-1",
+                    "retry_count": 1,
+                    "max_retries": 2,
+                }
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert "summary.retry_attempt_count=3 does not match retry_history total=1" in result.errors
+
+
 def test_manifest_verifier_rejects_terminal_status_without_terminal_cursor(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,
