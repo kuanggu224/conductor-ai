@@ -676,6 +676,58 @@ def test_manifest_verifier_warns_for_malformed_collaboration_run_lists(tmp_path)
     assert "collaboration_runs[0].draft_versions[0] review_ids must be a list" in result.warnings
 
 
+def test_manifest_verifier_warns_for_missing_collaboration_output_paths(tmp_path) -> None:
+    missing_review = tmp_path / "missing-review.md"
+    missing_draft = tmp_path / "missing-draft.md"
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "summary": {
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 1,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+            },
+            "collaboration_runs": [
+                {
+                    "id": "collaboration-1",
+                    "workitem_id": "workitem-1",
+                    "review_count": 1,
+                    "draft_version_count": 1,
+                    "reviews": [
+                        {
+                            "id": "review-1",
+                            "agent_id": "agent-reviewer",
+                            "decision": "request_changes",
+                            "output_path": str(missing_review),
+                        }
+                    ],
+                    "draft_versions": [
+                        {
+                            "version": 1,
+                            "review_ids": ["review-1"],
+                            "output_path": str(missing_draft),
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert f"collaboration_runs[0].reviews[0].output_path does not exist: {missing_review}" in result.warnings
+    assert f"collaboration_runs[0].draft_versions[0].output_path does not exist: {missing_draft}" in result.warnings
+
+
 def test_manifest_verifier_rejects_unknown_task_assignment_dependencies(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,

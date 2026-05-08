@@ -541,6 +541,19 @@ class ManifestVerifier:
                     if raw_path and not self._path_exists(raw_path, manifest_path, project_root):
                         result.warnings.append(f"{run_list_name}[{index}].output_files entry does not exist: {raw_path}")
 
+        for index, collaboration in enumerate(self._list(payload.get("collaboration_runs"))):
+            if not isinstance(collaboration, dict):
+                continue
+            for section_name in ("reviews", "draft_versions"):
+                for item_index, item in enumerate(self._list(collaboration.get(section_name, []))):
+                    if not isinstance(item, dict):
+                        continue
+                    output_path = str(item.get("output_path", ""))
+                    if output_path and not self._path_exists(output_path, manifest_path, project_root):
+                        result.warnings.append(
+                            f"collaboration_runs[{index}].{section_name}[{item_index}].output_path does not exist: {output_path}"
+                        )
+
     def _ids_with_duplicate_check(
         self,
         label: str,
