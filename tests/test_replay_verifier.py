@@ -510,6 +510,89 @@ def test_manifest_verifier_rejects_bad_task_center_summary_stale_and_blocked_cou
     assert "summary.task_center_summary.stale_claimed=0 does not match task_assignments=1" in result.errors
 
 
+def test_manifest_verifier_rejects_bad_summary_blocked_count(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "summary": {
+                "final_status": "completed",
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+                "blocked_count": 2,
+                "blocked_reasons": ["manual approval required"],
+            },
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert "summary.blocked_count=2 does not match len(summary.blocked_reasons)=1" in result.errors
+
+
+def test_manifest_verifier_rejects_summary_blockers_mismatch_cursor_blockers(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "status": "blocked",
+            "final_status": "blocked",
+            "summary": {
+                "final_status": "blocked",
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+                "blocked_count": 1,
+                "blocked_reasons": ["manual approval required"],
+            },
+            "workitems": [
+                {
+                    "id": "workitem-1",
+                    "stage": "testing",
+                    "kind": "acceptance_check",
+                    "status": "failed",
+                }
+            ],
+            "resume_cursor": {
+                "project_id": "project-1",
+                "project_status": "blocked",
+                "current_stage": "testing",
+                "next_action": "blocked",
+                "terminal": True,
+                "blocked": True,
+                "blockers": ["retry limit reached"],
+                "terminal_failed_workitem_ids": ["workitem-1"],
+                "completed_workitem_ids": [],
+                "last_execution_workitem_id": "workitem-1",
+            },
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert (
+        "summary.blocked_reasons=['manual approval required'] "
+        "does not match resume_cursor.blockers=['retry limit reached']"
+    ) in result.errors
+
+
 def test_manifest_verifier_rejects_terminal_status_without_terminal_cursor(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,

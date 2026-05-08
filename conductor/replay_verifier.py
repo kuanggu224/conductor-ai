@@ -224,6 +224,7 @@ class ManifestVerifier:
         self._verify_summary_failure_counts(summary, self._list(payload.get("workitems")), result)
         self._verify_summary_retry_attempt_count(summary, self._list(payload.get("retry_history")), result)
         self._verify_task_center_summary(summary, self._list(payload.get("task_assignments")), result)
+        self._verify_summary_blockers(summary, self._dict(payload.get("resume_cursor")), result)
 
         changed_files = self._list(summary.get("changed_files"))
         if "changed_files" in summary and not isinstance(summary.get("changed_files"), list):
@@ -364,6 +365,33 @@ class ManifestVerifier:
             elif actual != expected:
                 result.errors.append(
                     f"summary.task_center_summary.{summary_key}={actual} does not match task_assignments={expected}"
+                )
+
+    def _verify_summary_blockers(
+        self,
+        summary: dict[str, Any],
+        cursor: dict[str, Any],
+        result: ManifestVerificationResult,
+    ) -> None:
+        blocked_reasons: list[str] = []
+        if "blocked_reasons" in summary:
+            if not isinstance(summary.get("blocked_reasons"), list):
+                result.errors.append("summary.blocked_reasons must be a list")
+            else:
+                blocked_reasons = self._string_list(summary.get("blocked_reasons"))
+        if "blocked_count" in summary:
+            actual = self._as_int(summary.get("blocked_count"))
+            if actual is None:
+                result.errors.append("summary.blocked_count must be an integer")
+            elif actual != len(blocked_reasons):
+                result.errors.append(
+                    f"summary.blocked_count={actual} does not match len(summary.blocked_reasons)={len(blocked_reasons)}"
+                )
+        if blocked_reasons and isinstance(cursor.get("blockers"), list):
+            cursor_blockers = self._string_list(cursor.get("blockers"))
+            if blocked_reasons != cursor_blockers:
+                result.errors.append(
+                    f"summary.blocked_reasons={blocked_reasons} does not match resume_cursor.blockers={cursor_blockers}"
                 )
 
     def _verify_resume_cursor(self, payload: dict[str, Any], result: ManifestVerificationResult) -> None:
