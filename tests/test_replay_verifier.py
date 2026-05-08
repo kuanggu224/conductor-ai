@@ -192,6 +192,30 @@ def test_manifest_verifier_rejects_bad_summary_and_cursor_reference(tmp_path) ->
     assert any("missing-workitem" in error for error in result.errors)
 
 
+def test_manifest_verifier_warns_for_malformed_resume_cursor_lists(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "resume_cursor": {
+                "project_id": "project-1",
+                "project_status": "completed",
+                "current_stage": "testing",
+                "next_action": "complete",
+                "terminal": True,
+                "completed_workitem_ids": "workitem-1",
+                "next_pending_workitem_ids": "workitem-2",
+                "last_execution_workitem_id": "workitem-1",
+            },
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert "resume_cursor.completed_workitem_ids must be a list" in result.warnings
+    assert "resume_cursor.next_pending_workitem_ids must be a list" in result.warnings
+
+
 def test_manifest_verifier_rejects_unknown_task_assignment_dependencies(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,

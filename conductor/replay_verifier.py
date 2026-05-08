@@ -213,6 +213,8 @@ class ManifestVerifier:
 
         workitem_ids = self._id_set(self._list(payload.get("workitems")))
         for cursor_key in self.CURSOR_WORKITEM_LISTS:
+            if cursor_key in cursor and not isinstance(cursor.get(cursor_key), list):
+                result.warnings.append(f"resume_cursor.{cursor_key} must be a list")
             for workitem_id in self._string_list(cursor.get(cursor_key)):
                 if workitem_id not in workitem_ids:
                     result.errors.append(f"resume_cursor.{cursor_key} references unknown WorkItem: {workitem_id}")
