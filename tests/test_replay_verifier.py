@@ -228,6 +228,91 @@ def test_manifest_verifier_rejects_summary_final_status_mismatch(tmp_path) -> No
     assert "summary.final_status does not match manifest.final_status" in result.errors
 
 
+def test_manifest_verifier_rejects_terminal_status_without_terminal_cursor(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "resume_cursor": {
+                "project_id": "project-1",
+                "project_status": "completed",
+                "current_stage": "testing",
+                "next_action": "complete",
+                "terminal": False,
+                "blocked": False,
+                "completed_workitem_ids": ["workitem-1"],
+                "last_execution_workitem_id": "workitem-1",
+            },
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert "terminal manifest must have resume_cursor.terminal=true" in result.errors
+
+
+def test_manifest_verifier_rejects_blocked_status_without_blocked_cursor(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "status": "blocked",
+            "final_status": "blocked",
+            "summary": {
+                "final_status": "blocked",
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+            },
+            "resume_cursor": {
+                "project_id": "project-1",
+                "project_status": "blocked",
+                "current_stage": "testing",
+                "next_action": "blocked",
+                "terminal": True,
+                "blocked": False,
+                "completed_workitem_ids": ["workitem-1"],
+                "last_execution_workitem_id": "workitem-1",
+            },
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert "blocked manifest must have resume_cursor.blocked=true" in result.errors
+
+
+def test_manifest_verifier_rejects_non_blocked_status_with_blocked_cursor(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "resume_cursor": {
+                "project_id": "project-1",
+                "project_status": "completed",
+                "current_stage": "testing",
+                "next_action": "complete",
+                "terminal": True,
+                "blocked": True,
+                "completed_workitem_ids": ["workitem-1"],
+                "last_execution_workitem_id": "workitem-1",
+            },
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert "non-blocked manifest cannot have resume_cursor.blocked=true" in result.errors
+
+
 def test_manifest_verifier_checks_cli_config_shape_and_bindings(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,

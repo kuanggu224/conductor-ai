@@ -244,8 +244,14 @@ class ManifestVerifier:
             result.errors.append("completed manifest must have resume_cursor.next_action=complete")
         if final_status == "blocked" and next_action != "blocked":
             result.errors.append("blocked manifest must have resume_cursor.next_action=blocked")
+        if final_status in {"completed", "blocked"} and cursor.get("terminal") is not True:
+            result.errors.append("terminal manifest must have resume_cursor.terminal=true")
         if final_status not in {"completed", "blocked"} and cursor.get("terminal") is True:
             result.errors.append("non-terminal manifest cannot have resume_cursor.terminal=true")
+        if final_status == "blocked" and cursor.get("blocked") is not True:
+            result.errors.append("blocked manifest must have resume_cursor.blocked=true")
+        if final_status != "blocked" and cursor.get("blocked") is True:
+            result.errors.append("non-blocked manifest cannot have resume_cursor.blocked=true")
 
         workitem_ids = self._id_set(self._list(payload.get("workitems")))
         for cursor_key in self.CURSOR_WORKITEM_LISTS:
