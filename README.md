@@ -215,7 +215,7 @@ The default flow is:
 7. Let `LeadController` decide the next action
 
 Current full verification after preflight gate, diagnostics, and manifest hardening:
-`365 passed` with `python -m pytest -q`.
+`367 passed` with `python -m pytest -q`.
 
 ## Project Layout
 
