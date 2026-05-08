@@ -136,6 +136,8 @@ class ManifestReplayTraceBuilder:
         for workitem in self._list(payload.get("workitems")):
             if isinstance(workitem, dict):
                 self._append_workitem_event(events, workitem)
+                for assignment in self._assignments_for_workitem(payload, str(workitem.get("id", ""))):
+                    self._append_task_assignment_event(events, assignment)
                 for execution in self._executions_for_workitem(payload, str(workitem.get("id", ""))):
                     self._append_execution_event(events, execution)
                 for artifact in self._artifacts_for_workitem(payload, str(workitem.get("id", ""))):
@@ -200,6 +202,26 @@ class ManifestReplayTraceBuilder:
             )
         )
 
+    def _append_task_assignment_event(self, events: list[ReplayTraceEvent], assignment: dict[str, Any]) -> None:
+        events.append(
+            ReplayTraceEvent(
+                index=len(events) + 1,
+                event_type="task_assignment",
+                message=f"TaskAssignment {assignment.get('id', '')} is {assignment.get('status', '')}",
+                workitem_id=str(assignment.get("workitem_id", "")),
+                agent_id=str(assignment.get("assigned_agent_id", "")),
+                status=str(assignment.get("status", "")),
+                metadata={
+                    "assignment_id": str(assignment.get("id", "")),
+                    "role": str(assignment.get("role", "")),
+                    "claim_reason": str(assignment.get("claim_reason", "")),
+                    "claimable": bool(assignment.get("claimable", False)),
+                    "stale_claimed": bool(assignment.get("stale_claimed", False)),
+                    "prompt_file": str(assignment.get("prompt_file", "")),
+                },
+            )
+        )
+
     def _append_artifact_event(self, events: list[ReplayTraceEvent], artifact: dict[str, Any]) -> None:
         artifact_id = str(artifact.get("id", ""))
         events.append(
@@ -251,6 +273,13 @@ class ManifestReplayTraceBuilder:
             artifact
             for artifact in self._list(payload.get("artifacts"))
             if isinstance(artifact, dict) and str(artifact.get("workitem_id", "")) == workitem_id
+        ]
+
+    def _assignments_for_workitem(self, payload: dict[str, Any], workitem_id: str) -> list[dict[str, Any]]:
+        return [
+            assignment
+            for assignment in self._list(payload.get("task_assignments"))
+            if isinstance(assignment, dict) and str(assignment.get("workitem_id", "")) == workitem_id
         ]
 
     def _list(self, value: Any) -> list[Any]:

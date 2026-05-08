@@ -91,7 +91,20 @@ def _write_manifest(tmp_path: Path, overrides: dict[str, object] | None = None) 
                 "owner_agent": "agent-tester",
             }
         ],
-        "task_assignments": [],
+        "task_assignments": [
+            {
+                "id": "assignment-1",
+                "workitem_id": "workitem-1",
+                "role": "tester",
+                "status": "completed",
+                "assigned_agent_id": "agent-tester",
+                "claim_token": "secret-token",
+                "claim_reason": "acceptance check",
+                "claimable": False,
+                "stale_claimed": False,
+                "prompt_file": "prompt.md",
+            }
+        ],
         "artifacts": [],
         "artifact_files": [],
         "task_prompt_files": [],
@@ -118,10 +131,18 @@ def test_replay_trace_builds_deterministic_events(tmp_path) -> None:
     trace = build_manifest_replay_trace(manifest_path)
 
     assert trace.passed is True
-    assert [event.event_type for event in trace.events] == ["project", "workitem", "execution", "terminal"]
+    assert [event.event_type for event in trace.events] == [
+        "project",
+        "workitem",
+        "task_assignment",
+        "execution",
+        "terminal",
+    ]
     assert trace.events[1].workitem_id == "workitem-1"
-    assert trace.events[2].agent_id == "agent-tester"
-    assert trace.events[3].metadata["next_action"] == "complete"
+    assert trace.events[2].metadata["assignment_id"] == "assignment-1"
+    assert "claim_token" not in trace.events[2].metadata
+    assert trace.events[3].agent_id == "agent-tester"
+    assert trace.events[4].metadata["next_action"] == "complete"
 
 
 def test_replay_trace_refuses_invalid_manifest(tmp_path) -> None:
@@ -143,7 +164,7 @@ def test_replay_manifest_cli_outputs_json(tmp_path, capsys) -> None:
     assert exit_code == 0
     payload = json.loads(captured.out)
     assert payload["passed"] is True
-    assert payload["event_count"] == 4
+    assert payload["event_count"] == 5
 
 
 def test_replay_manifest_cli_outputs_markdown(tmp_path, capsys) -> None:

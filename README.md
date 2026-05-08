@@ -231,8 +231,9 @@ python -m app.replay_manifest C:\path\to\project\.conductor\manifests\project-id
 ```
 
 This reconstructs a deterministic Project/WorkItem/Execution/Artifact timeline
-from archived manifest facts. It does not rerun Agent CLI commands and does not
-write project state.
+from archived manifest facts, including Task Center assignment states. It does
+not rerun Agent CLI commands and does not write project state. Claim tokens are
+not included in the replay trace.
 
 To archive the trace:
 
@@ -279,7 +280,7 @@ Current targeted verification for the manifest verifier:
 `7 passed` with `python -m pytest tests\test_replay_verifier.py -q`.
 
 Current targeted verification for read-only replay trace:
-`11 passed` with `python -m pytest tests\test_replay_trace.py tests\test_replay_verifier.py -q`.
+`12 passed` with `python -m pytest tests\test_replay_trace.py tests\test_replay_verifier.py -q`.
 
 Current full verification after preflight gate, diagnostics, manifest hardening,
 task-center recovery work, and manifest verification:
