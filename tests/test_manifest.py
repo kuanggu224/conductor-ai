@@ -26,7 +26,7 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     manifest_path = engine.write_run_manifest(state.project.id, report_path)
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-    assert payload["schema_version"] == "1.20"
+    assert payload["schema_version"] == "1.21"
     assert payload["run_id"].startswith(state.project.id)
     assert payload["project_id"] == state.project.id
     assert payload["run_profile"] == "mock"
@@ -88,6 +88,7 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     assert payload["files"]["log"].endswith(f"{state.project.id}.jsonl")
     assert payload["files"]["report"] == str(report_path)
     assert "task_prompts" in payload["files"]
+    assert "preflight_gate" in payload["files"]
     assert payload["summary"]["execution_count"] == len(state.executions)
     assert "requirement_quality_score" in payload["summary"]
     assert "requirement_coverage_status" in payload["summary"]
@@ -105,6 +106,8 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     assert payload["summary"]["artifact_file_count"] == len(payload["artifact_files"])
     assert payload["summary"]["task_prompt_file_count"] == len(payload["task_prompt_files"])
     assert "validation_failure_count" in payload["summary"]
+    assert "preflight_gate_ok" in payload["summary"]
+    assert "preflight_gate_errors" in payload["summary"]
     assert payload["summary"]["task_center_summary"]["total"] == len(state.task_assignments)
     assert "claimable" in payload["summary"]["task_center_summary"]
     assert "blocked_by_dependencies" in payload["summary"]["task_center_summary"]
@@ -117,6 +120,41 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     assert payload["platform_diagnostics"]["llm_backends"][0]["server_status"] == "not_checked"
     assert "config_paths" in payload["platform_diagnostics"]
     assert payload["log_path"].endswith(f"{state.project.id}.jsonl")
+
+
+def test_manifest_indexes_preflight_gate_file(tmp_path) -> None:
+    project_root = tmp_path / "project"
+    gate_path = project_root / ".conductor" / "diagnostics" / "run-preflight" / "preflight-gate.json"
+    gate_path.parent.mkdir(parents=True)
+    gate_path.write_text(
+        json.dumps(
+            {
+                "ok": False,
+                "preflight_gate": {
+                    "errors": ["local LLM preflight failed"],
+                    "diagnostics_path": str(gate_path),
+                },
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    engine = ConductorEngine(
+        log_dir=tmp_path / "logs",
+        artifact_dir=tmp_path / "artifacts",
+        cli_selection_config=CLISelectionConfig(),
+        run_profile=RunProfile.MOCK,
+    )
+    state = engine.create_project("Build a local reading list", project_root=str(project_root))
+    report_path = engine.write_project_report(state.project.id)
+
+    manifest_path = engine.write_run_manifest(state.project.id, report_path)
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert payload["files"]["preflight_gate"] == str(gate_path)
+    assert payload["summary"]["preflight_gate_ok"] is False
+    assert payload["summary"]["preflight_gate_errors"] == ["local LLM preflight failed"]
 
 
 def test_manifest_indexes_task_prompt_files(tmp_path) -> None:

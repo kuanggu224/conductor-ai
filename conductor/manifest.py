@@ -87,6 +87,7 @@ class RunManifestWriter:
         task_center = TaskCenterService(_ManifestStateStore(state))
         artifact_files = [artifact.path or "" for artifact in state.artifacts if artifact.path]
         task_prompt_files = self._dedupe([assignment.prompt_file for assignment in state.task_assignments])
+        preflight_gate = self._preflight_gate_snapshot(state.project.project_root)
         platform_diagnostics = build_platform_diagnostics(
             cli_config=cli_config,
             project_root=state.project.project_root or Path.cwd(),
@@ -94,7 +95,7 @@ class RunManifestWriter:
             probe_llm=False,
         ).to_dict()
         manifest = RunManifest(
-            schema_version="1.20",
+            schema_version="1.21",
             run_id=f"{state.project.id}:{generated_at}",
             project_id=state.project.id,
             generated_at=generated_at,
@@ -134,6 +135,8 @@ class RunManifestWriter:
                 "artifact_file_count": len(artifact_files),
                 "task_prompt_file_count": len(task_prompt_files),
                 "validation_failure_count": self._validation_failure_count(executions),
+                "preflight_gate_ok": preflight_gate["ok"],
+                "preflight_gate_errors": preflight_gate["errors"],
             },
             run_environment=self._run_environment_snapshot(),
             platform_diagnostics=platform_diagnostics,
@@ -217,12 +220,31 @@ class RunManifestWriter:
                 "manifest": str(path),
                 "artifacts": artifact_files,
                 "task_prompts": task_prompt_files,
+                "preflight_gate": preflight_gate["path"],
             },
             log_path=log_path,
             report_path=report_path_text,
         )
         path.write_text(json.dumps(asdict(manifest), ensure_ascii=False, indent=2), encoding="utf-8")
         return path
+
+    def _preflight_gate_snapshot(self, project_root: str) -> dict[str, object]:
+        """Return the persisted preflight gate audit file path and summary."""
+        if not project_root:
+            return {"path": "", "ok": None, "errors": []}
+        gate_path = Path(project_root) / ".conductor" / "diagnostics" / "run-preflight" / "preflight-gate.json"
+        if not gate_path.exists():
+            return {"path": "", "ok": None, "errors": []}
+        try:
+            payload = json.loads(gate_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            return {"path": str(gate_path), "ok": False, "errors": [f"Unable to read preflight gate: {error}"]}
+        gate_payload = payload.get("preflight_gate", {}) if isinstance(payload, dict) else {}
+        errors = gate_payload.get("errors", []) if isinstance(gate_payload, dict) else []
+        if not isinstance(errors, list):
+            errors = [str(errors)]
+        ok = payload.get("ok") if isinstance(payload, dict) else False
+        return {"path": str(gate_path), "ok": ok if isinstance(ok, bool) else None, "errors": errors}
 
     def _run_environment_snapshot(self) -> dict[str, object]:
         """Return a non-secret runtime snapshot for replay and audit."""

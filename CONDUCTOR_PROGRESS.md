@@ -269,7 +269,7 @@ Static Web Harness 能检查：
 - log path
 - report path
 
-当前 schema：`1.20`
+当前 schema：`1.21`
 
 Manifest 现在能正确显示：
 
@@ -286,6 +286,7 @@ Manifest 现在能正确显示：
 - runtime environment 和 platform diagnostics。
 - `llm_runtime_config` 只记录 key 是否存在，不记录真实 API key。
 - `run_environment.command_argv` 会脱敏 `key`、`token`、`secret`、`password` 相关参数。
+- 如果存在运行前 preflight gate 文件，Manifest 会索引 `files.preflight_gate`，并汇总 `summary.preflight_gate_ok` 与 `summary.preflight_gate_errors`。
 - summary 聚合：状态计数、失败 WorkItem、可重试/不可重试失败数、CLI/LLM/collaboration 运行数、变更文件数、artifact 文件数、验证失败数。
 
 示例真实项目：
