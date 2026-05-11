@@ -50,6 +50,27 @@ tests/                     自动化测试
 templates/board.html       当前 Board 页面
 ```
 
+## 2026-05-11 静态 Web 验收增强
+
+本轮围绕开发/测试阶段的静态 Web 验收闭环做了小步增强，重点是让平台不只验证“页面能打开”，而是能把常见用户交互转成可审计证据。
+
+- StaticWebHarness 已支持验证添加、刷新后持久化、导出/下载、筛选/搜索、删除/移除条目。
+- 筛选/搜索验证支持文本输入、下拉框、`search/filter/query/lookup/find` 命名，以及中文 `筛选/过滤/搜索/关键词`。
+- 删除/移除验证会在非破坏性检查之后执行，避免先删除数据影响导出等验证。
+- Requirement Coverage 新增或强化了 `filter`、`delete_item` 规则，搜索/关键词需求会映射到筛选交互证据。
+- Planner 会把搜索/筛选、删除/移除需求转成 testing checklist。
+- 测试失败反馈会针对缺失的筛选/搜索、删除/移除证据生成中文返工建议。
+- Run Manifest 与 Project Report 均已覆盖筛选和删除证据 trace。
+- 本轮最后一次全量测试：`python -m pytest -q`，结果 `546 passed in 63.11s`。
+
+最新相关提交：
+- `53426f3 Run delete validation after non-destructive checks`
+- `4c9027a Cover export before delete validation order`
+- `c964bd1 Cover delete evidence in reports`
+- `09bd232 Add delete coverage rework feedback`
+- `cb550aa Add delete interaction validation coverage`
+- `fc97f15 Treat search requirements as filter validation`
+
 ## 3. 已实现能力
 
 ### 3.1 项目与状态
