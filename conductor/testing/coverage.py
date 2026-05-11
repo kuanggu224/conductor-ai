@@ -126,7 +126,7 @@ COVERAGE_RULES: tuple[CoverageRule, ...] = (
             "\u8fc7\u6ee4",
             "filter",
         ),
-        evidence_terms=("filter", "selectable values"),
+        evidence_terms=("browser filter interaction changed visible results",),
     ),
 )
 

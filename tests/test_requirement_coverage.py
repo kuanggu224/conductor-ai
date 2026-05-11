@@ -68,3 +68,15 @@ def test_requirement_coverage_still_infers_filter_interaction() -> None:
     rules = infer_coverage_rules(requirement)
 
     assert "filter" in [rule.rule_id for rule in rules]
+
+
+def test_requirement_coverage_requires_explicit_filter_interaction_evidence() -> None:
+    requirement = "\u9875\u9762\u9700\u652f\u6301\u6309\u72b6\u6001\u7b5b\u9009\u6761\u76ee\u3002"
+
+    missing = evaluate_requirement_coverage(requirement, "filter control exists")
+    covered = evaluate_requirement_coverage(requirement, "Browser filter interaction changed visible results")
+
+    assert missing.passed is False
+    assert [rule.rule_id for rule in missing.missing_rules] == ["filter"]
+    assert covered.passed is True
+    assert covered.traceability[0].evidence_terms == ["browser filter interaction changed visible results"]
