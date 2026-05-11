@@ -762,7 +762,23 @@ class ManifestVerifier:
                 self._warn_non_list_fields(
                     execution,
                     f"execution for {workitem_id}",
-                    ("artifact_ids", "artifact_files", "changed_files"),
+                    ("artifact_ids", "artifact_files", "changed_files", "acceptance_trace"),
+                    result,
+                )
+                if str(payload.get("schema_version", "")) == RUN_MANIFEST_SCHEMA_VERSION:
+                    if "delivery_contract" not in execution:
+                        result.warnings.append(f"execution for {workitem_id} missing delivery_contract")
+                    if "acceptance_trace" not in execution:
+                        result.warnings.append(f"execution for {workitem_id} missing acceptance_trace")
+                self._verify_delivery_contract(
+                    execution.get("delivery_contract"),
+                    artifact_ids,
+                    f"execution for {workitem_id}.delivery_contract",
+                    result,
+                )
+                self._verify_acceptance_trace(
+                    execution.get("acceptance_trace"),
+                    f"execution for {workitem_id}.acceptance_trace",
                     result,
                 )
             if workitem_id and workitem_id not in workitem_ids:
@@ -1028,6 +1044,54 @@ class ManifestVerifier:
         for field_name in field_names:
             if field_name in item and not isinstance(item.get(field_name), list):
                 result.warnings.append(f"{owner} {field_name} must be a list")
+
+    def _verify_delivery_contract(
+        self,
+        contract: Any,
+        artifact_ids: set[str],
+        owner: str,
+        result: ManifestVerificationResult,
+    ) -> None:
+        """Verify execution delivery contract shape and input references."""
+        if contract in (None, ""):
+            return
+        if not isinstance(contract, dict):
+            result.warnings.append(f"{owner} must be an object")
+            return
+        self._warn_non_list_fields(
+            contract,
+            owner,
+            ("required_input_artifact_ids", "required_input_kinds", "expected_outputs", "guardrails", "verification_focus"),
+            result,
+        )
+        for artifact_id in self._string_list(contract.get("required_input_artifact_ids", [])):
+            if artifact_id not in artifact_ids:
+                result.errors.append(f"{owner}.required_input_artifact_ids references unknown Artifact: {artifact_id}")
+
+    def _verify_acceptance_trace(
+        self,
+        trace_items: Any,
+        owner: str,
+        result: ManifestVerificationResult,
+    ) -> None:
+        """Verify execution acceptance trace shape."""
+        if trace_items in (None, ""):
+            return
+        if not isinstance(trace_items, list):
+            result.warnings.append(f"{owner} must be a list")
+            return
+        allowed_statuses = {"passed", "failed", "not_verified"}
+        for index, trace in enumerate(trace_items):
+            if not isinstance(trace, dict):
+                result.warnings.append(f"{owner}[{index}] must be an object")
+                continue
+            status = str(trace.get("status", ""))
+            if status and status not in allowed_statuses:
+                result.warnings.append(f"{owner}[{index}].status has unknown value: {status}")
+            if "criterion" in trace and not isinstance(trace.get("criterion"), str):
+                result.warnings.append(f"{owner}[{index}].criterion must be a string")
+            if "evidence" in trace and not isinstance(trace.get("evidence"), str):
+                result.warnings.append(f"{owner}[{index}].evidence must be a string")
 
     def _verify_testing_feedback_references(
         self,

@@ -2955,6 +2955,53 @@ def test_manifest_verifier_warns_for_malformed_execution_artifact_ids(tmp_path) 
     assert "execution for workitem-1 changed_files must be a list" in result.warnings
 
 
+def test_manifest_verifier_checks_execution_delivery_contract_and_acceptance_trace(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "schema_version": "1.30",
+            "executions": [
+                {
+                    "workitem_id": "workitem-1",
+                    "agent_id": "agent-1",
+                    "status": "success",
+                    "artifact_ids": ["artifact-1"],
+                    "artifact_files": [],
+                    "changed_files": [],
+                    "delivery_contract": {
+                        "stage": "testing",
+                        "kind": "acceptance_check",
+                        "role": "tester",
+                        "required_input_artifact_ids": ["missing-artifact"],
+                        "required_input_kinds": "frozen_requirement_spec",
+                        "expected_outputs": [],
+                        "guardrails": [],
+                        "verification_focus": [],
+                    },
+                    "acceptance_trace": [
+                        {
+                            "criterion": "should pass",
+                            "status": "unknown",
+                            "evidence": 123,
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert (
+        "execution for workitem-1.delivery_contract.required_input_artifact_ids "
+        "references unknown Artifact: missing-artifact"
+    ) in result.errors
+    assert "execution for workitem-1.delivery_contract required_input_kinds must be a list" in result.warnings
+    assert "execution for workitem-1.acceptance_trace[0].status has unknown value: unknown" in result.warnings
+    assert "execution for workitem-1.acceptance_trace[0].evidence must be a string" in result.warnings
+
+
 def test_manifest_verifier_rejects_unknown_workitem_input_artifacts(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,
