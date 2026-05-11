@@ -248,7 +248,12 @@ class ManifestVerifier:
             self._verify_token_usage(summary.get("llm_token_usage"), "summary.llm_token_usage", result)
             self._verify_summary_llm_token_usage(summary, self._list(payload.get("llm_runs")), result)
         if "llm_cost_estimate" in summary:
-            self._verify_llm_cost_estimate(summary.get("llm_cost_estimate"), "summary.llm_cost_estimate", result)
+            self._verify_llm_cost_estimate(
+                summary.get("llm_cost_estimate"),
+                "summary.llm_cost_estimate",
+                self._list(payload.get("llm_runs")),
+                result,
+            )
 
     def _verify_summary_changed_files(
         self,
@@ -1022,7 +1027,13 @@ class ManifestVerifier:
             parsed_usage[str(key)] = parsed
         return parsed_usage
 
-    def _verify_llm_cost_estimate(self, value: Any, owner: str, result: ManifestVerificationResult) -> None:
+    def _verify_llm_cost_estimate(
+        self,
+        value: Any,
+        owner: str,
+        llm_runs: list[Any],
+        result: ManifestVerificationResult,
+    ) -> None:
         """Warn when cost estimate fields cannot be safely audited."""
         if not isinstance(value, dict):
             result.warnings.append(f"{owner} must be an object")
@@ -1037,6 +1048,7 @@ class ManifestVerifier:
             result.warnings.append(f"{owner}.model_costs must be a list")
             return
         parsed_model_costs: list[float] = []
+        expected_usage_by_model = self._llm_token_usage_by_model(llm_runs)
         for index, item in enumerate(model_costs if isinstance(model_costs, list) else []):
             if not isinstance(item, dict):
                 result.warnings.append(f"{owner}.model_costs[{index}] must be an object")
@@ -1048,12 +1060,37 @@ class ManifestVerifier:
                 result.warnings.append(f"{owner}.model_costs[{index}].estimated_cost must be non-negative")
             elif estimated_cost is not None:
                 parsed_model_costs.append(estimated_cost)
+            model = str(item.get("model", ""))
+            if model and "token_usage" in item:
+                actual_usage = self._safe_token_usage(item.get("token_usage"))
+                expected_usage = expected_usage_by_model.get(model)
+                if actual_usage is not None and expected_usage is not None and actual_usage != expected_usage:
+                    result.errors.append(
+                        f"{owner}.model_costs[{index}].token_usage={actual_usage} "
+                        f"does not match llm_runs token_usage for {model}={expected_usage}"
+                    )
         if estimated_total is not None and estimated_total >= 0:
             expected_total = round(sum(parsed_model_costs), 8)
             if abs(estimated_total - expected_total) > 0.00000001:
                 result.errors.append(
                     f"{owner}.estimated_total={estimated_total} does not match sum(model_costs)={expected_total}"
                 )
+
+    def _llm_token_usage_by_model(self, llm_runs: list[Any]) -> dict[str, dict[str, int]]:
+        usage_by_model: dict[str, dict[str, int]] = {}
+        for run in llm_runs:
+            if not isinstance(run, dict):
+                continue
+            model = str(run.get("model", ""))
+            if not model:
+                continue
+            usage = self._safe_token_usage(run.get("token_usage"))
+            if usage is None:
+                continue
+            model_usage = usage_by_model.setdefault(model, {})
+            for key, value in usage.items():
+                model_usage[key] = model_usage.get(key, 0) + value
+        return usage_by_model
 
     def _verify_no_secret_leaks(self, payload: dict[str, Any], result: ManifestVerificationResult) -> None:
         """Fail manifests that appear to contain API credentials.

@@ -338,7 +338,7 @@ python -m pytest -q
 最近一次验证结果：
 
 ```text
-501 passed
+503 passed
 ```
 
 ### 4.2 运行 Board
@@ -527,7 +527,7 @@ Manifest 已能记录主要运行事实和审计摘要，并已完成 LLM 配置
 - Manifest verifier 已覆盖 `Execution.changed_files` 类型 warning，避免 changed file 统计依赖的执行文件列表被静默忽略。
 - Manifest verifier 已覆盖 `cli_runs[].output_files` / `llm_runs[].output_files` 类型和存在性 warning，避免运行级输出文件断链。
 - Manifest verifier 已覆盖 `summary.llm_token_usage` 和 `llm_runs[].token_usage` 类型/非负整数 warning，并校验 summary token 用量必须等于 `llm_runs` 明细汇总，避免 token 用量和成本估算输入被静默污染。
-- Manifest verifier 已覆盖 `summary.llm_cost_estimate` 类型、总成本和单模型成本非负数 warning，并校验总成本必须等于各模型成本汇总，避免成本估算字段被静默污染。
+- Manifest verifier 已覆盖 `summary.llm_cost_estimate` 类型、总成本和单模型成本非负数 warning，并校验总成本必须等于各模型成本汇总、`model_costs[].token_usage` 必须等于同模型 `llm_runs` 明细汇总，避免成本估算字段被静默污染。
 - Manifest verifier 已覆盖 `retry_history` 的 WorkItem 引用、retry 计数和相关事件列表类型校验，避免失败恢复证据断链。
 - Manifest verifier 已覆盖 `collaboration_runs` 的 WorkItem/final artifact 引用、review/draft 数量和 draft review id 链接校验，避免多 Agent 协作证据断链。
 - Manifest verifier 已覆盖 `collaboration_runs[].reviews[].output_path` 和 `draft_versions[].output_path` 存在性 warning，避免协作评审产物文件断链。
@@ -554,7 +554,7 @@ Manifest 已能记录主要运行事实和审计摘要，并已完成 LLM 配置
 - Manifest verifier 已覆盖 `summary.scope_contract_status` 和 `scope_contract_violation_count` 聚合校验，确保范围契约状态和 `scope_contract_results` 明细一致。
 - Manifest verifier 已覆盖 `summary.llm_context_windows` 校验，确保模型上下文窗口摘要和 `llm_runs[].context_length` 明细一致。
 - Manifest verifier 已覆盖 `cli_runs` / `llm_runs` 运行证据引用校验，确保 run 级 WorkItem、Agent 和 CollaborationRun 引用不会静默断链。
-- 针对测试：`python -m pytest tests\test_replay_verifier.py -q`，结果 `92 passed`。
+- 针对测试：`python -m pytest tests\test_replay_verifier.py -q`，结果 `94 passed`。
 - 已补只读 replay trace：`python -m app.replay_manifest <manifest> --format markdown`，从 manifest 还原 Project/WorkItem/TaskAssignment/Execution/Artifact 时间线，不重跑 Agent；支持 `--output` 归档到文件，且不会输出 claim token。
 - Replay trace 的 artifact 事件已暴露 `derived_from`，Markdown 回放也会显示 artifact id 和 lineage 摘要，便于审计修复产物来自哪些输入。
 - 针对测试：`python -m pytest tests\test_replay_trace.py tests\test_replay_verifier.py -q`，结果 `24 passed`。
@@ -567,7 +567,7 @@ Manifest 已能记录主要运行事实和审计摘要，并已完成 LLM 配置
 - 需求评分器已补中文语义 alias 和 `metrics.keyword_matches`，benchmark 报告可看到每个关键词实际命中的表达，便于定位 keyword coverage 误报。
 - 需求评分器已补范围扩张检测，能标记原始需求未要求但文档新增的登录、支付、通知、后台报表等功能；明确写在非目标里的排除项不会被误判。
 - Requirement benchmark Markdown 报告已展示 keyword coverage、缺失关键词、命中 alias 和 scope expansion，方便直接从报告定位评分问题。
-- 当前全量测试：`python -m pytest -q`，结果 `501 passed`。
+- 当前全量测试：`python -m pytest -q`，结果 `503 passed`。
 
 ### 6.5 任务中心仍是轻量实现
 

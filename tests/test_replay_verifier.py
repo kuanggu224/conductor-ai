@@ -1741,6 +1741,122 @@ def test_manifest_verifier_accepts_matching_summary_llm_cost_estimate(tmp_path) 
     assert result.passed is True
 
 
+def test_manifest_verifier_rejects_summary_llm_cost_model_usage_mismatch(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "summary": {
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 2,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+                "llm_cost_estimate": {
+                    "estimated_total": 0.9,
+                    "model_costs": [
+                        {
+                            "model": "qwen-local",
+                            "token_usage": {
+                                "prompt_tokens": 8,
+                                "completion_tokens": 2,
+                            },
+                            "estimated_cost": 0.9,
+                        }
+                    ],
+                },
+            },
+            "llm_runs": [
+                {
+                    "model": "qwen-local",
+                    "token_usage": {
+                        "prompt_tokens": 7,
+                        "completion_tokens": 1,
+                    },
+                    "output_files": [],
+                },
+                {
+                    "model": "qwen-local",
+                    "token_usage": {
+                        "prompt_tokens": 3,
+                        "completion_tokens": 1,
+                    },
+                    "output_files": [],
+                },
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert (
+        "summary.llm_cost_estimate.model_costs[0].token_usage={'prompt_tokens': 8, 'completion_tokens': 2} "
+        "does not match llm_runs token_usage for qwen-local={'prompt_tokens': 10, 'completion_tokens': 2}"
+    ) in result.errors
+
+
+def test_manifest_verifier_accepts_summary_llm_cost_model_usage_match(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "summary": {
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 2,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+                "llm_cost_estimate": {
+                    "estimated_total": 0.9,
+                    "model_costs": [
+                        {
+                            "model": "qwen-local",
+                            "token_usage": {
+                                "prompt_tokens": 10,
+                                "completion_tokens": 2,
+                            },
+                            "estimated_cost": 0.9,
+                        }
+                    ],
+                },
+            },
+            "llm_runs": [
+                {
+                    "model": "qwen-local",
+                    "token_usage": {
+                        "prompt_tokens": 7,
+                        "completion_tokens": 1,
+                    },
+                    "output_files": [],
+                },
+                {
+                    "model": "qwen-local",
+                    "token_usage": {
+                        "prompt_tokens": 3,
+                        "completion_tokens": 1,
+                    },
+                    "output_files": [],
+                },
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+
+
 def test_manifest_verifier_warns_for_malformed_resume_cursor_lists(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,
