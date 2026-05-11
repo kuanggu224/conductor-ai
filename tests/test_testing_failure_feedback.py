@@ -110,7 +110,7 @@ def test_testing_failure_feedback_suggests_filter_fix_for_missing_filter_coverag
     assert feedback.missing_coverage == ["filter interaction"]
     assert feedback.missing_checklist_items[0]["rule_id"] == "filter"
     assert "browser filter interaction changed visible results" in markdown
-    assert "filter/search input binding" in markdown
+    assert "\u68c0\u67e5\u7b5b\u9009/\u641c\u7d22\u63a7\u4ef6\u4e8b\u4ef6\u7ed1\u5b9a" in markdown
 
 
 def test_testing_feedback_for_rework_follows_feedback_from_testing_workitem() -> None:
