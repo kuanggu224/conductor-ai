@@ -4,7 +4,7 @@ Last updated: 2026-05-11
 
 ## Stable Checkpoint
 
-- Latest verified code checkpoint: `a708816` (`Persist feedback rework artifact inputs`).
+- Latest verified code checkpoint: `0c647d1` (`Structure testing feedback for rework`).
 - Current full test result: `python -m pytest -q` -> `518 passed in 43.53s`.
 - Current focus: backend orchestration, auditability, logs, manifest/replay, and task-center reliability.
 - Frontend Board exists, but visual redesign is intentionally not the current priority.
