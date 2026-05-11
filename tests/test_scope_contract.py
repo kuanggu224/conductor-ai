@@ -76,6 +76,20 @@ def test_scope_contract_allows_localstorage_api_and_sync_wording() -> None:
     assert result.passed is True
 
 
+def test_scope_contract_allows_local_frontend_api_event_registration_and_storage_sync() -> None:
+    requirement = "非目标：不接后端，不做登录注册，不做云同步。"
+    candidate = """
+    ## 方案
+    - JavaScript 使用原生 API 操作 DOM 和 localStorage。
+    - 初始化时读取本地数据并注册事件监听。
+    - 多标签页通过 storage 事件同步本地数据。
+    """
+
+    result = evaluate_scope_contract(requirement, candidate)
+
+    assert result.passed is True
+
+
 def test_scope_contract_still_flags_backend_api_and_remote_sync() -> None:
     requirement = "Non-goals: no backend API, no cloud sync."
     candidate = """

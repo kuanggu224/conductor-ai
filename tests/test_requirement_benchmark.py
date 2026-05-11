@@ -234,7 +234,106 @@ def test_requirement_evaluator_flags_unrequested_scope_expansion() -> None:
     assert evaluation.checks["no_scope_expansion"] is False
     assert set(evaluation.metrics["scope_expansion_topics"]) >= {"authentication", "payment", "notification", "analytics"}
     assert evaluation.score <= 85
+    assert evaluation.passed is False
     assert any("Potential scope expansion" in finding for finding in evaluation.findings)
+
+
+def test_requirement_evaluator_flags_unrequested_edit_and_delete_as_scope_expansion() -> None:
+    case = RequirementBenchmarkCase(
+        id="crud-expansion",
+        name="CRUD Expansion",
+        requirement="Build a local reading list app where users can add books with title and author, filter by keyword, and export CSV.",
+        expected_keywords=["title", "author", "filter", "CSV"],
+        required_aspects=["ui", "data", "export", "filtering"],
+    )
+    document = """
+    目标：本地读书清单。
+    范围边界：支持添加书名和作者、关键词过滤、CSV 导出，同时支持编辑和删除已有书籍。
+    非目标：不做登录，不接后端。
+    验收标准：新增、编辑、删除、过滤、导出均可用。
+    风险与假设：浏览器存储容量有限。
+    测试验证：覆盖新增、编辑、删除、过滤和导出。
+    下游交付约束：前端静态实现。
+    """
+
+    evaluation = evaluate_requirement_document(document, case)
+
+    assert evaluation.checks["no_scope_expansion"] is False
+    assert set(evaluation.metrics["scope_expansion_topics"]) >= {"record_editing", "record_deletion"}
+    assert evaluation.passed is False
+
+
+def test_requirement_evaluator_flags_crud_shorthand_as_delete_expansion() -> None:
+    case = RequirementBenchmarkCase(
+        id="crud-shorthand-expansion",
+        name="CRUD Shorthand Expansion",
+        requirement="Build a reading list app where users can add books with title and author, filter by keyword, and export CSV.",
+        expected_keywords=["title", "author", "filter", "CSV"],
+        required_aspects=["ui", "data", "export", "filtering"],
+    )
+    document = """
+    目标：实现书籍增删查、关键词过滤与 CSV 导出。
+    范围边界：支持添加、查看、删除书籍。
+    非目标：不做登录。
+    验收标准：新增、删除、过滤、导出可用。
+    风险与假设：localStorage 容量有限。
+    测试验证：覆盖增删查。
+    下游交付约束：保持本地静态。
+    """
+
+    evaluation = evaluate_requirement_document(document, case)
+
+    assert "record_deletion" in evaluation.metrics["scope_expansion_topics"]
+    assert evaluation.passed is False
+
+
+def test_requirement_evaluator_allows_edit_delete_only_as_open_questions() -> None:
+    case = RequirementBenchmarkCase(
+        id="crud-open-question",
+        name="CRUD Open Question",
+        requirement="Build a local reading list app where users can add books with title and author, filter by keyword, and export CSV.",
+        expected_keywords=["title", "author", "filter", "CSV"],
+        required_aspects=["ui", "data", "export", "filtering"],
+    )
+    document = """
+    目标：本地读书清单。
+    范围边界：支持添加书名和作者、关键词过滤、CSV 导出。
+    非目标：不做登录，不接后端。
+    验收标准：新增、过滤、导出均可用。
+    风险与假设：浏览器存储容量有限。
+    待确认问题：是否需要编辑和删除已有书籍？
+    测试验证：覆盖新增、过滤和导出。
+    下游交付约束：前端静态实现。
+    """
+
+    evaluation = evaluate_requirement_document(document, case)
+
+    assert evaluation.checks["no_scope_expansion"] is True
+    assert evaluation.metrics["scope_expansion_topics"] == []
+
+
+def test_requirement_evaluator_does_not_treat_author_as_authentication() -> None:
+    case = RequirementBenchmarkCase(
+        id="author-not-auth",
+        name="Author Not Authentication",
+        requirement="做一个本地读书清单，支持新增书名、作者和导出 CSV。",
+        expected_keywords=["书名", "作者", "CSV"],
+        required_aspects=["ui", "data", "export"],
+    )
+    document = """
+    目标：Reading list。
+    范围边界：支持 book title, author, CSV export。
+    非目标：login。
+    验收标准：add book with author and export CSV。
+    风险与假设：localStorage 容量有限。
+    待确认问题：CSV 文件名。
+    边界场景：空列表导出。
+    下游交付约束：保持本地静态实现。
+    """
+
+    evaluation = evaluate_requirement_document(document, case)
+
+    assert "authentication" not in evaluation.metrics["scope_expansion_topics"]
 
 
 def test_requirement_evaluator_allows_scope_terms_when_declared_non_goals() -> None:

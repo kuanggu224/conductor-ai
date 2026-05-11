@@ -1452,6 +1452,7 @@ class Runner:
             "requirement_designer": (
                 "请产出可冻结的需求规格，不要反问用户；信息不足时给出明确假设。"
                 "必须覆盖：用户目标、需求理解、范围边界、非目标、验收标准、边界/异常场景、风险与假设、待确认问题、下游交付约束。"
+                "不得把用户未明确要求的功能写入正式范围；编辑、删除、登录、同步、导入等只能作为待确认问题或非目标，除非原始需求明确要求。"
             ),
             "solution_designer": (
                 "请从流程完整性、信息结构和下游可执行性角度产出需求设计文档。"
@@ -1531,6 +1532,7 @@ class Runner:
             f"Delivery contract:\n{delivery_contract}\n\n"
             f"Goal: {role_goal}\n"
             f"Required sections: {required_sections}.\n"
+            "For requirement_spec, do not promote unrequested features such as edit, delete, login, sync, or import into scope; keep them as open questions or non-goals unless explicitly requested.\n"
             "Return only the Markdown document."
         )
 
@@ -1556,6 +1558,7 @@ class Runner:
             "Return concise Chinese markdown.\n"
             "Do not ask follow-up questions.\n"
             "For requirement_spec use sections: 目标, 需求理解, 范围边界, 非目标, 验收标准, 边界/异常场景, 风险与假设, 待确认问题, 下游交付约束.\n"
+            "For requirement_spec, do not promote unrequested features such as edit, delete, login, sync, or import into scope; keep them as open questions or non-goals unless explicitly requested.\n"
             "For other document tasks use sections: 目标, 需求理解, 范围边界, 关键假设, 方案, 交付物, 验收标准, 风险.\n"
         )
 
@@ -1579,6 +1582,7 @@ class Runner:
             f"Acceptance criteria: {criteria}\n"
             f"Delivery contract: {delivery_contract}\n"
             f"Required Markdown sections: {sections}.\n"
+            "For requirement_spec, unrequested edit/delete/login/sync/import features must stay out of scope or be listed only as open questions.\n"
             "Do not ask questions. After the file is written, reply exactly: DONE\n"
         )
 

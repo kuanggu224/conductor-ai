@@ -26,6 +26,7 @@ from conductor.execution.planner import Planner
 from conductor.execution.failure_policy import parse_retryable_failure
 from conductor.execution.router import Router
 from conductor.execution.runner import Runner
+from conductor.requirement_benchmark import build_requirement_case_from_text, evaluate_requirement_document
 from conductor.state.store import InMemoryStateStore
 from conductor.testing.failure_feedback import build_testing_failure_feedback
 from conductor.workflow.template import GateDecision, WorkflowGateEvaluator, WorkflowTemplate
@@ -34,7 +35,7 @@ from conductor.workflow.template import GateDecision, WorkflowGateEvaluator, Wor
 class LeadController:
     """Advance a project through workflow stages using explicit shared state."""
 
-    MAX_REQUIREMENT_REWORK_DEPTH = 3
+    MAX_REQUIREMENT_REWORK_DEPTH = 1
     MAX_TEST_FEEDBACK_REWORK_CYCLES = 2
 
     def __init__(
@@ -199,6 +200,7 @@ class LeadController:
             "failure_type=validation_failed; retryable=false; "
             f"summary=collaboration {collaboration.id} ended with {collaboration.status.value}"
         )
+        failure_summary = self._collaboration_failure_summary(project_id, workitem_id, collaboration)
         latest = self.state_store.update_workitem(
             project_id,
             workitem_id,
@@ -206,7 +208,7 @@ class LeadController:
             blocked_reason=reason,
             failure_type="validation_failed",
             retryable=False,
-            failure_summary=f"Collaboration gate did not accept requirement/design draft: {collaboration.status.value}",
+            failure_summary=failure_summary,
             collaboration_session_id=collaboration.id,
         )
         failed_workitem = next((item for item in latest.workitems if item.id == workitem_id), None)
@@ -237,6 +239,23 @@ class LeadController:
             f"需求/设计协作门禁未通过: {collaboration.id} -> {collaboration.status.value}",
         )
         return self.state_store.get_state(project_id)
+
+    def _collaboration_failure_summary(self, project_id: str, workitem_id: str, collaboration) -> str:
+        """Return actionable gate failure details for rework prompts and logs."""
+        state = self.state_store.get_state(project_id)
+        workitem = next((item for item in state.workitems if item.id == workitem_id), None)
+        base = f"Collaboration gate did not accept requirement/design draft: {collaboration.status.value}"
+        if workitem is None or workitem.kind != "requirement_spec":
+            return base
+        latest_draft = collaboration.draft_versions[-1].content if collaboration.draft_versions else ""
+        if not latest_draft:
+            return base
+        case = build_requirement_case_from_text(project_id, state.project.goal, name="project_requirement")
+        evaluation = evaluate_requirement_document(latest_draft, case)
+        if evaluation.passed:
+            return base
+        findings = "; ".join(evaluation.findings) or "requirement quality gate failed"
+        return f"{base}. Requirement quality findings: {findings}"
 
     def _create_requirement_rework_from_collaboration_gate(
         self,

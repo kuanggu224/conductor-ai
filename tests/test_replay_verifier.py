@@ -579,6 +579,7 @@ def test_manifest_verifier_rejects_summary_blockers_mismatch_cursor_blockers(tmp
         {
             "status": "blocked",
             "final_status": "blocked",
+            "current_stage": "requirement",
             "summary": {
                 "final_status": "blocked",
                 "workitem_count": 1,
@@ -1099,6 +1100,7 @@ def test_manifest_verifier_rejects_blocked_status_without_blocked_cursor(tmp_pat
         {
             "status": "blocked",
             "final_status": "blocked",
+            "current_stage": "requirement",
             "summary": {
                 "final_status": "blocked",
                 "workitem_count": 1,
@@ -1407,6 +1409,57 @@ def test_manifest_verifier_warns_for_latest_execution_workitem_status_drift(tmp_
         "latest execution for WorkItem workitem-1 has status success, "
         "but WorkItem status is failed, expected done"
     ) in result.warnings
+
+
+def test_manifest_verifier_allows_successful_execution_failed_by_collaboration_gate(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "status": "blocked",
+            "final_status": "blocked",
+            "current_stage": "requirement",
+            "summary": {
+                "final_status": "blocked",
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+            },
+            "workitems": [
+                {
+                    "id": "workitem-1",
+                    "stage": "requirement",
+                    "kind": "requirement_spec",
+                    "status": "failed",
+                    "blocked_reason": "failure_type=validation_failed; summary=collaboration collaboration-1 ended with max_rounds_reached",
+                }
+            ],
+            "resume_cursor": {
+                "project_id": "project-1",
+                "project_status": "blocked",
+                "current_stage": "requirement",
+                "next_action": "blocked",
+                "terminal": True,
+                "blocked": True,
+                "blockers": ["需求门禁连续返工仍未通过"],
+                "completed_workitem_ids": [],
+                "terminal_failed_workitem_ids": ["workitem-1"],
+                "last_execution_workitem_id": "workitem-1",
+            },
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert not any("latest execution for WorkItem workitem-1" in warning for warning in result.warnings)
 
 
 def test_manifest_verifier_uses_latest_execution_for_status_drift(tmp_path) -> None:

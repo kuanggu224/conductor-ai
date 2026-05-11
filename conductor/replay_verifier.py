@@ -989,6 +989,12 @@ class ManifestVerifier:
             blocked_reason = workitem_blocked_reasons.get(workitem_id, "")
             if execution_status == "failed" and actual_status == "done" and self._is_feedback_reclassified(blocked_reason):
                 continue
+            if (
+                execution_status == "success"
+                and actual_status == "failed"
+                and self._is_collaboration_gate_failure(blocked_reason)
+            ):
+                continue
             if expected_status and actual_status and actual_status != expected_status:
                 result.warnings.append(
                     f"latest execution for WorkItem {workitem_id} has status {execution_status}, "
@@ -999,6 +1005,19 @@ class ManifestVerifier:
         """Return whether a failed testing WorkItem was intentionally closed after feedback rework."""
         lowered = blocked_reason.lower()
         return any(marker in lowered for marker in ("回流", "feedback", "flowed back", "rework"))
+
+    def _is_collaboration_gate_failure(self, blocked_reason: str) -> bool:
+        """Return whether a successful draft execution was later failed by collaboration gates."""
+        lowered = blocked_reason.lower()
+        return any(
+            marker in lowered
+            for marker in (
+                "collaboration",
+                "协作门禁",
+                "需求门禁",
+                "max_rounds_reached",
+            )
+        )
 
     def _verify_run_references(
         self,

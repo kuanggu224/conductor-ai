@@ -232,13 +232,15 @@ CJK_SEMANTIC_KEYWORD_ALIASES: dict[str, tuple[str, ...]] = {
 
 
 SCOPE_EXPANSION_TOPICS: dict[str, tuple[str, ...]] = {
-    "authentication": ("login", "auth", "account", "\u767b\u5f55", "\u8d26\u53f7", "\u8ba4\u8bc1"),
+    "authentication": ("login", "authentication", "account", "\u767b\u5f55", "\u8d26\u53f7", "\u8ba4\u8bc1"),
     "payment": ("payment", "pay", "billing", "\u652f\u4ed8", "\u6536\u6b3e", "\u8ba1\u8d39"),
     "notification": ("notification", "email", "sms", "\u901a\u77e5", "\u90ae\u4ef6", "\u77ed\u4fe1"),
     "admin_console": ("admin", "dashboard", "\u540e\u53f0", "\u7ba1\u7406\u5458", "\u7ba1\u7406\u7aef"),
     "analytics": ("analytics", "metrics", "\u7edf\u8ba1", "\u5206\u6790", "\u62a5\u8868"),
     "deployment": ("deploy", "docker", "kubernetes", "\u90e8\u7f72", "\u4e0a\u7ebf", "\u5bb9\u5668"),
-    "ai_recommendation": ("recommendation", "llm", "ai", "\u63a8\u8350", "\u667a\u80fd\u63a8\u8350", "\u5927\u6a21\u578b"),
+    "ai_recommendation": ("recommendation", "ai recommendation", "\u63a8\u8350", "\u667a\u80fd\u63a8\u8350"),
+    "record_editing": ("edit", "editing", "modify", "\u7f16\u8f91", "\u4fee\u6539"),
+    "record_deletion": ("delete", "deletion", "remove", "\u5220\u9664", "\u79fb\u9664", "\u589e\u5220", "\u589e\u5220\u6539\u67e5"),
 }
 
 SCOPE_NEGATION_TERMS: tuple[str, ...] = (
@@ -254,6 +256,13 @@ SCOPE_NEGATION_TERMS: tuple[str, ...] = (
     "\u65e0\u9700",
     "\u4e0d\u5305\u542b",
     "\u6392\u9664",
+    "\u4e0d\u5f97",
+    "\u4e0d\u80fd",
+    "\u5f85\u786e\u8ba4",
+    "\u662f\u5426\u9700\u8981",
+    "to confirm",
+    "confirm whether",
+    "open question",
 )
 
 
@@ -386,10 +395,11 @@ def evaluate_requirement_document(
         findings.append("Downstream handoff constraints are missing.")
     if not checks["no_scope_expansion"]:
         findings.append("Potential scope expansion detected: " + ", ".join(scope_expansion_topics) + ".")
+    passed = score >= min_score and checks["no_scope_expansion"] and checks["not_mock_or_placeholder"]
     return RequirementEvaluation(
         case_id=case.id,
         score=score,
-        passed=score >= min_score,
+        passed=passed,
         checks=checks,
         metrics={
             "keyword_coverage": keyword_coverage,
@@ -719,7 +729,7 @@ def _topic_only_appears_as_non_goal(text: str, terms: tuple[str, ...]) -> bool:
 
 def _has_scope_negation_near(text: str, index: int) -> bool:
     """Return whether a topic mention sits inside a nearby non-goal phrase."""
-    window_start = max(0, index - 40)
+    window_start = max(0, index - 120)
     snippet = text[window_start:index]
     return any(term in snippet for term in SCOPE_NEGATION_TERMS)
 

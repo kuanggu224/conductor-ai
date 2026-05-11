@@ -548,6 +548,7 @@ class CollaborationRunner:
             f"# 本轮审阅意见\n{review_text}\n\n"
             "请直接输出修订后的完整中文 Markdown 需求设计文档，不要只输出差异。"
             "需求规格类文档必须保留并完善：目标、需求理解、范围边界、非目标、验收标准、边界/异常场景、风险与假设、待确认问题、下游交付约束。"
+            "不要把用户未明确要求的功能升级为正式范围；例如编辑、删除、登录、同步、导入等能力只能写入待确认问题或非目标，除非原始需求明确要求。"
             "设计类文档必须保留并完善：目标、需求理解、范围边界、关键假设、方案、交付物、验收标准、风险。"
         )
         if self.agent_cli_executor.resolve_binding(lead) == "claude":
@@ -558,6 +559,7 @@ class CollaborationRunner:
                 "Revise the current design draft after reading all reviewer feedback.\n"
                 "Return a full Chinese markdown requirement design document, not a diff.\n"
                 "For requirement_spec, keep these sections clear and practical: 目标, 需求理解, 范围边界, 非目标, 验收标准, 边界/异常场景, 风险与假设, 待确认问题, 下游交付约束.\n"
+                "Do not promote unrequested features such as edit, delete, login, sync, or import into in-scope requirements; keep them as open questions or non-goals unless explicitly requested.\n"
                 "For other design docs, keep sections: 目标, 需求理解, 范围边界, 关键假设, 方案, 交付物, 验收标准, 风险.\n\n"
                 f"Current draft:\n{draft_excerpt[:2400]}\n\n"
                 f"Reviewer feedback:\n{review_text[:2400]}"
@@ -640,10 +642,16 @@ class CollaborationRunner:
             if phase == "design_peer_review"
             else "这是跨职能评审阶段。请基于已修订的需求设计，从本角色交付风险和验收可执行性角度审阅。"
         )
+        scope_guard = (
+            "评审不得要求新增原始需求没有明确提出的功能。"
+            "例如编辑、删除、登录、同步、导入等能力，如果原始需求未要求，只能建议写入非目标或待确认问题，不能作为 request_changes 的必改范围。"
+            "如果草案已经把未请求功能列为非目标，不能再要求把该功能改为正式范围。"
+        )
         prompt = (
             f"你是 {reviewer.role} reviewer，正在参与需求设计评审。请审阅同一轮固定 draft，不要修改原文。\n"
             f"评审阶段：{phase}\n"
             f"{phase_instruction}\n"
+            f"{scope_guard}\n"
             f"评审重点：{review_focus}\n"
             f"WorkItem: {workitem.id} / {workitem.description}\n\n"
             f"# Draft 摘要\n{self._clip_text(draft, 4200)}\n\n"
@@ -738,6 +746,7 @@ class CollaborationRunner:
                     "Output contract:\n"
                     "- Must include exactly one line starting with `Decision: approve` or `Decision: request_changes`.\n"
                     "- Include sections: 主要问题, 建议, 风险, 可执行验收关注点.\n"
+                    "- Do not request unasked features as mandatory changes; keep them as non-goals or open questions.\n"
                     "- Be specific to the current requirement. Do not use generic filler.\n"
                 ),
                 system_prompt=(
@@ -800,6 +809,7 @@ class CollaborationRunner:
                     "- Return the full revised Chinese requirement/design Markdown, not a diff.\n"
                     "- Must include executable acceptance cases with concrete input and expected output.\n"
                     "- For requirement_spec, include non-goals, edge/error cases, open questions, and downstream handoff constraints.\n"
+                    "- Do not convert reviewer suggestions into new in-scope features unless the original user requirement explicitly asked for them.\n"
                     "- Incorporate all reviewer roles before approving the draft.\n"
                 ),
                 system_prompt=(

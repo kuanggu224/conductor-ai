@@ -1,7 +1,7 @@
 """LeadController 测试。"""
 
 from conductor.controller.lead_controller import LeadController
-from conductor.collaboration.models import Collaboration, CollaborationStatus
+from conductor.collaboration.models import Collaboration, CollaborationDraftVersion, CollaborationStatus
 from conductor.collaboration.policy import CollaborationPolicy
 from conductor.domain.models import Artifact, ProjectStatus, TaskAssignmentStatus, WorkItem, WorkItemStatus
 from conductor.execution.runner import Runner
@@ -34,6 +34,33 @@ class FailingRequirementCollaborationRunner:
         )
 
 
+class ScopeExpansionRequirementCollaborationRunner(FailingRequirementCollaborationRunner):
+    def run_review_loop(self, project_id: str, workitem: WorkItem, draft_artifact):
+        return Collaboration(
+            id=f"collaboration-{workitem.id}",
+            project_id=project_id,
+            workitem_id=workitem.id,
+            lead_agent_id="agent-requirement-designer",
+            reviewer_agent_ids=[],
+            status=CollaborationStatus.MAX_ROUNDS_REACHED,
+            max_rounds=1,
+            current_round=1,
+            draft_versions=[
+                CollaborationDraftVersion(
+                    version=1,
+                    round_index=1,
+                    author_agent_id="agent-requirement-designer",
+                    content=(
+                        "目标：本地读书清单。\n"
+                        "范围边界：支持添加书名和作者、关键词过滤、CSV 导出，同时支持编辑和删除已有书籍。\n"
+                        "非目标：不做登录，不接后端。\n"
+                        "验收标准：新增、编辑、删除、过滤、导出可用。\n"
+                    ),
+                )
+            ],
+        )
+
+
 def build_controller() -> LeadController:
     state_store = InMemoryStateStore()
     runner = Runner(state_store=state_store)
@@ -50,6 +77,18 @@ def build_controller_with_failing_requirement_collaboration() -> LeadController:
         state_store=state_store,
         runner=runner,
         collaboration_runner=FailingRequirementCollaborationRunner(),
+    )
+
+
+def build_controller_with_scope_expansion_requirement_collaboration() -> LeadController:
+    state_store = InMemoryStateStore()
+    runner = Runner(state_store=state_store)
+    workflow = WorkflowTemplate()
+    return LeadController(
+        workflow_template=workflow,
+        state_store=state_store,
+        runner=runner,
+        collaboration_runner=ScopeExpansionRequirementCollaborationRunner(),
     )
 
 
@@ -111,17 +150,30 @@ def test_requirement_gate_failure_creates_rework_workitem() -> None:
     assert any("需求门禁返工" in event for event in state.recent_events)
 
 
+def test_requirement_rework_prompt_includes_quality_findings() -> None:
+    controller = build_controller_with_scope_expansion_requirement_collaboration()
+    state = controller.initialize_project("Build a reading list app with title, author, keyword filter, and CSV export.")
+
+    state = controller.advance(state)
+
+    rework = next(item for item in state.workitems if item.rework_of == "workitem-001")
+    assert "Requirement quality findings" in rework.description
+    assert "Potential scope expansion detected" in rework.description
+    assert "record_editing" in rework.description
+    assert "record_deletion" in rework.description
+
+
 def test_requirement_gate_rework_limit_blocks_project() -> None:
     controller = build_controller_with_failing_requirement_collaboration()
     state = controller.initialize_project("实现一个读书清单，支持导出 CSV")
 
-    for _ in range(4):
+    for _ in range(2):
         state = controller.advance(state)
 
     requirement_items = [item for item in state.workitems if item.stage == "requirement"]
 
     assert state.project_status == ProjectStatus.BLOCKED
-    assert len(requirement_items) == 4
+    assert len(requirement_items) == 2
     assert state.blockers
     assert "需求门禁连续返工仍未通过" in state.blockers[-1]
     assert any("需求门禁返工上限触发" in event for event in state.recent_events)
