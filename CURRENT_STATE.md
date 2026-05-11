@@ -4,8 +4,8 @@ Last updated: 2026-05-11
 
 ## Stable Checkpoint
 
-- Latest verified code checkpoint: `33dd63f` (`Render rework feedback in replay trace`).
-- Current full test result: `python -m pytest -q` -> `522 passed in 43.79s`.
+- Latest verified code checkpoint: `283bd54` (`Centralize testing feedback lookup`).
+- Current full test result: `python -m pytest -q` -> `523 passed in 44.60s`.
 - Current focus: backend orchestration, auditability, logs, manifest/replay, and task-center reliability.
 - Frontend Board exists, but visual redesign is intentionally not the current priority.
 
@@ -22,6 +22,7 @@ Last updated: 2026-05-11
 - Testing-stage feedback rework now persists explicit inputs on the rework WorkItem and Task Center assignment: failed test artifacts, original implementation artifacts, frozen requirement, and design artifacts.
 - Testing-stage feedback rework now embeds structured failure feedback extracted from failed test reports: failure signals, missing requirement coverage, exit code, and suggested fix directions.
 - Task Center context now exposes the same structured testing feedback under `rework_context.testing_feedback` and renders it in Markdown prompts for external CLI/Agent workers.
+- Structured testing feedback lookup is centralized in `conductor.testing.failure_feedback`, reducing drift across Task Center, manifest, project report, and replay outputs.
 - Run Manifest schema is now `1.29`; WorkItem and retry history records include relationship fields and structured testing feedback for rework audit/replay.
 - Project reports render structured testing feedback under WorkItems, including failing checks, missing coverage, and suggested fixes.
 - Replay trace renders WorkItem rework lineage and structured testing feedback, so failed-test-to-rework chains are visible in read-only replay output.
