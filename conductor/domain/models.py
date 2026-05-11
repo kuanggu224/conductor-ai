@@ -88,6 +88,7 @@ class WorkItem:
     input_artifact_ids: list[str] = field(default_factory=list)
     output_artifact_ids: list[str] = field(default_factory=list)
     acceptance_criteria: list[str] = field(default_factory=list)
+    testing_checklist: list[dict[str, object]] = field(default_factory=list)
     result: str | None = None
     retry_count: int = 0
     max_retries: int = 1

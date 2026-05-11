@@ -194,6 +194,7 @@ class RunManifestWriter:
                     "feedback_from": list(item.feedback_from),
                     "rework_of": item.rework_of or "",
                     "testing_feedback": self._testing_feedback_for_workitem(state, item),
+                    "testing_checklist": [dict(entry) for entry in item.testing_checklist],
                     "remediation_suggestions": remediation_suggestions(
                         item.failure_type,
                         retryable=item.retryable,
@@ -544,6 +545,7 @@ class RunManifestWriter:
                     "feedback_from": list(item.feedback_from),
                     "rework_of": item.rework_of or "",
                     "testing_feedback": self._testing_feedback_for_workitem(state, item),
+                    "testing_checklist": [dict(entry) for entry in item.testing_checklist],
                     "related_events": related_events,
                     "related_gate_history": related_gate_history,
                 }

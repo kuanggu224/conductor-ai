@@ -19,6 +19,23 @@ def test_file_state_store_persists_and_reloads_project(tmp_path) -> None:
     )
     state = controller.initialize_project("实现一个 API 和 UI 页面")
     state = controller.advance(state)
+    state = replace(
+        state,
+        workitems=[
+            replace(
+                state.workitems[0],
+                testing_checklist=[
+                    {
+                        "rule_id": "add_item",
+                        "label": "add item interaction",
+                        "status": "pending",
+                    }
+                ],
+            ),
+            *state.workitems[1:],
+        ],
+    )
+    store.save_state(state)
 
     reloaded = FileStateStore(state_dir)
     restored = reloaded.get_state(state.project.id)
@@ -33,6 +50,7 @@ def test_file_state_store_persists_and_reloads_project(tmp_path) -> None:
     assert isinstance(restored.executions[0].token_usage, dict)
     assert isinstance(restored.task_assignments[0].claim_token, str)
     assert isinstance(restored.task_assignments[0].last_heartbeat_at, str)
+    assert restored.workitems[0].testing_checklist[0]["rule_id"] == "add_item"
     assert restored.agent_capability_stats[0].completed_count == 1
     assert [activation.role for activation in restored.agent_activations] == [
         activation.role for activation in state.agent_activations

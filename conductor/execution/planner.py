@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from itertools import count
 
 from conductor.config.execution import ExecutionScopeConfig
 from conductor.config.system import SystemConfig
 from conductor.domain.models import Stage, WorkItem
-from conductor.testing.coverage import infer_coverage_rules
+from conductor.testing.coverage import build_testing_checklist, infer_coverage_rules
 
 
 @dataclass(slots=True)
@@ -18,6 +18,7 @@ class WorkItemDraft:
     kind: str
     description: str
     acceptance_criteria: list[str]
+    testing_checklist: list[dict[str, object]] = field(default_factory=list)
 
 
 class Planner:
@@ -163,6 +164,7 @@ class Planner:
     def _plan_testing_drafts(self, normalized_requirement: str, original_requirement: str) -> list[WorkItemDraft]:
         frontend_only = self._is_frontend_only_requirement(normalized_requirement)
         coverage_criteria = self._coverage_acceptance_criteria(original_requirement)
+        testing_checklist = build_testing_checklist(original_requirement)
         drafts = [
             WorkItemDraft(
                 kind="acceptance_check",
@@ -172,6 +174,7 @@ class Planner:
                     "无阻塞当前交付的关键问题",
                     *coverage_criteria,
                 ],
+                testing_checklist=testing_checklist,
             )
         ]
         if self._contains_any(normalized_requirement, self.TEST_KEYWORDS):
@@ -215,6 +218,7 @@ class Planner:
             stage=stage_name,
             kind=draft.kind,
             acceptance_criteria=draft.acceptance_criteria,
+            testing_checklist=[dict(item) for item in draft.testing_checklist],
         )
 
     def _contains_any(self, text: str, keywords: tuple[str, ...]) -> bool:

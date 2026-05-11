@@ -90,6 +90,7 @@ class TaskContextBuilder:
         rework_context = _dict_payload(payload.get("rework_context"))
         delivery_contract = _dict_payload(payload.get("delivery_contract"))
         acceptance_criteria = _list_payload(workitem.get("acceptance_criteria"))
+        testing_checklist = _list_payload(workitem.get("testing_checklist"))
 
         lines = [
             "# Task Assignment Context",
@@ -121,6 +122,9 @@ class TaskContextBuilder:
             "",
             "### Acceptance Criteria",
             *_bullet_lines(acceptance_criteria),
+            "",
+            "### Testing Checklist",
+            *self._testing_checklist_markdown(testing_checklist),
             "",
             "## Delivery Contract",
             *render_delivery_contract_markdown(delivery_contract),
@@ -243,6 +247,23 @@ class TaskContextBuilder:
                 continue
             payloads.extend(asdict(feedback) for feedback in build_testing_feedback_for_workitem(state, item))
         return payloads
+
+    def _testing_checklist_markdown(self, checklist: list[object]) -> list[str]:
+        """Render machine-readable testing checklist entries for tester agents."""
+        if not checklist:
+            return ["- None"]
+        lines: list[str] = []
+        for item in checklist:
+            if not isinstance(item, dict):
+                continue
+            evidence_terms = _join_or_none(_list_payload(item.get("required_evidence_terms")))
+            requirement_terms = _join_or_none(_list_payload(item.get("requirement_terms")))
+            lines.append(
+                f"- {item.get('rule_id', '')} | {item.get('label', '')} | "
+                f"status={item.get('status', '')} | requirement_terms={requirement_terms} | "
+                f"required_evidence={evidence_terms}"
+            )
+        return lines or ["- None"]
 
     def _delivery_contract(
         self,

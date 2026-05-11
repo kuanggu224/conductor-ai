@@ -2857,6 +2857,38 @@ def test_manifest_verifier_rejects_unknown_testing_feedback_workitem(tmp_path) -
     assert "workitem workitem-1.testing_feedback[0] references unknown WorkItem: missing-test" in result.errors
 
 
+def test_manifest_verifier_warns_for_malformed_testing_checklist(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "workitems": [
+                {
+                    "id": "workitem-1",
+                    "stage": "testing",
+                    "kind": "acceptance_check",
+                    "status": "done",
+                    "testing_checklist": [
+                        {
+                            "rule_id": 123,
+                            "label": "CSV export/download",
+                            "status": "unknown",
+                            "requirement_terms": "CSV",
+                            "required_evidence_terms": [],
+                        }
+                    ],
+                }
+            ]
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert "workitem workitem-1.testing_checklist[0].rule_id must be a string" in result.warnings
+    assert "workitem workitem-1.testing_checklist[0].status has unknown value: unknown" in result.warnings
+    assert "workitem workitem-1.testing_checklist[0] requirement_terms must be a list" in result.warnings
+
+
 def test_manifest_verifier_rejects_unknown_task_assignment_input_artifacts(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,
@@ -2959,7 +2991,7 @@ def test_manifest_verifier_checks_execution_delivery_contract_and_acceptance_tra
     manifest_path = _write_manifest(
         tmp_path,
         {
-            "schema_version": "1.30",
+            "schema_version": "1.31",
             "executions": [
                 {
                     "workitem_id": "workitem-1",
@@ -3167,7 +3199,7 @@ def test_manifest_verifier_warns_for_non_current_schema_version(tmp_path) -> Non
     result = verify_manifest(manifest_path)
 
     assert result.passed is True
-    assert "manifest schema_version 1.0 differs from current 1.30" in result.warnings
+    assert "manifest schema_version 1.0 differs from current 1.31" in result.warnings
 
 
 def test_manifest_verifier_rejects_api_key_fields(tmp_path) -> None:

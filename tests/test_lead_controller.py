@@ -516,3 +516,4 @@ def test_testing_stage_planning_uses_frozen_requirement_for_coverage_scope() -> 
     assert "Provide validation evidence for frozen requirement: add item interaction" in acceptance_check.acceptance_criteria
     assert "Provide validation evidence for frozen requirement: refresh persistence" in acceptance_check.acceptance_criteria
     assert "Provide validation evidence for frozen requirement: CSV export/download" in acceptance_check.acceptance_criteria
+    assert [item["rule_id"] for item in acceptance_check.testing_checklist] == ["add_item", "persistence", "export_csv"]

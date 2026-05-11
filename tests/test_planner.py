@@ -66,3 +66,6 @@ def test_planner_adds_requirement_coverage_criteria_to_acceptance_check() -> Non
     assert "Provide validation evidence for frozen requirement: add item interaction" in acceptance_check.acceptance_criteria
     assert "Provide validation evidence for frozen requirement: refresh persistence" in acceptance_check.acceptance_criteria
     assert "Provide validation evidence for frozen requirement: CSV export/download" in acceptance_check.acceptance_criteria
+    assert [item["rule_id"] for item in acceptance_check.testing_checklist] == ["add_item", "persistence", "export_csv"]
+    assert acceptance_check.testing_checklist[0]["status"] == "pending"
+    assert "browser form interaction updated visible state" in acceptance_check.testing_checklist[0]["required_evidence_terms"]

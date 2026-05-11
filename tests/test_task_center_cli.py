@@ -428,6 +428,51 @@ def test_task_center_cli_context_marks_rework_feedback_inputs(tmp_path, capsys) 
     assert "Browser form submit did not change visible page state" in output
 
 
+def test_task_center_cli_context_renders_testing_checklist(tmp_path, capsys) -> None:
+    project_root = tmp_path / "project"
+    state_store = FileStateStore(project_root / ".conductor" / "state")
+    engine = ConductorEngine(
+        log_dir=project_root / ".conductor" / "logs",
+        artifact_dir=project_root / ".conductor" / "artifacts",
+        state_store=state_store,
+    )
+    state = engine.create_project(requirement="Build a local reading list with CSV export", project_root=str(project_root))
+    testing = WorkItem(
+        id="workitem-testing-checklist",
+        description="Validate frozen requirement coverage",
+        stage="testing",
+        kind="acceptance_check",
+        testing_checklist=[
+            {
+                "rule_id": "export_csv",
+                "label": "CSV export/download",
+                "status": "pending",
+                "requirement_terms": ["CSV"],
+                "required_evidence_terms": ["browser export/download action triggered"],
+            }
+        ],
+    )
+    assignment = TaskAssignment(
+        id="assignment-testing-checklist",
+        workitem_id=testing.id,
+        role="tester",
+    )
+    state = replace(
+        state,
+        workitems=[*state.workitems, testing],
+        task_assignments=[*state.task_assignments, assignment],
+    )
+    state_store.save_state(state)
+
+    code = main(["context", assignment.id, "--project-root", str(project_root), "--format", "markdown"])
+    output = capsys.readouterr().out
+
+    assert code == 0
+    assert "### Testing Checklist" in output
+    assert "export_csv | CSV export/download | status=pending" in output
+    assert "browser export/download action triggered" in output
+
+
 def test_task_center_cli_prints_assignment_context_as_markdown(tmp_path, capsys) -> None:
     project_root = tmp_path / "project"
     state_store = FileStateStore(project_root / ".conductor" / "state")

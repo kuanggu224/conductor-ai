@@ -172,6 +172,20 @@ def infer_coverage_rules(requirement_text: str) -> list[CoverageRule]:
     ]
 
 
+def build_testing_checklist(requirement_text: str) -> list[dict[str, object]]:
+    """Build machine-readable testing checklist entries from requirement coverage rules."""
+    return [
+        {
+            "rule_id": rule.rule_id,
+            "label": rule.label,
+            "status": "pending",
+            "requirement_terms": _matched_terms(rule.requirement_terms, requirement_text),
+            "required_evidence_terms": list(rule.evidence_terms),
+        }
+        for rule in infer_coverage_rules(requirement_text)
+    ]
+
+
 def _rule_is_required(rule: CoverageRule, normalized_requirement: str) -> bool:
     """Return whether a coverage rule is truly required by the requirement."""
     if rule.rule_id != "filter":
@@ -204,6 +218,7 @@ __all__ = [
     "CoverageResult",
     "CoverageRule",
     "CoverageTraceItem",
+    "build_testing_checklist",
     "evaluate_requirement_coverage",
     "infer_coverage_rules",
 ]

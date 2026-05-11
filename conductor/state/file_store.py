@@ -172,6 +172,9 @@ class FileStateStore(InMemoryStateStore):
             input_artifact_ids=list(data.get("input_artifact_ids", [])),
             output_artifact_ids=list(data.get("output_artifact_ids", [])),
             acceptance_criteria=list(data.get("acceptance_criteria", [])),
+            testing_checklist=[
+                dict(item) for item in data.get("testing_checklist", []) if isinstance(item, dict)
+            ],
             result=data.get("result"),
             retry_count=int(data.get("retry_count", 0)),
             max_retries=int(data.get("max_retries", 1)),

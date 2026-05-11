@@ -733,7 +733,14 @@ class ManifestVerifier:
             self._warn_non_list_fields(
                 workitem,
                 f"workitem {workitem_id}",
-                ("dependencies", "input_artifact_ids", "output_artifact_ids", "feedback_from", "testing_feedback"),
+                (
+                    "dependencies",
+                    "input_artifact_ids",
+                    "output_artifact_ids",
+                    "feedback_from",
+                    "testing_feedback",
+                    "testing_checklist",
+                ),
                 result,
             )
             for dependency_id in self._string_list(workitem.get("dependencies", [])):
@@ -753,6 +760,11 @@ class ManifestVerifier:
                 self._list(workitem.get("testing_feedback", [])),
                 workitem_ids,
                 f"workitem {workitem_id}.testing_feedback",
+                result,
+            )
+            self._verify_testing_checklist(
+                workitem.get("testing_checklist"),
+                f"workitem {workitem_id}.testing_checklist",
                 result,
             )
 
@@ -1092,6 +1104,36 @@ class ManifestVerifier:
                 result.warnings.append(f"{owner}[{index}].criterion must be a string")
             if "evidence" in trace and not isinstance(trace.get("evidence"), str):
                 result.warnings.append(f"{owner}[{index}].evidence must be a string")
+
+    def _verify_testing_checklist(
+        self,
+        checklist: Any,
+        owner: str,
+        result: ManifestVerificationResult,
+    ) -> None:
+        """Verify WorkItem testing checklist shape."""
+        if checklist in (None, ""):
+            return
+        if not isinstance(checklist, list):
+            result.warnings.append(f"{owner} must be a list")
+            return
+        allowed_statuses = {"pending", "covered", "missing", "passed", "failed", "not_verified"}
+        for index, item in enumerate(checklist):
+            if not isinstance(item, dict):
+                result.warnings.append(f"{owner}[{index}] must be an object")
+                continue
+            for field_name in ("rule_id", "label", "status"):
+                if field_name in item and not isinstance(item.get(field_name), str):
+                    result.warnings.append(f"{owner}[{index}].{field_name} must be a string")
+            status = str(item.get("status", ""))
+            if status and status not in allowed_statuses:
+                result.warnings.append(f"{owner}[{index}].status has unknown value: {status}")
+            self._warn_non_list_fields(
+                item,
+                f"{owner}[{index}]",
+                ("requirement_terms", "required_evidence_terms"),
+                result,
+            )
 
     def _verify_testing_feedback_references(
         self,
