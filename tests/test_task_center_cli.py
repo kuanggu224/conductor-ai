@@ -265,6 +265,13 @@ def test_task_center_cli_prints_assignment_context_with_input_artifacts(tmp_path
     assert payload["assignment"]["input_artifact_ids"]
     assert payload["workitem"]["id"] == assignment.workitem_id
     assert "Return Protocol" in payload["execution_brief"]
+    assert "Delivery Contract" in payload["execution_brief"]
+    assert payload["delivery_contract"]["stage"] == state.workitems[0].stage
+    assert payload["delivery_contract"]["role"] == assignment.role
+    assert artifact.id in payload["delivery_contract"]["required_input_artifact_ids"]
+    assert "frozen_requirement_spec" in payload["delivery_contract"]["required_input_kinds"]
+    assert payload["delivery_contract"]["expected_outputs"]
+    assert "Frozen requirement coverage" in payload["delivery_contract"]["verification_focus"]
     assert "Frozen Requirement Baseline" in payload["execution_brief"]
     assert payload["frozen_requirement_baseline"]["id"] == artifact.id
     assert payload["input_artifacts"]
@@ -452,6 +459,10 @@ def test_task_center_cli_prints_assignment_context_as_markdown(tmp_path, capsys)
     assert code == 0
     assert "# Task Assignment Context" in output
     assert "## WorkItem" in output
+    assert "## Delivery Contract" in output
+    assert "- Expected Outputs:" in output
+    assert "- Guardrails:" in output
+    assert "- Verification Focus:" in output
     assert "## Frozen Requirement Baseline" in output
     assert "controlling contract" in output
     assert "## Input Artifacts" in output
