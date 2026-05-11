@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict
 
 from conductor.artifacts.store import ArtifactStore
+from conductor.delivery_contract import build_delivery_contract, render_delivery_contract_markdown
 from conductor.domain.models import Artifact, SharedProjectState, TaskAssignment
 from conductor.task_center.service import TaskCenterError, TaskCenterService
 from conductor.testing.failure_feedback import build_testing_feedback_for_workitem
@@ -122,7 +123,7 @@ class TaskContextBuilder:
             *_bullet_lines(acceptance_criteria),
             "",
             "## Delivery Contract",
-            *self._delivery_contract_markdown(delivery_contract),
+            *render_delivery_contract_markdown(delivery_contract),
             "",
             "## Frozen Requirement Baseline",
             *self._frozen_requirement_markdown(frozen_requirement_baseline),
@@ -256,85 +257,14 @@ class TaskContextBuilder:
         kind = str(workitem_payload.get("kind") or "")
         artifact_kinds = [str(artifact.get("kind", "")) for artifact in input_artifacts if artifact.get("kind")]
         input_ids = [str(artifact.get("id", "")) for artifact in input_artifacts if artifact.get("id")]
-        expected_outputs = self._expected_outputs_for(stage, kind)
-        guardrails = [
-            "Treat the frozen requirement as the controlling scope contract.",
-            "Cite the input artifact ids that shaped the result.",
-            "Do not add unrelated features, files, dependencies, or architecture.",
-            "If the task is blocked, return failure with a precise blocked_reason instead of inventing output.",
-        ]
-        if rework_context.get("is_rework"):
-            guardrails.insert(1, "Fix only the referenced feedback and preserve existing accepted behavior.")
-        return {
-            "stage": stage,
-            "kind": kind,
-            "role": assignment.role,
-            "required_input_artifact_ids": input_ids,
-            "required_input_kinds": list(dict.fromkeys(artifact_kinds)),
-            "expected_outputs": expected_outputs,
-            "guardrails": guardrails,
-            "verification_focus": self._verification_focus_for(stage, kind, rework_context),
-        }
-
-    def _expected_outputs_for(self, stage: str, kind: str) -> list[str]:
-        if stage == "requirement":
-            return [
-                "A structured requirement specification with goals, scope, non-goals, acceptance criteria, risks, and open questions.",
-                "A clear downstream baseline that design, development, and testing can execute without guessing.",
-            ]
-        if stage == "design":
-            return [
-                "A design document that maps the frozen requirement into implementation boundaries.",
-                "Explicit downstream constraints for development and testing agents.",
-            ]
-        if stage == "development":
-            outputs = [
-                "Concrete implementation changes or a precise implementation artifact if code execution is not enabled.",
-                "Changed-file summary and verification notes tied to acceptance criteria.",
-            ]
-            if kind == "ui_implementation":
-                outputs.append("UI behavior evidence for core interactions and visible states.")
-            if kind == "api_implementation":
-                outputs.append("API contract notes covering inputs, outputs, and error cases.")
-            return outputs
-        if stage == "testing":
-            return [
-                "A validation report with commands/checks run, pass/fail status, and evidence.",
-                "Precise missing coverage or failure feedback that can drive a development rework task.",
-            ]
-        return ["A concise artifact that satisfies the WorkItem acceptance criteria."]
-
-    def _verification_focus_for(self, stage: str, kind: str, rework_context: dict[str, object]) -> list[str]:
-        focus = ["WorkItem acceptance criteria", "Frozen requirement coverage"]
-        if stage == "development":
-            focus.extend(["Scope boundary preservation", "Runnable or inspectable implementation output"])
-        if stage == "testing":
-            focus.extend(["Executable validation evidence", "Actionable failure feedback"])
-        if kind == "ui_implementation":
-            focus.append("Visible UI state and interaction behavior")
-        if kind == "api_implementation":
-            focus.append("API input/output contract behavior")
-        if rework_context.get("is_rework"):
-            focus.append("Referenced testing feedback is directly addressed")
-        return list(dict.fromkeys(focus))
-
-    def _delivery_contract_markdown(self, contract: dict[str, object]) -> list[str]:
-        if not contract:
-            return ["- None"]
-        lines = [
-            f"- Stage: {contract.get('stage', '')}",
-            f"- Kind: {contract.get('kind', '')}",
-            f"- Role: {contract.get('role', '')}",
-            f"- Required Input Artifacts: {_join_or_none(_list_payload(contract.get('required_input_artifact_ids')))}",
-            f"- Required Input Kinds: {_join_or_none(_list_payload(contract.get('required_input_kinds')))}",
-            "- Expected Outputs:",
-            *_bullet_lines(_list_payload(contract.get("expected_outputs"))),
-            "- Guardrails:",
-            *_bullet_lines(_list_payload(contract.get("guardrails"))),
-            "- Verification Focus:",
-            *_bullet_lines(_list_payload(contract.get("verification_focus"))),
-        ]
-        return lines
+        return build_delivery_contract(
+            stage=stage,
+            kind=kind,
+            role=assignment.role,
+            required_input_artifact_ids=input_ids,
+            required_input_kinds=artifact_kinds,
+            is_rework=bool(rework_context.get("is_rework")),
+        )
 
     def _ensure_frozen_requirement_input(
         self,
@@ -443,7 +373,7 @@ class TaskContextBuilder:
         inputs = "\n".join(f"- {item['id']} ({item['kind']}): {item['title']}" for item in input_artifacts) or "- None"
         frozen_requirement = self._frozen_requirement_brief(frozen_requirement_baseline)
         rework_brief = "\n".join(self._rework_markdown(rework_context))
-        contract_brief = "\n".join(self._delivery_contract_markdown(delivery_contract))
+        contract_brief = "\n".join(render_delivery_contract_markdown(delivery_contract))
         return (
             f"Project: {state.project.goal}\n"
             f"TaskAssignment: {assignment.id}\n"

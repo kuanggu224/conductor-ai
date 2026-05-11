@@ -329,6 +329,8 @@ def test_agent_cli_document_prompt_includes_frozen_requirement_baseline() -> Non
     assert "Frozen Requirement Baseline" in prompt
     assert "Non-goal: no user accounts" in prompt
     assert "controlling contract" in prompt
+    assert "Delivery contract" in prompt
+    assert "Expected Outputs" in prompt
 
 
 def test_opencode_document_prompt_keeps_done_instruction_last_with_frozen_baseline() -> None:
@@ -371,6 +373,42 @@ def test_opencode_document_prompt_keeps_done_instruction_last_with_frozen_baseli
 
     assert "Frozen Requirement Baseline" in prompt
     assert prompt.rstrip().endswith("Do not ask questions. After the file is written, reply exactly: DONE")
+    assert "Delivery contract" in prompt
+
+
+def test_code_execution_prompt_includes_shared_delivery_contract() -> None:
+    state_store = InMemoryStateStore()
+    state_store.save_state(
+        SharedProjectState(
+            project=Project(id="project-code-contract", goal="Build a static reading list", current_stage="development"),
+            project_status=ProjectStatus.IN_PROGRESS,
+            current_stage="development",
+        )
+    )
+    runner = Runner(state_store=state_store)
+    profile = next(profile for profile in build_default_agent_profiles() if profile.role_name == "frontend_engineer")
+    agent = Agent(
+        id="agent-frontend",
+        role="frontend_engineer",
+        profile=profile,
+        capabilities=[Capability.CODING],
+        execution_backend="cli",
+    )
+    workitem = WorkItem(
+        id="workitem-ui",
+        description="Implement UI",
+        stage="development",
+        kind="ui_implementation",
+        input_artifact_ids=["artifact-frozen"],
+        acceptance_criteria=["UI can add a book"],
+    )
+
+    prompt = runner._build_code_execution_prompt("project-code-contract", workitem, agent, cli_name="codex")
+
+    assert "Delivery contract" in prompt
+    assert "Required Input Artifacts: artifact-frozen" in prompt
+    assert "Visible UI state and interaction behavior" in prompt
+    assert "Scope boundary preservation" in prompt
 
 
 def test_requirement_document_prompts_include_quality_gate_sections() -> None:

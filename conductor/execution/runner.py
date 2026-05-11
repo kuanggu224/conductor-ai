@@ -20,6 +20,7 @@ from conductor.config.cli import CLISelectionConfig
 from conductor.config.llm import LLMUsagePolicy
 from conductor.context.builder import ContextBuilder
 from conductor.context.models import ContextPack
+from conductor.delivery_contract import build_delivery_contract, render_delivery_contract_markdown
 from conductor.domain.models import Artifact, Execution, ExecutionStatus, WorkItem, WorkItemStatus
 from conductor.harness.base import BaseHarness
 from conductor.harness.llm import LLMHarnessRequest, OpenAICompatibleLLMHarness
@@ -1499,6 +1500,7 @@ class Runner:
     def _build_compact_codex_document_prompt(self, workitem: WorkItem, agent: Agent) -> str:
         """Build a strict non-interactive document prompt for Codex CLI."""
         criteria = "\n".join(f"- {item}" for item in workitem.acceptance_criteria) or "- No explicit acceptance criteria"
+        delivery_contract = self._delivery_contract_prompt(workitem, agent)
         if workitem.kind == "requirement_spec" or agent.role == "requirement_designer":
             role_goal = "Produce a frozen-ready requirement specification for downstream design, development, and testing agents."
             required_sections = "目标, 需求理解, 范围边界, 非目标, 验收标准, 边界/异常场景, 风险与假设, 待确认问题, 下游交付约束"
@@ -1521,6 +1523,7 @@ class Runner:
             f"Kind: {workitem.kind}\n"
             f"Task description:\n{workitem.description}\n\n"
             f"Acceptance criteria:\n{criteria}\n\n"
+            f"Delivery contract:\n{delivery_contract}\n\n"
             f"Goal: {role_goal}\n"
             f"Required sections: {required_sections}.\n"
             "Return only the Markdown document."
@@ -1537,12 +1540,14 @@ class Runner:
             "acceptance_check": "Summarize acceptance status, unresolved risks, and release readiness.",
         }.get(workitem.kind, "Produce a concise execution document for this work item.")
         criteria = "\n".join(f"- {item}" for item in workitem.acceptance_criteria) or "- No explicit acceptance criteria"
+        delivery_contract = self._delivery_contract_prompt(workitem, agent)
         return (
             f"You are the {agent.role} agent in Conductor.\n"
             f"Task focus: {kind_focus}\n"
             f"Work item kind: {workitem.kind}\n"
             f"Stage: {workitem.stage}\n"
             f"Acceptance checklist:\n{criteria}\n\n"
+            f"Delivery contract:\n{delivery_contract}\n\n"
             "Return concise Chinese markdown.\n"
             "Do not ask follow-up questions.\n"
             "For requirement_spec use sections: 目标, 需求理解, 范围边界, 非目标, 验收标准, 边界/异常场景, 风险与假设, 待确认问题, 下游交付约束.\n"
@@ -1560,12 +1565,14 @@ class Runner:
             sections = "目标, 需求理解, 方案, 交付物, 验收标准, 风险"
         description = workitem.description.replace("\n", " ")
         criteria = "; ".join(workitem.acceptance_criteria) or "No explicit acceptance criteria"
+        delivery_contract = self._delivery_contract_prompt(workitem, agent).replace("\n", " ")
         return (
             f"Create a file {output_path} in the project root.\n"
             "Write concise Chinese Markdown into that file.\n"
             f"The document is for role {agent.role}, work item {workitem.id}, kind {workitem.kind}.\n"
             f"Task: {description}\n"
             f"Acceptance criteria: {criteria}\n"
+            f"Delivery contract: {delivery_contract}\n"
             f"Required Markdown sections: {sections}.\n"
             "Do not ask questions. After the file is written, reply exactly: DONE\n"
         )
@@ -1617,6 +1624,7 @@ class Runner:
         if cli_name == "opencode":
             return self._build_compact_opencode_code_prompt(workitem, agent, project_goal, frozen_context=frozen_context)
         criteria = "; ".join(workitem.acceptance_criteria) or "no explicit acceptance criteria"
+        delivery_contract = self._delivery_contract_prompt(workitem, agent)
         artifact_context = "\n\n".join(
             f"### Upstream Artifact\n{artifact[:1600]}"
             for artifact in context_pack.artifacts[-5:]
@@ -1650,6 +1658,7 @@ class Runner:
             f"Task: {workitem.description}\n"
             f"WorkItem kind: {workitem.kind}\n"
             f"Acceptance criteria: {criteria}\n"
+            f"Delivery contract:\n{delivery_contract}\n"
             f"{frozen_context}\n"
             "If the task text mentions a file name, start from that file.\n"
         )
@@ -1667,12 +1676,14 @@ class Runner:
     ) -> str:
         """Build a short code-edit prompt for OpenCode to avoid slow artifact exploration."""
         criteria = "; ".join(workitem.acceptance_criteria) or "no explicit acceptance criteria"
+        delivery_contract = self._delivery_contract_prompt(workitem, agent)
         if agent.role == "frontend_engineer" and workitem.kind == "ui_implementation":
             return (
                 "You are the frontend_engineer. Work only in the current directory.\n"
                 "Do not inspect or edit .conductor/, .pytest_cache/, __pycache__, node_modules/, or generated logs.\n"
                 f"Full project requirement: {project_goal}\n"
                 f"{frozen_context}\n"
+                f"Delivery contract:\n{delivery_contract}\n"
                 "Task: create a minimal frontend UI for the actual business domain described above.\n"
                 "Required files: create or update index.html, static/app.js, and static/style.css, unless an equivalent frontend structure already exists.\n"
                 "UI requirements: cover the entities, fields, actions, and filters in the requirement. Use the matching backend API paths when possible.\n"
@@ -1685,11 +1696,23 @@ class Runner:
             "Do not inspect or edit .conductor/, .pytest_cache/, __pycache__, node_modules/, or generated logs.\n"
             f"Full project requirement: {project_goal}\n"
             f"{frozen_context}\n"
+            f"Delivery contract:\n{delivery_contract}\n"
             f"Task: {workitem.description}\n"
             f"WorkItem kind: {workitem.kind}\n"
             f"Acceptance criteria: {criteria}\n"
             "Make the smallest real code changes that satisfy the business domain, run local tests if available, then output exactly: done"
         )
+
+    def _delivery_contract_prompt(self, workitem: WorkItem, agent: Agent) -> str:
+        """Render the shared delivery contract for direct Runner prompts."""
+        contract = build_delivery_contract(
+            stage=workitem.stage,
+            kind=workitem.kind,
+            role=agent.role,
+            required_input_artifact_ids=list(workitem.input_artifact_ids),
+            is_rework=bool(workitem.feedback_from or workitem.rework_of),
+        )
+        return "\n".join(render_delivery_contract_markdown(contract))
 
     def _build_context_pack(self, project_id: str, workitem: WorkItem) -> ContextPack:
         """Build a lightweight context pack for the current workitem."""
