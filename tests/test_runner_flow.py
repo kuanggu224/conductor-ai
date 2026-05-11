@@ -597,6 +597,9 @@ def test_runner_executes_real_code_loop_for_backend_agent(monkeypatch) -> None:
     assert latest.workitems[0].status == WorkItemStatus.DONE
     assert latest.artifacts[0].source_backend == "agent_cli/claude"
     assert "代码执行报告" in latest.artifacts[0].content
+    assert "## Delivery Contract" in latest.artifacts[0].content
+    assert "## Acceptance Trace" in latest.artifacts[0].content
+    assert "[passed]" in latest.artifacts[0].content
     assert "`conductor/demo.py`" in latest.artifacts[0].content
     assert "2 passed" in latest.artifacts[0].content
     assert len(harness.requests) == 2

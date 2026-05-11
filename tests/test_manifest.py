@@ -27,7 +27,7 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     manifest_path = engine.write_run_manifest(state.project.id, report_path)
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-    assert payload["schema_version"] == "1.29"
+    assert payload["schema_version"] == "1.30"
     assert payload["run_id"].startswith(state.project.id)
     assert payload["project_id"] == state.project.id
     assert payload["run_profile"] == "mock"
@@ -59,6 +59,8 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     assert "execution_duration_ms" in payload["executions"][0]
     assert "prompt_hash" in payload["executions"][0]
     assert "failure_summary" in payload["executions"][0]
+    assert "delivery_contract" in payload["executions"][0]
+    assert "acceptance_trace" in payload["executions"][0]
     assert "remediation_suggestions" in payload["executions"][0]
     assert payload["workitems"]
     assert "failure_type" in payload["workitems"][0]
@@ -939,6 +941,11 @@ def test_manifest_extracts_cli_runs_from_agent_cli_artifacts(tmp_path) -> None:
     assert payload["executions"][0]["input_artifact_ids"] == ["artifact-design"]
     assert payload["executions"][0]["changed_files"] == ["app.py"]
     assert payload["executions"][0]["validation_success"] is True
+    assert payload["executions"][0]["delivery_contract"]["stage"] == workitem.stage
+    assert payload["executions"][0]["delivery_contract"]["kind"] == workitem.kind
+    assert payload["executions"][0]["delivery_contract"]["required_input_artifact_ids"] == ["artifact-design"]
+    assert payload["executions"][0]["acceptance_trace"]
+    assert payload["executions"][0]["acceptance_trace"][0]["status"] == "passed"
     assert payload["executions"][0]["cli_stdout_tail"] == "done"
     assert payload["summary"]["cli_run_count"] == 1
     assert payload["summary"]["changed_files"] == ["app.py"]

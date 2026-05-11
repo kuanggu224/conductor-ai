@@ -1,6 +1,11 @@
 """Delivery contract tests."""
 
-from conductor.delivery_contract import build_delivery_contract, render_delivery_contract_markdown
+from conductor.delivery_contract import (
+    build_acceptance_trace,
+    build_delivery_contract,
+    render_acceptance_trace_markdown,
+    render_delivery_contract_markdown,
+)
 
 
 def test_delivery_contract_dedupes_inputs_and_marks_rework_focus() -> None:
@@ -24,3 +29,19 @@ def test_delivery_contract_dedupes_inputs_and_marks_rework_focus() -> None:
     assert "Required Input Artifacts: artifact-frozen, artifact-design" in markdown
     assert "Expected Outputs" in markdown
     assert "Guardrails" in markdown
+
+
+def test_acceptance_trace_records_validation_and_changed_file_evidence() -> None:
+    trace = build_acceptance_trace(
+        ["UI can add a book", "Data persists after refresh"],
+        validation_success=True,
+        changed_files=["index.html", "static/app.js"],
+    )
+
+    assert [item["status"] for item in trace] == ["passed", "passed"]
+    assert "index.html, static/app.js" in trace[0]["evidence"]
+
+    markdown = "\n".join(render_acceptance_trace_markdown(trace))
+
+    assert "[passed] UI can add a book" in markdown
+    assert "Post-edit validation passed" in markdown

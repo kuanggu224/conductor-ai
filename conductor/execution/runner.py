@@ -20,7 +20,12 @@ from conductor.config.cli import CLISelectionConfig
 from conductor.config.llm import LLMUsagePolicy
 from conductor.context.builder import ContextBuilder
 from conductor.context.models import ContextPack
-from conductor.delivery_contract import build_delivery_contract, render_delivery_contract_markdown
+from conductor.delivery_contract import (
+    build_acceptance_trace,
+    build_delivery_contract,
+    render_acceptance_trace_markdown,
+    render_delivery_contract_markdown,
+)
 from conductor.domain.models import Artifact, Execution, ExecutionStatus, WorkItem, WorkItemStatus
 from conductor.harness.base import BaseHarness
 from conductor.harness.llm import LLMHarnessRequest, OpenAICompatibleLLMHarness
@@ -1981,6 +1986,26 @@ class Runner:
         success: bool,
     ) -> str:
         """Convert a real code-edit execution into a Markdown report."""
+        delivery_contract = "\n".join(
+            render_delivery_contract_markdown(
+                build_delivery_contract(
+                    stage=workitem.stage,
+                    kind=workitem.kind,
+                    role=agent.role,
+                    required_input_artifact_ids=list(workitem.input_artifact_ids),
+                    is_rework=bool(workitem.feedback_from or workitem.rework_of),
+                )
+            )
+        )
+        acceptance_trace = "\n".join(
+            render_acceptance_trace_markdown(
+                build_acceptance_trace(
+                    list(workitem.acceptance_criteria),
+                    validation_success=(validation_result.success if validation_result is not None else None),
+                    changed_files=changed_files,
+                )
+            )
+        )
         change_lines = "\n".join(f"- `{path}`" for path in changed_files) or "- 无"
         validation_stdout = ((validation_result.stdout or "") if validation_result else "").strip() or "(无 stdout)"
         validation_stderr = ((validation_result.stderr or "") if validation_result else "").strip() or "(无 stderr)"
@@ -2004,6 +2029,8 @@ class Runner:
             f"- CLI: `{cli_name}`\n"
             f"- WorkItem 类型: `{workitem.kind}`\n"
             f"- 结果: {status_label}\n\n"
+            f"## Delivery Contract\n{delivery_contract}\n\n"
+            f"## Acceptance Trace\n{acceptance_trace}\n\n"
             f"## 改动文件\n{change_lines}\n\n"
             f"## CLI 输出\n```text\n{cli_stdout}\n```\n\n"
             f"## CLI 错误输出\n```text\n{cli_stderr}\n```\n\n"

@@ -15,6 +15,7 @@ from conductor.artifacts.store import ArtifactStore
 from conductor.config.cli import CLISelectionConfig
 from conductor.config.execution import RunProfile
 from conductor.config.llm import LLMRuntimeConfig
+from conductor.delivery_contract import build_acceptance_trace, build_delivery_contract
 from conductor.diagnostics import build_platform_diagnostics
 from conductor.domain.models import SharedProjectState
 from conductor.execution.failure_policy import remediation_suggestions
@@ -774,6 +775,9 @@ class RunManifestWriter:
             for artifact in state.artifacts
             if artifact.workitem_id == execution.workitem_id and artifact.kind != "collaboration_review"
         ]
+        workitem = next((item for item in state.workitems if item.id == execution.workitem_id), None)
+        delivery_contract = self._delivery_contract_for_execution(state, execution, workitem)
+        acceptance_trace = self._acceptance_trace_for_execution(execution, workitem)
         return {
             "workitem_id": execution.workitem_id,
             "agent_id": execution.agent_id,
@@ -794,6 +798,8 @@ class RunManifestWriter:
             "validation_success": execution.validation_success,
             "failure_type": execution.failure_type,
             "failure_summary": execution.failure_summary,
+            "delivery_contract": delivery_contract,
+            "acceptance_trace": acceptance_trace,
             "remediation_suggestions": remediation_suggestions(
                 execution.failure_type,
                 retryable=True,
@@ -867,6 +873,33 @@ class RunManifestWriter:
             "review_count": len(reviews),
             "revision_count": len([item for _, item in draft_versions if item.round_index > 0]),
         }
+
+    def _delivery_contract_for_execution(self, state: SharedProjectState, execution, workitem) -> dict[str, object]:
+        """Build the delivery contract snapshot that applied to one execution."""
+        if workitem is None:
+            return {}
+        return build_delivery_contract(
+            stage=workitem.stage,
+            kind=workitem.kind,
+            role=self._agent_role_for_execution(state, execution.agent_id),
+            required_input_artifact_ids=list(execution.input_artifact_ids or workitem.input_artifact_ids),
+            is_rework=bool(workitem.feedback_from or workitem.rework_of),
+        )
+
+    def _acceptance_trace_for_execution(self, execution, workitem) -> list[dict[str, object]]:
+        """Build acceptance evidence for one execution record."""
+        if workitem is None:
+            return []
+        return build_acceptance_trace(
+            list(workitem.acceptance_criteria),
+            validation_success=execution.validation_success,
+            changed_files=list(execution.changed_files),
+        )
+
+    def _agent_role_for_execution(self, state: SharedProjectState, agent_id: str) -> str:
+        """Resolve an agent role from activation records."""
+        activation = next((item for item in state.agent_activations if item.agent_id == agent_id), None)
+        return activation.role if activation is not None else ""
 
     def _llm_runs(
         self,

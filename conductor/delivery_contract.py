@@ -98,6 +98,44 @@ def render_delivery_contract_markdown(contract: dict[str, object]) -> list[str]:
     ]
 
 
+def build_acceptance_trace(
+    acceptance_criteria: list[str],
+    *,
+    validation_success: bool | None = None,
+    changed_files: list[str] | None = None,
+) -> list[dict[str, object]]:
+    """Return a compact trace from acceptance criteria to available execution evidence."""
+    if validation_success is True:
+        status = "passed"
+        evidence = "Post-edit validation passed."
+    elif validation_success is False:
+        status = "failed"
+        evidence = "Post-edit validation failed."
+    else:
+        status = "not_verified"
+        evidence = "No automated validation result was recorded."
+    if changed_files:
+        evidence = f"{evidence} Changed files: {', '.join(changed_files)}."
+    return [
+        {
+            "criterion": criterion,
+            "status": status,
+            "evidence": evidence,
+        }
+        for criterion in acceptance_criteria
+    ]
+
+
+def render_acceptance_trace_markdown(trace: list[dict[str, object]]) -> list[str]:
+    """Render acceptance trace records as Markdown bullet lines."""
+    if not trace:
+        return ["- No explicit acceptance criteria were recorded."]
+    return [
+        f"- [{item.get('status', 'unknown')}] {item.get('criterion', '')} — {item.get('evidence', '')}"
+        for item in trace
+    ]
+
+
 def _list_payload(value: object) -> list[object]:
     return value if isinstance(value, list) else []
 
@@ -111,8 +149,10 @@ def _join_or_none(items: list[object]) -> str:
 
 
 __all__ = [
+    "build_acceptance_trace",
     "build_delivery_contract",
     "expected_outputs_for",
+    "render_acceptance_trace_markdown",
     "render_delivery_contract_markdown",
     "verification_focus_for",
 ]

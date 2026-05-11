@@ -60,6 +60,7 @@ def test_project_log_store_writes_structured_state_events_and_report(tmp_path) -
     assert "prompt_file=" in report
     assert "## Executions" in report
     assert "changed_files=" in report
+    assert "acceptance_trace:" in report
     assert "## Event Timeline" in report
 
 

@@ -3120,7 +3120,7 @@ def test_manifest_verifier_warns_for_non_current_schema_version(tmp_path) -> Non
     result = verify_manifest(manifest_path)
 
     assert result.passed is True
-    assert "manifest schema_version 1.0 differs from current 1.29" in result.warnings
+    assert "manifest schema_version 1.0 differs from current 1.30" in result.warnings
 
 
 def test_manifest_verifier_rejects_api_key_fields(tmp_path) -> None:

@@ -12,6 +12,7 @@ from conductor.artifacts.scope_contract import evaluate_scope_contract
 from conductor.artifacts.store import ArtifactStore
 from conductor.domain.models import SharedProjectState
 from conductor.execution.failure_policy import remediation_suggestions
+from conductor.delivery_contract import build_acceptance_trace
 from conductor.preflight_gate import read_preflight_gate
 from conductor.task_center.service import TaskCenterService
 from conductor.testing.coverage import evaluate_requirement_coverage
@@ -263,6 +264,7 @@ class ProjectLogStore:
             output_artifacts_by_workitem.setdefault(artifact.workitem_id, []).append(artifact.id)
         lines: list[str] = []
         for execution in state.executions:
+            workitem = next((item for item in state.workitems if item.id == execution.workitem_id), None)
             lines.append(
                 f"- workitem={execution.workitem_id} | agent={execution.agent_id} | "
                 f"status={execution.status.value} | backend={execution.source_backend or '-'} | "
@@ -278,6 +280,17 @@ class ProjectLogStore:
                     summary=execution.failure_summary or execution.cli_stderr_tail or execution.cli_stdout_tail,
                 )
                 lines.append(f"  - remediation: {'; '.join(suggestions)}")
+            if workitem is not None:
+                trace = build_acceptance_trace(
+                    list(workitem.acceptance_criteria),
+                    validation_success=execution.validation_success,
+                    changed_files=list(execution.changed_files),
+                )
+                for item in trace:
+                    lines.append(
+                        "  - acceptance_trace: "
+                        f"[{item['status']}] {item['criterion']} | evidence={item['evidence']}"
+                    )
         return lines
 
     def _testing_feedback_for_workitem(self, state: SharedProjectState, item) -> list:
