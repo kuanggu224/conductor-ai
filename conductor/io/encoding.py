@@ -8,23 +8,57 @@ from collections.abc import Mapping
 
 
 UTF8_CODE_PAGE = 65001
+
+# Broad markers for corrupted UTF-8/GBK text. These are intentionally rare in
+# normal project artifacts and are only used as a defensive quality gate.
 MOJIBAKE_MARKERS = (
     "\ufffd",
-    "\ue000",
-    "\ue100",
-    "\u951b",  # 锛
-    "\u9428",  # 鐨
-    "\u93c8",  # 鏈
-    "\u6d93",  # 涓
-    "\u7edb",  # 绛
-    "\u7035",  # 瀵
-    "\u6d63",  # 浣
-    "\u5a23",  # 娣
-    "\u9366",  # 鍦
-    "\u64b3",  # 撳
-    "\u934a",  # 鍊
-    "\u7463",  # 瑙
-    "€",
+    "\u20ac",
+    "\u951b",
+    "\u9428",
+    "\u93c8",
+    "\u6d93",
+    "\u7edb",
+    "\u7035",
+    "\u6d63",
+    "\u5a23",
+    "\u9366",
+    "\u64b3",
+    "\u934a",
+    "\u7463",
+)
+
+# Common Chinese UI labels after UTF-8 bytes are misread as GBK/CP936. A single
+# hit can be legitimate Chinese, so looks_like_mojibake requires density.
+CP936_MOJIBAKE_MARKERS = (
+    "\u95c3",
+    "\u5470",
+    "\u7ed8",
+    "\u7afb",
+    "\u9357",
+    "\u93b4",
+    "\u6220",
+    "\u6b91",
+    "\u6748",
+    "\u64b3",
+    "\u53c6",
+    "\u6d94",
+    "\ufe40",
+    "\u6095",
+    "\u7035",
+    "\u714e",
+    "\u56ad",
+    "\u5d1f",
+    "\u5a23",
+    "\u8bf2",
+    "\u59de",
+    "\u9366",
+    "\u74e8",
+    "\u934c",
+    "\u3124",
+    "\u7b09",
+    "\u9359",
+    "\u9422",
 )
 
 
@@ -63,10 +97,26 @@ def looks_like_mojibake(text: str) -> bool:
     """Return whether text appears to contain corrupted UTF-8/GBK mojibake."""
     if not text:
         return False
-    if "\ufffd" in text or "\ue000" in text or "\ue100" in text:
+    if "\ufffd" in text:
+        return True
+    if any(_is_private_use_character(character) for character in text):
         return True
     marker_hits = sum(text.count(marker) for marker in MOJIBAKE_MARKERS if marker)
-    return marker_hits >= 3
+    cp936_hits = sum(text.count(marker) for marker in CP936_MOJIBAKE_MARKERS if marker)
+    if marker_hits >= 3:
+        return True
+    if cp936_hits >= 2 and cp936_hits / max(len(text), 1) >= 0.2:
+        return True
+    return cp936_hits >= 5
+
+
+def _is_private_use_character(character: str) -> bool:
+    codepoint = ord(character)
+    return (
+        0xE000 <= codepoint <= 0xF8FF
+        or 0xF0000 <= codepoint <= 0xFFFFD
+        or 0x100000 <= codepoint <= 0x10FFFD
+    )
 
 
 def _reconfigure_stream(stream) -> None:
