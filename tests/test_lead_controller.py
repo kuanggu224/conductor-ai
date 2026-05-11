@@ -346,8 +346,40 @@ def test_testing_failure_creates_development_feedback_rework() -> None:
         title="Failed UI Validation",
         content="Clicking the button did not update the visible list.",
     )
+    frozen_requirement_artifact = Artifact(
+        id="artifact-frozen-requirement",
+        project_id=state.project.id,
+        workitem_id=design.id,
+        agent_id="agent-requirement",
+        kind="frozen_requirement_spec",
+        title="Frozen Requirement",
+        content="必须实现前端页面，并保持本地静态范围。",
+    )
+    design_artifact = Artifact(
+        id="artifact-design",
+        project_id=state.project.id,
+        workitem_id=design.id,
+        agent_id="agent-designer",
+        kind="design_overview",
+        title="Design",
+        content="前端页面采用静态 HTML/JS 实现。",
+    )
+    original_implementation_artifact = Artifact(
+        id="artifact-original-ui-implementation",
+        project_id=state.project.id,
+        workitem_id=development.id,
+        agent_id="agent-frontend",
+        kind="ui_implementation",
+        title="Original UI Implementation",
+        content="初始实现只创建了按钮，但没有更新列表。",
+    )
     state.workitems = [design, development, failed_test]
-    state.artifacts = [failed_test_artifact]
+    state.artifacts = [
+        frozen_requirement_artifact,
+        design_artifact,
+        original_implementation_artifact,
+        failed_test_artifact,
+    ]
     state.current_stage = "testing"
     state.project.current_stage = "testing"
     state.project_status = ProjectStatus.IN_PROGRESS
@@ -361,10 +393,18 @@ def test_testing_failure_creates_development_feedback_rework() -> None:
     assert len(rework_items) == 1
     assert rework_items[0].kind == "ui_implementation"
     assert rework_items[0].rework_of == development.id
-    assert rework_items[0].input_artifact_ids == [failed_test_artifact.id]
+    assert failed_test_artifact.id in rework_items[0].input_artifact_ids
+    assert original_implementation_artifact.id in rework_items[0].input_artifact_ids
+    assert frozen_requirement_artifact.id in rework_items[0].input_artifact_ids
+    assert design_artifact.id in rework_items[0].input_artifact_ids
+    assert "原始实现 WorkItem" in rework_items[0].description
+    assert "保持冻结需求和设计产物定义的范围边界" in rework_items[0].acceptance_criteria
     assert state.pending_test_scope == ["ui_validation"]
     rework_assignment = next(assignment for assignment in state.task_assignments if assignment.workitem_id == rework_items[0].id)
     assert failed_test_artifact.id in rework_assignment.input_artifact_ids
+    assert original_implementation_artifact.id in rework_assignment.input_artifact_ids
+    assert frozen_requirement_artifact.id in rework_assignment.input_artifact_ids
+    assert design_artifact.id in rework_assignment.input_artifact_ids
     assert any("测试失败回流" in event for event in state.recent_events)
 
 

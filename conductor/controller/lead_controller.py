@@ -524,26 +524,34 @@ class LeadController:
             target_kind = self._feedback_target_kind(failed)
             pending_test_scope.extend(self._feedback_test_scope(failed))
             failed_artifact_ids = self._workitem_artifact_ids(latest, failed.id)
+            original_workitem_id = self._primary_development_workitem_id(latest, target_kind)
+            original_artifact_ids = self._workitem_artifact_ids(latest, original_workitem_id) if original_workitem_id else []
+            input_artifact_ids = list(dict.fromkeys([*failed_artifact_ids, *original_artifact_ids]))
             rework_items.append(
                 WorkItem(
                     id=self._next_workitem_id(latest, [*rework_items]),
                     description=(
                         f"根据测试失败回流修复 `{failed.id}`: {failed.description}\n\n"
-                        f"失败摘要: {(failed.result or failed.blocked_reason or '无详细结果')[:500]}"
+                        f"失败摘要: {(failed.failure_summary or failed.result or failed.blocked_reason or '无详细结果')[:500]}\n"
+                        f"原始实现 WorkItem: {original_workitem_id or '未找到'}\n"
+                        "要求：只修复测试反馈指向的问题，保持冻结需求和既有设计边界，不扩展新功能。"
                     ),
                     stage="development",
                     kind=target_kind,
                     dependencies=self._development_dependency_ids_for_feedback(latest, target_kind),
                     acceptance_criteria=[
                         f"修复测试反馈 {failed.id}",
+                        "明确引用失败测试产物和原始实现产物",
+                        "保持冻结需求和设计产物定义的范围边界",
                         "完成后重新进入测试阶段验证",
                     ],
-                    input_artifact_ids=failed_artifact_ids,
+                    input_artifact_ids=input_artifact_ids,
                     feedback_from=[failed.id],
-                    rework_of=self._primary_development_workitem_id(latest, target_kind),
+                    rework_of=original_workitem_id,
                 )
             )
 
+        rework_items = self._attach_stage_input_artifacts(rework_items, latest)
         assignments = self._build_task_assignments(rework_items, latest)
         updated_project = replace(
             latest.project,

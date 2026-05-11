@@ -5,7 +5,7 @@ Last updated: 2026-05-11
 ## Stable Checkpoint
 
 - Latest verified code checkpoint: `cc6ca70` (`Reject mojibake static web artifacts`).
-- Current full test result: `python -m pytest -q` -> `516 passed in 43.80s`.
+- Current full test result: `python -m pytest -q` -> `516 passed in 43.64s`.
 - Current focus: backend orchestration, auditability, logs, manifest/replay, and task-center reliability.
 - Frontend Board exists, but visual redesign is intentionally not the current priority.
 
@@ -19,6 +19,7 @@ Last updated: 2026-05-11
 - StaticWebHarness and LLM-generated file checks now reject common UTF-8/GBK mojibake patterns in HTML/JS/CSS artifacts while preserving normal Chinese UI text.
 - Requirement coverage no longer treats input sanitization wording such as filtering newline characters as a filter/search UI requirement.
 - Testing-stage feedback rework has a project-level cap, preventing infinite development/testing loops.
+- Testing-stage feedback rework now persists explicit inputs on the rework WorkItem and Task Center assignment: failed test artifacts, original implementation artifacts, frozen requirement, and design artifacts.
 - Default ShellHarness validation skips real test commands when no project deliverables exist, especially when the project root is the Conductor source checkout.
 - Manifest verification accepts intentionally reclassified failed test WorkItems when their failures have been flowed back into development rework.
 
