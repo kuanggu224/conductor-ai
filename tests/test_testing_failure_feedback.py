@@ -44,6 +44,22 @@ def test_testing_failure_feedback_extracts_requirement_coverage_gaps() -> None:
         stage="testing",
         kind="acceptance_check",
         failure_summary="Requirement coverage missing: refresh persistence, CSV export/download",
+        testing_checklist=[
+            {
+                "rule_id": "persistence",
+                "label": "refresh persistence",
+                "status": "pending",
+                "requirement_terms": ["刷新后"],
+                "required_evidence_terms": ["browser reload preserved submitted values"],
+            },
+            {
+                "rule_id": "export_csv",
+                "label": "CSV export/download",
+                "status": "pending",
+                "requirement_terms": ["CSV"],
+                "required_evidence_terms": ["browser export/download action triggered"],
+            },
+        ],
     )
     artifact = Artifact(
         id="artifact-coverage",
@@ -64,6 +80,9 @@ def test_testing_failure_feedback_extracts_requirement_coverage_gaps() -> None:
     feedback = build_testing_failure_feedback(workitem, [artifact])
 
     assert feedback.missing_coverage == ["refresh persistence", "CSV export/download"]
+    assert [item["rule_id"] for item in feedback.missing_checklist_items] == ["persistence", "export_csv"]
+    assert all(item["status"] == "missing" for item in feedback.missing_checklist_items)
+    assert "browser reload preserved submitted values" in feedback.render_markdown()
     assert "补齐缺失的冻结需求验收证据" in feedback.render_markdown()
 
 

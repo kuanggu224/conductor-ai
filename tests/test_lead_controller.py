@@ -336,6 +336,14 @@ def test_testing_failure_creates_development_feedback_rework() -> None:
         retry_count=0,
         max_retries=0,
         result="按钮点击后没有更新列表",
+        testing_checklist=[
+            {
+                "rule_id": "add_item",
+                "label": "add item interaction",
+                "status": "pending",
+                "required_evidence_terms": ["browser form interaction updated visible state"],
+            }
+        ],
     )
     failed_test_artifact = Artifact(
         id="artifact-failed-ui-validation",
@@ -348,6 +356,7 @@ def test_testing_failure_creates_development_feedback_rework() -> None:
             "Static Web Validation: FAIL\n\n"
             "Errors:\n"
             "- Browser form submit did not change visible page state\n"
+            "Requirement coverage missing: add item interaction\n"
         ),
     )
     frozen_requirement_artifact = Artifact(
@@ -403,6 +412,7 @@ def test_testing_failure_creates_development_feedback_rework() -> None:
     assert design_artifact.id in rework_items[0].input_artifact_ids
     assert "原始实现 WorkItem" in rework_items[0].description
     assert "## 结构化测试反馈" in rework_items[0].description
+    assert "`add_item` add item interaction" in rework_items[0].description
     assert "Browser form submit did not change visible page state" in rework_items[0].description
     assert "检查表单/按钮事件绑定" in rework_items[0].description
     assert "保持冻结需求和设计产物定义的范围边界" in rework_items[0].acceptance_criteria

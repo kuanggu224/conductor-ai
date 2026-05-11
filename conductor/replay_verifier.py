@@ -1153,7 +1153,12 @@ class ManifestVerifier:
             self._warn_non_list_fields(
                 feedback,
                 f"{owner}[{index}]",
-                ("failing_checks", "missing_coverage", "suggested_actions"),
+                ("failing_checks", "missing_coverage", "missing_checklist_items", "suggested_actions"),
+                result,
+            )
+            self._verify_testing_checklist(
+                feedback.get("missing_checklist_items"),
+                f"{owner}[{index}].missing_checklist_items",
                 result,
             )
 

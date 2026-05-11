@@ -18,12 +18,14 @@ class TestingFailureFeedback:
     exit_code: str = ""
     failing_checks: list[str] = field(default_factory=list)
     missing_coverage: list[str] = field(default_factory=list)
+    missing_checklist_items: list[dict[str, object]] = field(default_factory=list)
     suggested_actions: list[str] = field(default_factory=list)
 
     def render_markdown(self) -> str:
         """Render the feedback as a prompt-ready Markdown section."""
         failing_checks = _bullet_lines(self.failing_checks)
         missing_coverage = _bullet_lines(self.missing_coverage)
+        missing_checklist = _checklist_lines(self.missing_checklist_items)
         suggested_actions = _bullet_lines(self.suggested_actions)
         return (
             "## 结构化测试反馈\n"
@@ -35,6 +37,8 @@ class TestingFailureFeedback:
             f"{failing_checks}\n\n"
             "### 缺失需求覆盖\n"
             f"{missing_coverage}\n\n"
+            "### 缺失 Testing Checklist\n"
+            f"{missing_checklist}\n\n"
             "### 建议修复方向\n"
             f"{suggested_actions}"
         )
@@ -54,6 +58,7 @@ def build_testing_failure_feedback(workitem: WorkItem, artifacts: list[Artifact]
     )
     failing_checks = _extract_failure_lines(text)
     missing_coverage = _extract_missing_coverage(text)
+    missing_checklist_items = _missing_checklist_items(workitem, missing_coverage)
     exit_code = _extract_exit_code(text)
     summary = workitem.failure_summary or _first_non_empty([*missing_coverage, *failing_checks, workitem.result or ""])
     suggested_actions = _suggest_actions(text=text, failing_checks=failing_checks, missing_coverage=missing_coverage)
@@ -64,6 +69,7 @@ def build_testing_failure_feedback(workitem: WorkItem, artifacts: list[Artifact]
         exit_code=exit_code,
         failing_checks=failing_checks[:8],
         missing_coverage=missing_coverage[:8],
+        missing_checklist_items=missing_checklist_items[:8],
         suggested_actions=suggested_actions[:8],
     )
 
@@ -166,6 +172,23 @@ def _suggest_actions(*, text: str, failing_checks: list[str], missing_coverage: 
     return _dedupe(suggestions)
 
 
+def _missing_checklist_items(workitem: WorkItem, missing_coverage: list[str]) -> list[dict[str, object]]:
+    """Return testing checklist entries that match missing coverage labels or rule ids."""
+    if not missing_coverage or not workitem.testing_checklist:
+        return []
+    missing_keys = {item.lower() for item in missing_coverage}
+    items: list[dict[str, object]] = []
+    for checklist_item in workitem.testing_checklist:
+        rule_id = str(checklist_item.get("rule_id", ""))
+        label = str(checklist_item.get("label", ""))
+        if rule_id.lower() not in missing_keys and label.lower() not in missing_keys:
+            continue
+        copied = dict(checklist_item)
+        copied["status"] = "missing"
+        items.append(copied)
+    return items
+
+
 def _looks_like_failure_signal(line: str) -> bool:
     lowered = line.lower()
     signals = (
@@ -196,6 +219,19 @@ def _first_non_empty(values: list[str]) -> str:
 def _bullet_lines(values) -> str:
     items = [str(value).strip() for value in values if str(value).strip()]
     return "\n".join(f"- {item}" for item in items) if items else "- None"
+
+
+def _checklist_lines(items: list[dict[str, object]]) -> str:
+    if not items:
+        return "- None"
+    lines: list[str] = []
+    for item in items:
+        evidence_terms = ", ".join(str(value) for value in item.get("required_evidence_terms", []) or []) or "-"
+        lines.append(
+            f"- `{item.get('rule_id', '')}` {item.get('label', '')}: "
+            f"status={item.get('status', '')}, required_evidence={evidence_terms}"
+        )
+    return "\n".join(lines)
 
 
 def _dedupe(values) -> list[str]:

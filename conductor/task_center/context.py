@@ -365,6 +365,13 @@ class TaskContextBuilder:
                 continue
             failing_checks = _join_or_none(_list_payload(payload.get("failing_checks")))
             missing_coverage = _join_or_none(_list_payload(payload.get("missing_coverage")))
+            missing_checklist = _join_or_none(
+                [
+                    item.get("rule_id", "")
+                    for item in _list_payload(payload.get("missing_checklist_items"))
+                    if isinstance(item, dict)
+                ]
+            )
             suggestions = _join_or_none(_list_payload(payload.get("suggested_actions")))
             lines.extend(
                 [
@@ -376,6 +383,7 @@ class TaskContextBuilder:
                     ),
                     f"- Failing Checks: {failing_checks}",
                     f"- Missing Coverage: {missing_coverage}",
+                    f"- Missing Checklist Items: {missing_checklist}",
                     f"- Suggested Fixes: {suggestions}",
                 ]
             )

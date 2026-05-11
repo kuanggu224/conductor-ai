@@ -173,6 +173,13 @@ class ProjectLogStore:
             for feedback in self._testing_feedback_for_workitem(state, item):
                 checks = self._join_or_dash(feedback.failing_checks)
                 missing = self._join_or_dash(feedback.missing_coverage)
+                missing_checklist = self._join_or_dash(
+                    [
+                        str(entry.get("rule_id", ""))
+                        for entry in feedback.missing_checklist_items
+                        if isinstance(entry, dict)
+                    ]
+                )
                 suggestions = self._join_or_dash(feedback.suggested_actions)
                 lines.append(
                     f"  - structured_testing_feedback: source={feedback.workitem_id} | "
@@ -180,6 +187,7 @@ class ProjectLogStore:
                 )
                 lines.append(f"    - failing_checks={checks}")
                 lines.append(f"    - missing_coverage={missing}")
+                lines.append(f"    - missing_checklist_items={missing_checklist}")
                 lines.append(f"    - suggested_fixes={suggestions}")
             for criterion in item.acceptance_criteria:
                 lines.append(f"  - acceptance: {criterion}")
