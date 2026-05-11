@@ -2,6 +2,8 @@
 
 An observable AI task routing and multi-expert orchestration system.
 
+For the current stable checkpoint, verified test count, known gaps, and next priorities, start with [`CURRENT_STATE.md`](CURRENT_STATE.md).
+
 This workspace currently contains the Sprint 1 minimal runnable core:
 
 - Core domain models for `Project`, `Stage`, `WorkItem`, `Execution`, `Agent`, `RouteDecision`, `SharedProjectState`, `GlobalMemory`, and `ContextPack`
