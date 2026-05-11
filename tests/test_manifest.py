@@ -9,7 +9,7 @@ from conductor.config.cli import CLISelectionConfig
 from conductor.config.execution import RunProfile
 from conductor.config.llm import LLMPricingConfig, LLMRuntimeConfig, LLMUsagePolicy
 from conductor.controller.engine import ConductorEngine
-from conductor.domain.models import ProjectStatus, TaskAssignmentStatus, WorkItemStatus
+from conductor.domain.models import Artifact, ProjectStatus, TaskAssignmentStatus, WorkItem, WorkItemStatus
 from conductor.agents.llm import LLMHTTPConfig
 
 
@@ -27,7 +27,7 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     manifest_path = engine.write_run_manifest(state.project.id, report_path)
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-    assert payload["schema_version"] == "1.28"
+    assert payload["schema_version"] == "1.29"
     assert payload["run_id"].startswith(state.project.id)
     assert payload["project_id"] == state.project.id
     assert payload["run_profile"] == "mock"
@@ -67,6 +67,12 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     assert "blocked_reason" in payload["workitems"][0]
     assert "remediation_suggestions" in payload["workitems"][0]
     assert "acceptance_criteria" in payload["workitems"][0]
+    assert "dependencies" in payload["workitems"][0]
+    assert "input_artifact_ids" in payload["workitems"][0]
+    assert "output_artifact_ids" in payload["workitems"][0]
+    assert "feedback_from" in payload["workitems"][0]
+    assert "rework_of" in payload["workitems"][0]
+    assert "testing_feedback" in payload["workitems"][0]
     assert isinstance(payload["workitems"][0]["acceptance_criteria"], list)
     assert payload["task_assignments"]
     assert payload["task_assignments"][0]["workitem_id"] == payload["workitems"][0]["id"]
@@ -761,6 +767,67 @@ def test_manifest_records_retry_history_for_retried_workitems(tmp_path) -> None:
         "WorkItem workitem-retry failed: pytest failed",
     ]
     assert retry_record["related_gate_history"] == ["testing:retry", "testing:escalate"]
+
+
+def test_manifest_records_structured_testing_feedback_for_rework(tmp_path) -> None:
+    engine = ConductorEngine(
+        log_dir=tmp_path / "logs",
+        artifact_dir=tmp_path / "artifacts",
+        cli_selection_config=CLISelectionConfig(),
+        run_profile=RunProfile.MOCK,
+    )
+    state = engine.create_project("Build static UI", project_root=str(tmp_path / "project"))
+    failed_test = WorkItem(
+        id="workitem-ui-test",
+        description="Validate UI",
+        stage="testing",
+        kind="ui_validation",
+        status=WorkItemStatus.DONE,
+        failure_type="validation_failed",
+        failure_summary="Validation exit_code=1",
+        blocked_reason="测试失败已回流到研发返工",
+    )
+    rework = WorkItem(
+        id="workitem-ui-rework",
+        description="Fix UI validation failure",
+        stage="development",
+        kind="ui_implementation",
+        feedback_from=[failed_test.id],
+        rework_of="workitem-ui-implementation",
+        input_artifact_ids=["artifact-ui-test"],
+    )
+    failed_artifact = Artifact(
+        id="artifact-ui-test",
+        project_id=state.project.id,
+        workitem_id=failed_test.id,
+        agent_id="agent-tester",
+        kind="ui_validation",
+        title="Failed UI Validation",
+        content=(
+            "Static Web Validation: FAIL\n\n"
+            "Errors:\n"
+            "- Browser form submit did not change visible page state\n"
+        ),
+    )
+    state = replace(
+        state,
+        current_stage="development",
+        workitems=[failed_test, rework],
+        artifacts=[failed_artifact],
+    )
+    engine.state_store.save_state(state)
+    report_path = engine.write_project_report(state.project.id)
+
+    manifest_path = engine.write_run_manifest(state.project.id, report_path)
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    manifest_rework = next(item for item in payload["workitems"] if item["id"] == rework.id)
+    assert manifest_rework["feedback_from"] == [failed_test.id]
+    assert manifest_rework["rework_of"] == "workitem-ui-implementation"
+    assert manifest_rework["input_artifact_ids"] == ["artifact-ui-test"]
+    assert manifest_rework["testing_feedback"][0]["workitem_id"] == failed_test.id
+    assert "Browser form submit did not change visible page state" in manifest_rework["testing_feedback"][0]["failing_checks"]
+    assert "检查表单/按钮事件绑定" in manifest_rework["testing_feedback"][0]["suggested_actions"][0]
 
 
 def test_manifest_records_codex_model_for_bound_agent(tmp_path) -> None:

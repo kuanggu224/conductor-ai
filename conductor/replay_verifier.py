@@ -733,7 +733,7 @@ class ManifestVerifier:
             self._warn_non_list_fields(
                 workitem,
                 f"workitem {workitem_id}",
-                ("dependencies", "input_artifact_ids", "output_artifact_ids"),
+                ("dependencies", "input_artifact_ids", "output_artifact_ids", "feedback_from", "testing_feedback"),
                 result,
             )
             for dependency_id in self._string_list(workitem.get("dependencies", [])):
@@ -749,6 +749,12 @@ class ManifestVerifier:
                     result.warnings.append(
                         f"workitem {workitem_id} output_artifact_ids is not indexed in artifacts: {artifact_id}"
                     )
+            self._verify_testing_feedback_references(
+                self._list(workitem.get("testing_feedback", [])),
+                workitem_ids,
+                f"workitem {workitem_id}.testing_feedback",
+                result,
+            )
 
         for execution in executions:
             workitem_id = str(execution.get("workitem_id", "")) if isinstance(execution, dict) else ""
@@ -849,7 +855,13 @@ class ManifestVerifier:
             self._warn_non_list_fields(
                 retry_record,
                 f"retry_history[{index}]",
-                ("related_events", "related_gate_history"),
+                ("related_events", "related_gate_history", "feedback_from", "testing_feedback"),
+                result,
+            )
+            self._verify_testing_feedback_references(
+                self._list(retry_record.get("testing_feedback", [])),
+                workitem_ids,
+                f"retry_history[{index}].testing_feedback",
                 result,
             )
             for field_name in ("retry_count", "max_retries"):
@@ -1016,6 +1028,28 @@ class ManifestVerifier:
         for field_name in field_names:
             if field_name in item and not isinstance(item.get(field_name), list):
                 result.warnings.append(f"{owner} {field_name} must be a list")
+
+    def _verify_testing_feedback_references(
+        self,
+        feedback_items: list[Any],
+        workitem_ids: set[str],
+        owner: str,
+        result: ManifestVerificationResult,
+    ) -> None:
+        """Verify structured testing feedback points at known WorkItems."""
+        for index, feedback in enumerate(feedback_items):
+            if not isinstance(feedback, dict):
+                result.warnings.append(f"{owner}[{index}] must be an object")
+                continue
+            workitem_id = str(feedback.get("workitem_id", ""))
+            if workitem_id and workitem_id not in workitem_ids:
+                result.errors.append(f"{owner}[{index}] references unknown WorkItem: {workitem_id}")
+            self._warn_non_list_fields(
+                feedback,
+                f"{owner}[{index}]",
+                ("failing_checks", "missing_coverage", "suggested_actions"),
+                result,
+            )
 
     def _verify_token_usage(self, value: Any, owner: str, result: ManifestVerificationResult) -> None:
         """Warn when token usage cannot be safely aggregated."""

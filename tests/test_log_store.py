@@ -224,6 +224,55 @@ def test_project_report_includes_workitem_retry_and_blocker_details(tmp_path) ->
     assert "blocked_reason=failure_type=validation_failed; retryable=true; summary=pytest failed" in report
 
 
+def test_project_report_includes_structured_testing_feedback_for_rework(tmp_path) -> None:
+    store = ProjectLogStore(tmp_path)
+    failed_test = WorkItem(
+        id="workitem-ui-test",
+        description="Validate UI",
+        stage="testing",
+        kind="ui_validation",
+        status=WorkItemStatus.DONE,
+        failure_type="validation_failed",
+        failure_summary="Validation exit_code=1",
+        blocked_reason="测试失败已回流到研发返工",
+    )
+    rework = WorkItem(
+        id="workitem-ui-rework",
+        description="Fix UI validation failure",
+        stage="development",
+        kind="ui_implementation",
+        feedback_from=[failed_test.id],
+        rework_of="workitem-ui-implementation",
+    )
+    state = SharedProjectState(
+        project=Project(id="project-feedback-report", goal="fix UI", current_stage="development"),
+        project_status=ProjectStatus.IN_PROGRESS,
+        current_stage="development",
+        workitems=[failed_test, rework],
+        artifacts=[
+            Artifact(
+                id="artifact-ui-test",
+                project_id="project-feedback-report",
+                workitem_id=failed_test.id,
+                agent_id="agent-tester",
+                kind="ui_validation",
+                title="Failed UI Validation",
+                content=(
+                    "Static Web Validation: FAIL\n\n"
+                    "Errors:\n"
+                    "- Browser form submit did not change visible page state\n"
+                ),
+            )
+        ],
+    )
+
+    report = store.render_project_report(state, [])
+
+    assert "structured_testing_feedback: source=workitem-ui-test" in report
+    assert "Browser form submit did not change visible page state" in report
+    assert "检查表单/按钮事件绑定" in report
+
+
 def test_project_report_includes_preflight_gate_summary(tmp_path) -> None:
     store = ProjectLogStore(tmp_path)
     project_root = tmp_path / "project"

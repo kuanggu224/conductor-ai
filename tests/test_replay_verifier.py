@@ -2818,6 +2818,8 @@ def test_manifest_verifier_warns_for_malformed_workitem_relationship_lists(tmp_p
                     "dependencies": "workitem-0",
                     "input_artifact_ids": "artifact-input",
                     "output_artifact_ids": "artifact-output",
+                    "feedback_from": "workitem-feedback",
+                    "testing_feedback": "bad-feedback",
                 }
             ]
         },
@@ -2829,6 +2831,30 @@ def test_manifest_verifier_warns_for_malformed_workitem_relationship_lists(tmp_p
     assert "workitem workitem-1 dependencies must be a list" in result.warnings
     assert "workitem workitem-1 input_artifact_ids must be a list" in result.warnings
     assert "workitem workitem-1 output_artifact_ids must be a list" in result.warnings
+    assert "workitem workitem-1 feedback_from must be a list" in result.warnings
+    assert "workitem workitem-1 testing_feedback must be a list" in result.warnings
+
+
+def test_manifest_verifier_rejects_unknown_testing_feedback_workitem(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "workitems": [
+                {
+                    "id": "workitem-1",
+                    "stage": "development",
+                    "kind": "ui_implementation",
+                    "status": "pending",
+                    "testing_feedback": [{"workitem_id": "missing-test", "failing_checks": []}],
+                }
+            ]
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert "workitem workitem-1.testing_feedback[0] references unknown WorkItem: missing-test" in result.errors
 
 
 def test_manifest_verifier_rejects_unknown_task_assignment_input_artifacts(tmp_path) -> None:
@@ -3094,7 +3120,7 @@ def test_manifest_verifier_warns_for_non_current_schema_version(tmp_path) -> Non
     result = verify_manifest(manifest_path)
 
     assert result.passed is True
-    assert "manifest schema_version 1.0 differs from current 1.28" in result.warnings
+    assert "manifest schema_version 1.0 differs from current 1.29" in result.warnings
 
 
 def test_manifest_verifier_rejects_api_key_fields(tmp_path) -> None:

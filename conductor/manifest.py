@@ -23,6 +23,7 @@ from conductor.preflight_gate import read_preflight_gate
 from conductor.requirement_benchmark import build_requirement_case_from_text, evaluate_requirement_document
 from conductor.task_center.service import TaskCenterService
 from conductor.testing.coverage import evaluate_requirement_coverage
+from conductor.testing.failure_feedback import build_testing_failure_feedback
 
 
 @dataclass(slots=True)
@@ -186,6 +187,12 @@ class RunManifestWriter:
                     "failure_type": item.failure_type,
                     "retryable": item.retryable,
                     "failure_summary": item.failure_summary,
+                    "dependencies": list(item.dependencies),
+                    "input_artifact_ids": list(item.input_artifact_ids),
+                    "output_artifact_ids": list(item.output_artifact_ids),
+                    "feedback_from": list(item.feedback_from),
+                    "rework_of": item.rework_of or "",
+                    "testing_feedback": self._testing_feedback_for_workitem(state, item),
                     "remediation_suggestions": remediation_suggestions(
                         item.failure_type,
                         retryable=item.retryable,
@@ -533,11 +540,36 @@ class RunManifestWriter:
                     "failure_type": item.failure_type,
                     "failure_summary": item.failure_summary,
                     "blocked_reason": item.blocked_reason or "",
+                    "feedback_from": list(item.feedback_from),
+                    "rework_of": item.rework_of or "",
+                    "testing_feedback": self._testing_feedback_for_workitem(state, item),
                     "related_events": related_events,
                     "related_gate_history": related_gate_history,
                 }
             )
         return history
+
+    def _testing_feedback_for_workitem(self, state: SharedProjectState, item) -> list[dict[str, object]]:
+        """Return structured testing feedback related to this WorkItem."""
+        testing_items = []
+        if item.stage == "testing" and (item.failure_type or item.failure_summary or item.blocked_reason or item.result):
+            testing_items.append(item)
+        if item.feedback_from:
+            by_id = {workitem.id: workitem for workitem in state.workitems}
+            testing_items.extend(
+                workitem
+                for workitem_id in item.feedback_from
+                if (workitem := by_id.get(workitem_id)) is not None and workitem.stage == "testing"
+            )
+        payloads: list[dict[str, object]] = []
+        seen: set[str] = set()
+        for testing_item in testing_items:
+            if testing_item.id in seen:
+                continue
+            seen.add(testing_item.id)
+            artifacts = [artifact for artifact in state.artifacts if artifact.workitem_id == testing_item.id]
+            payloads.append(asdict(build_testing_failure_feedback(testing_item, artifacts)))
+        return payloads
 
     def _looks_like_retry_or_failure_event(self, event: str) -> bool:
         """Return whether an event is useful for retry audit trails."""
