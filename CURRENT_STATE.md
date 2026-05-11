@@ -4,8 +4,8 @@ Last updated: 2026-05-11
 
 ## Stable Checkpoint
 
-- Latest verified code checkpoint: `5bafd9a` (`Add task delivery contract to context`).
-- Current full test result: `python -m pytest -q` -> `523 passed in 43.57s`.
+- Latest verified code checkpoint: `fc19ba7` (`Share delivery contract across runner prompts`).
+- Current full test result: `python -m pytest -q` -> `525 passed in 42.59s`.
 - Current focus: backend orchestration, auditability, logs, manifest/replay, and task-center reliability.
 - Frontend Board exists, but visual redesign is intentionally not the current priority.
 
@@ -24,6 +24,7 @@ Last updated: 2026-05-11
 - Task Center context now exposes the same structured testing feedback under `rework_context.testing_feedback` and renders it in Markdown prompts for external CLI/Agent workers.
 - Structured testing feedback lookup is centralized in `conductor.testing.failure_feedback`, reducing drift across Task Center, manifest, project report, and replay outputs.
 - Task Center context now includes a machine-readable `delivery_contract` and renders it into CLI prompts, making each external Agent's expected outputs, guardrails, and verification focus explicit.
+- The same delivery contract is shared by direct Runner prompts for Agent CLI document/code execution, keeping internal execution and external Task Center handoff aligned.
 - Run Manifest schema is now `1.29`; WorkItem and retry history records include relationship fields and structured testing feedback for rework audit/replay.
 - Project reports render structured testing feedback under WorkItems, including failing checks, missing coverage, and suggested fixes.
 - Replay trace renders WorkItem rework lineage and structured testing feedback, so failed-test-to-rework chains are visible in read-only replay output.
