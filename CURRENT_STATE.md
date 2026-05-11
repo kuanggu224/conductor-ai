@@ -4,8 +4,8 @@ Last updated: 2026-05-11
 
 ## Stable Checkpoint
 
-- Latest verified code checkpoint: `6029eff` (`Add structured testing checklist to workitems`).
-- Current full test result: `python -m pytest -q` -> `529 passed in 42.78s`.
+- Latest verified code checkpoint: `979e23e` (`Map testing failures to checklist feedback`).
+- Current full test result: `python -m pytest -q` -> `529 passed in 42.53s`.
 - Current focus: backend orchestration, auditability, logs, manifest/replay, and task-center reliability.
 - Frontend Board exists, but visual redesign is intentionally not the current priority.
 
@@ -27,6 +27,7 @@ Last updated: 2026-05-11
 - The same delivery contract is shared by direct Runner prompts for Agent CLI document/code execution, keeping internal execution and external Task Center handoff aligned.
 - Code execution reports, project reports, and manifest execution records now include acceptance trace evidence that maps WorkItem acceptance criteria to validation status and changed files.
 - Testing WorkItems now carry a machine-readable `testing_checklist` derived from frozen requirement coverage rules, including rule ids, labels, requirement signals, and required evidence terms.
+- Structured testing feedback now maps missing coverage back to `missing_checklist_items`, so development rework prompts can cite the exact checklist `rule_id` and required evidence that failed.
 - Run Manifest schema is now `1.31`; WorkItem and retry history records include relationship fields, structured testing feedback, and testing checklists for rework audit/replay; execution records include delivery contracts plus acceptance traces.
 - Manifest verification now validates execution delivery contracts and acceptance traces, including required input artifact references, list-shaped fields, trace status values, and evidence field types.
 - Manifest verification also validates WorkItem testing checklist structure so malformed checklist fields are surfaced before replay/resume.
