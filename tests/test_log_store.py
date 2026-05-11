@@ -69,7 +69,10 @@ def test_project_report_includes_requirement_coverage_traceability(tmp_path) -> 
     state = SharedProjectState(
         project=Project(
             id="project-trace",
-            goal="\u6dfb\u52a0\u4e66\u7c4d\uff0c\u5237\u65b0\u540e\u4fdd\u7559\u6570\u636e\uff0c\u5bfc\u51fa CSV",
+            goal=(
+                "\u6dfb\u52a0\u4e66\u7c4d\uff0c\u5237\u65b0\u540e\u4fdd\u7559\u6570\u636e\uff0c"
+                "\u5bfc\u51fa CSV\uff0c\u6309\u72b6\u6001\u7b5b\u9009"
+            ),
             current_stage="testing",
         ),
         project_status=ProjectStatus.IN_PROGRESS,
@@ -90,6 +93,7 @@ def test_project_report_includes_requirement_coverage_traceability(tmp_path) -> 
                 result="\n".join(
                     [
                         "Browser form interaction updated visible state: sample",
+                        "Browser filter interaction changed visible results",
                         "Browser export/download action triggered",
                     ]
                 ),
@@ -104,7 +108,10 @@ def test_project_report_includes_requirement_coverage_traceability(tmp_path) -> 
                 agent_id="agent-requirement",
                 kind="frozen_requirement_spec",
                 title="Frozen Requirement",
-                content="\u652f\u6301\u6dfb\u52a0\u4e66\u7c4d\uff0c\u5237\u65b0\u540e\u4fdd\u7559\u6570\u636e\uff0c\u5e76\u5bfc\u51fa CSV\u3002",
+                content=(
+                    "\u652f\u6301\u6dfb\u52a0\u4e66\u7c4d\uff0c\u5237\u65b0\u540e\u4fdd\u7559\u6570\u636e\uff0c"
+                    "\u5e76\u5bfc\u51fa CSV\uff0c\u6309\u72b6\u6001\u7b5b\u9009\u6761\u76ee\u3002"
+                ),
             )
         ],
     )
@@ -117,6 +124,7 @@ def test_project_report_includes_requirement_coverage_traceability(tmp_path) -> 
     assert "add item interaction: `covered`" in report
     assert "refresh persistence: `missing`" in report
     assert "CSV export/download: `covered`" in report
+    assert "filter interaction: `covered`" in report
 
 
 def test_project_report_includes_scope_contract_audit(tmp_path) -> None:
