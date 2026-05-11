@@ -4,7 +4,7 @@ Last updated: 2026-05-11
 
 ## Stable Checkpoint
 
-- Latest verified code checkpoint: `3f43975` (`Harden mock execution convergence`).
+- Latest verified code checkpoint: `0495b91` (`Persist stage artifact inputs on workitems`).
 - Current full test result: `python -m pytest -q` -> `509 passed in 41.79s`.
 - Current focus: backend orchestration, auditability, logs, manifest/replay, and task-center reliability.
 - Frontend Board exists, but visual redesign is intentionally not the current priority.
