@@ -89,6 +89,8 @@ class ManifestReplayTrace:
                 f"agent={event.agent_id}" if event.agent_id else "",
                 f"artifacts={', '.join(event.artifact_ids)}" if event.artifact_ids else "",
                 _event_lineage_detail(event),
+                _event_rework_detail(event),
+                _event_testing_feedback_detail(event),
             ]
             detail_text = ", ".join(item for item in details if item)
             lines.append(f"{event.index}. {event.message}")
@@ -164,6 +166,7 @@ class ManifestReplayTraceBuilder:
         )
 
     def _append_workitem_event(self, events: list[ReplayTraceEvent], workitem: dict[str, Any]) -> None:
+        testing_feedback = self._list(workitem.get("testing_feedback", []))
         events.append(
             ReplayTraceEvent(
                 index=len(events) + 1,
@@ -177,6 +180,12 @@ class ManifestReplayTraceBuilder:
                     "owner_agent": str(workitem.get("owner_agent", "")),
                     "retry_count": workitem.get("retry_count", 0),
                     "max_retries": workitem.get("max_retries", 0),
+                    "dependencies": self._string_list(workitem.get("dependencies", [])),
+                    "input_artifact_ids": self._string_list(workitem.get("input_artifact_ids", [])),
+                    "output_artifact_ids": self._string_list(workitem.get("output_artifact_ids", [])),
+                    "feedback_from": self._string_list(workitem.get("feedback_from", [])),
+                    "rework_of": str(workitem.get("rework_of", "")),
+                    "testing_feedback": testing_feedback,
                 },
             )
         )
@@ -308,6 +317,41 @@ def _event_lineage_detail(event: ReplayTraceEvent) -> str:
         parts.append(f"parent={parent_artifact_id}")
     if review_of:
         parts.append(f"review_of={review_of}")
+    return "; ".join(parts)
+
+
+def _event_rework_detail(event: ReplayTraceEvent) -> str:
+    """Render compact WorkItem rework metadata for Markdown traces."""
+    if event.event_type != "workitem":
+        return ""
+    feedback_from = _string_list(event.metadata.get("feedback_from", []))
+    rework_of = str(event.metadata.get("rework_of", ""))
+    parts = []
+    if feedback_from:
+        parts.append(f"feedback_from={', '.join(feedback_from)}")
+    if rework_of:
+        parts.append(f"rework_of={rework_of}")
+    return "; ".join(parts)
+
+
+def _event_testing_feedback_detail(event: ReplayTraceEvent) -> str:
+    """Render compact structured testing feedback for Markdown traces."""
+    if event.event_type != "workitem":
+        return ""
+    feedback_items = event.metadata.get("testing_feedback", [])
+    if not isinstance(feedback_items, list):
+        return ""
+    parts: list[str] = []
+    for feedback in feedback_items[:3]:
+        if not isinstance(feedback, dict):
+            continue
+        workitem_id = str(feedback.get("workitem_id", ""))
+        summary = str(feedback.get("summary", ""))
+        failing_checks = _string_list(feedback.get("failing_checks", []))
+        missing_coverage = _string_list(feedback.get("missing_coverage", []))
+        detail = summary or (failing_checks[0] if failing_checks else "") or (missing_coverage[0] if missing_coverage else "")
+        if workitem_id or detail:
+            parts.append(f"testing_feedback[{workitem_id or '-'}]={detail or '-'}")
     return "; ".join(parts)
 
 

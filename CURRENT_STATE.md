@@ -5,7 +5,7 @@ Last updated: 2026-05-11
 ## Stable Checkpoint
 
 - Latest verified code checkpoint: `49285b8` (`Archive structured testing feedback`).
-- Current full test result: `python -m pytest -q` -> `521 passed in 43.53s`.
+- Current full test result: `python -m pytest -q` -> `522 passed in 43.79s`.
 - Current focus: backend orchestration, auditability, logs, manifest/replay, and task-center reliability.
 - Frontend Board exists, but visual redesign is intentionally not the current priority.
 
@@ -24,6 +24,7 @@ Last updated: 2026-05-11
 - Task Center context now exposes the same structured testing feedback under `rework_context.testing_feedback` and renders it in Markdown prompts for external CLI/Agent workers.
 - Run Manifest schema is now `1.29`; WorkItem and retry history records include relationship fields and structured testing feedback for rework audit/replay.
 - Project reports render structured testing feedback under WorkItems, including failing checks, missing coverage, and suggested fixes.
+- Replay trace renders WorkItem rework lineage and structured testing feedback, so failed-test-to-rework chains are visible in read-only replay output.
 - Default ShellHarness validation skips real test commands when no project deliverables exist, especially when the project root is the Conductor source checkout.
 - Manifest verification accepts intentionally reclassified failed test WorkItems when their failures have been flowed back into development rework.
 

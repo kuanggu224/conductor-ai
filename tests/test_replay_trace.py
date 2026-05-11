@@ -193,6 +193,64 @@ def test_replay_trace_includes_artifact_lineage(tmp_path) -> None:
     assert "derived_from=artifact-input" in markdown
 
 
+def test_replay_trace_includes_rework_and_testing_feedback(tmp_path) -> None:
+    manifest_path = _write_manifest(tmp_path)
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    payload["status"] = "in_progress"
+    payload["final_status"] = "in_progress"
+    payload["summary"]["final_status"] = "in_progress"
+    payload["summary"]["workitem_count"] = 2
+    payload["summary"]["execution_count"] = 0
+    payload["executions"] = []
+    payload["workitems"] = [
+        {
+            "id": "workitem-ui-test",
+            "stage": "testing",
+            "kind": "ui_validation",
+            "status": "done",
+            "owner_agent": "agent-tester",
+        },
+        {
+            "id": "workitem-ui-rework",
+            "stage": "development",
+            "kind": "ui_implementation",
+            "status": "pending",
+            "feedback_from": ["workitem-ui-test"],
+            "rework_of": "workitem-ui-implementation",
+            "testing_feedback": [
+                {
+                    "workitem_id": "workitem-ui-test",
+                    "failure_type": "validation_failed",
+                    "summary": "Validation exit_code=1",
+                    "failing_checks": ["Browser form submit did not change visible page state"],
+                    "missing_coverage": [],
+                    "suggested_actions": ["检查表单/按钮事件绑定，确保提交后页面可见状态发生变化。"],
+                }
+            ],
+        },
+    ]
+    payload["task_assignments"] = []
+    payload["resume_cursor"]["project_status"] = "in_progress"
+    payload["resume_cursor"]["next_action"] = "execute_workitem"
+    payload["resume_cursor"]["terminal"] = False
+    payload["resume_cursor"]["completed_workitem_ids"] = ["workitem-ui-test"]
+    payload["resume_cursor"]["next_pending_workitem_ids"] = ["workitem-ui-rework"]
+    payload["resume_cursor"]["last_execution_workitem_id"] = ""
+    manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    trace = build_manifest_replay_trace(manifest_path)
+    rework_event = next(event for event in trace.events if event.workitem_id == "workitem-ui-rework")
+    markdown = trace.to_markdown()
+
+    assert trace.passed is True
+    assert rework_event.metadata["feedback_from"] == ["workitem-ui-test"]
+    assert rework_event.metadata["rework_of"] == "workitem-ui-implementation"
+    assert rework_event.metadata["testing_feedback"][0]["workitem_id"] == "workitem-ui-test"
+    assert "feedback_from=workitem-ui-test" in markdown
+    assert "rework_of=workitem-ui-implementation" in markdown
+    assert "testing_feedback[workitem-ui-test]=Validation exit_code=1" in markdown
+
+
 def test_replay_trace_refuses_invalid_manifest(tmp_path) -> None:
     manifest_path = _write_manifest(tmp_path, {"project_id": ""})
 
