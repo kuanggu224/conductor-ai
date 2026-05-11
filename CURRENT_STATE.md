@@ -4,7 +4,7 @@ Last updated: 2026-05-11
 
 ## Stable Checkpoint
 
-- Latest verified code checkpoint: `49285b8` (`Archive structured testing feedback`).
+- Latest verified code checkpoint: `33dd63f` (`Render rework feedback in replay trace`).
 - Current full test result: `python -m pytest -q` -> `522 passed in 43.79s`.
 - Current focus: backend orchestration, auditability, logs, manifest/replay, and task-center reliability.
 - Frontend Board exists, but visual redesign is intentionally not the current priority.
