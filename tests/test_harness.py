@@ -282,7 +282,7 @@ def test_static_web_harness_reports_filter_interaction(tmp_path) -> None:
       <input id="author" placeholder="Author">
       <button type="submit">Add</button>
     </form>
-    <input id="search" placeholder="Search books">
+    <input id="bookLookup" placeholder="\u641c\u7d22\u4e66\u7c4d">
     <ul id="items"></ul>
     <script src="static/app.js"></script>
   </body>
@@ -305,7 +305,7 @@ document.querySelector('#addForm').addEventListener('submit', event => {
   localStorage.setItem('items', JSON.stringify(items));
   render();
 });
-document.querySelector('#search').addEventListener('input', event => {
+document.querySelector('#bookLookup').addEventListener('input', event => {
   const keyword = event.target.value.toLowerCase();
   render(items.filter(item => item.title.toLowerCase().includes(keyword) || item.author.toLowerCase().includes(keyword)));
 });
