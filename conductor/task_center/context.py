@@ -7,6 +7,7 @@ from dataclasses import asdict
 from conductor.artifacts.store import ArtifactStore
 from conductor.domain.models import Artifact, SharedProjectState, TaskAssignment
 from conductor.task_center.service import TaskCenterError, TaskCenterService
+from conductor.testing.failure_feedback import build_testing_failure_feedback
 
 
 class TaskContextBuilder:
@@ -44,7 +45,7 @@ class TaskContextBuilder:
             max_content_chars=max_content_chars,
         )
         frozen_requirement_baseline = self._frozen_requirement_baseline(input_artifacts)
-        rework_context = self._rework_context(workitem, input_artifacts)
+        rework_context = self._rework_context(state, workitem, input_artifacts)
         output_artifacts = [
             self._artifact_payload(artifact, include_content=False, max_content_chars=max_content_chars)
             for artifact in state.artifacts
@@ -186,7 +187,12 @@ class TaskContextBuilder:
                 return artifact
         return {}
 
-    def _rework_context(self, workitem: object, input_artifacts: list[dict[str, object]]) -> dict[str, object]:
+    def _rework_context(
+        self,
+        state: SharedProjectState,
+        workitem: object,
+        input_artifacts: list[dict[str, object]],
+    ) -> dict[str, object]:
         """Return explicit rework metadata for agents handling feedback loops."""
         workitem_payload = asdict(workitem)
         feedback_from = _list_payload(workitem_payload.get("feedback_from"))
@@ -211,13 +217,29 @@ class TaskContextBuilder:
             for artifact in input_artifacts
             if rework_of and artifact.get("workitem_id") == rework_of
         ]
+        testing_feedback = self._testing_feedback_payloads(state, feedback_from)
         return {
             "is_rework": bool(feedback_from or rework_of),
             "feedback_from": feedback_from,
             "rework_of": rework_of,
             "feedback_artifacts": feedback_artifacts,
             "original_artifacts": original_artifacts,
+            "testing_feedback": testing_feedback,
         }
+
+    def _testing_feedback_payloads(self, state: SharedProjectState, feedback_from: list[str]) -> list[dict[str, object]]:
+        """Return machine-readable structured feedback for failed testing WorkItems."""
+        feedback_items = [
+            item
+            for item in state.workitems
+            if item.id in feedback_from and item.stage == "testing"
+        ]
+        payloads: list[dict[str, object]] = []
+        for item in feedback_items:
+            artifacts = [artifact for artifact in state.artifacts if artifact.workitem_id == item.id]
+            feedback = build_testing_failure_feedback(item, artifacts)
+            payloads.append(asdict(feedback))
+        return payloads
 
     def _ensure_frozen_requirement_input(
         self,
@@ -276,6 +298,7 @@ class TaskContextBuilder:
             for artifact in original_artifacts
             if isinstance(artifact, dict)
         ]
+        testing_feedback_lines = self._testing_feedback_markdown(_list_payload(context.get("testing_feedback")))
         return [
             "- This is a rework task. Preserve the frozen requirement scope and fix only the referenced feedback.",
             f"- Rework Of: {context.get('rework_of', '') or '-'}",
@@ -284,7 +307,33 @@ class TaskContextBuilder:
             *(artifact_lines or ["- None"]),
             "- Original Artifacts:",
             *(original_artifact_lines or ["- None"]),
+            "- Structured Testing Feedback:",
+            *(testing_feedback_lines or ["- None"]),
         ]
+
+    def _testing_feedback_markdown(self, feedback_payloads: list[object]) -> list[str]:
+        """Render structured testing feedback compactly for CLI prompts."""
+        lines: list[str] = []
+        for payload in feedback_payloads:
+            if not isinstance(payload, dict):
+                continue
+            failing_checks = _join_or_none(_list_payload(payload.get("failing_checks")))
+            missing_coverage = _join_or_none(_list_payload(payload.get("missing_coverage")))
+            suggestions = _join_or_none(_list_payload(payload.get("suggested_actions")))
+            lines.extend(
+                [
+                    (
+                        f"- {payload.get('workitem_id', '')}: "
+                        f"type={payload.get('failure_type', '') or 'unknown'}, "
+                        f"exit_code={payload.get('exit_code', '') or '-'}, "
+                        f"summary={payload.get('summary', '') or '-'}"
+                    ),
+                    f"- Failing Checks: {failing_checks}",
+                    f"- Missing Coverage: {missing_coverage}",
+                    f"- Suggested Fixes: {suggestions}",
+                ]
+            )
+        return lines
 
     def _execution_brief(
         self,
