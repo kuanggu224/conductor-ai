@@ -221,6 +221,13 @@ class StaticWebHarness(BaseHarness):
                 body_text = page.locator("body").inner_text(timeout=5_000).strip()
                 exercise_result = self._exercise_first_form(page)
                 self._check_download_action(page, exercise_result)
+                if exercise_result.persisted_values:
+                    page.reload(wait_until="domcontentloaded", timeout=10_000)
+                    page.wait_for_timeout(300)
+                    exercise_result.delete_interaction_removed = self._check_delete_interaction(
+                        page,
+                        exercise_result.persisted_values,
+                    )
                 browser.close()
             if not body_text:
                 report.errors.append("Browser rendered an empty body")
@@ -304,7 +311,6 @@ class StaticWebHarness(BaseHarness):
             reloaded_body = page.locator("body").inner_text(timeout=5_000).strip()
             result.persisted_values = [value for value in result.visible_values if self._value_visible(value, reloaded_body)]
             result.filter_interaction_changed = self._check_filter_interaction(page, result.persisted_values)
-            result.delete_interaction_removed = self._check_delete_interaction(page, result.persisted_values)
         return result
 
     def _exercise_loose_controls(self, page) -> BrowserExerciseResult:
@@ -341,7 +347,6 @@ class StaticWebHarness(BaseHarness):
             reloaded_body = page.locator("body").inner_text(timeout=5_000).strip()
             result.persisted_values = [value for value in result.visible_values if self._value_visible(value, reloaded_body)]
             result.filter_interaction_changed = self._check_filter_interaction(page, result.persisted_values)
-            result.delete_interaction_removed = self._check_delete_interaction(page, result.persisted_values)
         return result
 
     def _check_filter_interaction(self, page, visible_values: list[str]) -> bool:
