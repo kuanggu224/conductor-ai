@@ -1452,6 +1452,51 @@ def test_manifest_verifier_uses_latest_execution_for_status_drift(tmp_path) -> N
     assert not any("latest execution for WorkItem workitem-1" in warning for warning in result.warnings)
 
 
+def test_manifest_verifier_accepts_feedback_reclassified_failed_test_workitem(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "summary": {
+                "final_status": "completed",
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+            },
+            "workitems": [
+                {
+                    "id": "workitem-1",
+                    "stage": "testing",
+                    "kind": "ui_validation",
+                    "status": "done",
+                    "blocked_reason": "测试失败已回流到研发返工",
+                }
+            ],
+            "executions": [
+                {
+                    "workitem_id": "workitem-1",
+                    "agent_id": "agent-1",
+                    "status": "failed",
+                    "artifact_ids": ["artifact-1"],
+                    "artifact_files": [],
+                }
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert not any("latest execution for WorkItem workitem-1" in warning for warning in result.warnings)
+
+
 def test_manifest_verifier_checks_cli_config_shape_and_bindings(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,

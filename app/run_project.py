@@ -165,7 +165,7 @@ def main(argv: list[str] | None = None) -> int:
     agent_cli = _resolve_agent_cli(args.codex, args.agent_cli)
     if args.diagnose:
         cli_config = _build_cli_config(agent_cli, run_profile, aspirecode_model=args.aspirecode_model)
-        llm_runtime_config = _build_llm_runtime_config(args)
+        llm_runtime_config = _build_llm_runtime_config(args, run_profile=run_profile)
         diagnostics = build_platform_diagnostics(
             cli_config=cli_config,
             project_root=project_root,
@@ -185,7 +185,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if diagnostics.ok else 2
 
     cli_config = _build_cli_config(agent_cli, run_profile, aspirecode_model=args.aspirecode_model)
-    llm_runtime_config = _build_llm_runtime_config(args)
+    llm_runtime_config = _build_llm_runtime_config(args, run_profile=run_profile)
     if args.preflight_only:
         if args.skip_preflight_gate:
             gate_payload = {"ok": True, "skipped": True, "reason": "skip_preflight_gate"}
@@ -495,8 +495,10 @@ def _build_cli_config(agent_cli: str | None, run_profile, aspirecode_model: str 
     )
 
 
-def _build_llm_runtime_config(args):
+def _build_llm_runtime_config(args, *, run_profile=None):
     runtime_config = load_llm_runtime_config()
+    if run_profile is not None and run_profile.profile == RunProfile.MOCK and not args.llm_harness:
+        runtime_config.usage.runner_enabled = False
     if not args.llm_harness:
         return runtime_config
     selected = runtime_config.local if args.llm_harness == "local" else runtime_config.cloud

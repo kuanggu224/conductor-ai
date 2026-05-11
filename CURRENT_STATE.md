@@ -4,10 +4,18 @@ Last updated: 2026-05-11
 
 ## Stable Checkpoint
 
-- Latest verified code checkpoint: `f9fcb69` (`Verify manifest llm cost token usage`).
-- Current full test result: `python -m pytest -q` -> `503 passed`.
+- Latest committed checkpoint before current stabilization: `15e01de` (`Clarify verified code checkpoint`).
+- Current full test result: `python -m pytest -q` -> `509 passed in 41.79s`.
 - Current focus: backend orchestration, auditability, logs, manifest/replay, and task-center reliability.
 - Frontend Board exists, but visual redesign is intentionally not the current priority.
+
+## Current Stabilization Notes
+
+- Mock/offline project execution is isolated from configured real LLM backends unless `llm_harness` is explicitly selected.
+- Mock requirement collaboration now produces a structured requirement draft that can pass the offline quality gate.
+- Testing-stage feedback rework has a project-level cap, preventing infinite development/testing loops.
+- Default ShellHarness validation skips real test commands when no project deliverables exist, especially when the project root is the Conductor source checkout.
+- Manifest verification accepts intentionally reclassified failed test WorkItems when their failures have been flowed back into development rework.
 
 ## What Works
 
@@ -63,6 +71,6 @@ python -m app.verify_manifest <project-root>\.conductor\manifests\<project-id>.m
 
 1. Run one small real end-to-end static web project through the platform and inspect manifest, report, artifacts, and replay trace.
 2. Strengthen development-stage handoff from frozen requirement and design artifacts into implementation WorkItems.
-3. Strengthen testing-stage behavior so test failures reliably create actionable development rework.
+3. Strengthen testing-stage behavior so test failures reliably create actionable development rework with stronger real-code evidence.
 4. Add or improve health checks for configured LLM/CLI backends: server status, model availability, context length, timeout, and encoding.
 5. Keep frontend changes paused unless a backend API shape blocks inspection.

@@ -29,6 +29,35 @@ def test_run_project_parser_accepts_project_name() -> None:
     assert args.project_name == "case-1"
 
 
+def test_mock_run_profile_disables_configured_runner_llm(monkeypatch) -> None:
+    args = build_parser().parse_args(["--requirement", "demo", "--project-root", "demo"])
+    runtime_config = LLMRuntimeConfig(
+        local=LLMHTTPConfig(base_url="http://127.0.0.1:1234/v1", model_name="local-model", enabled=True),
+        cloud=LLMHTTPConfig(base_url="https://example.com/v1", model_name="cloud-model", enabled=True),
+        usage=LLMUsagePolicy(runner_enabled=True),
+    )
+    monkeypatch.setattr(run_project, "load_llm_runtime_config", lambda: runtime_config)
+
+    resolved = run_project._build_llm_runtime_config(args, run_profile=resolve_run_profile("mock"))
+
+    assert resolved.usage.runner_enabled is False
+
+
+def test_mock_run_profile_keeps_explicit_llm_harness_enabled(monkeypatch) -> None:
+    args = build_parser().parse_args(["--requirement", "demo", "--project-root", "demo", "--llm-harness", "local"])
+    runtime_config = LLMRuntimeConfig(
+        local=LLMHTTPConfig(base_url="http://127.0.0.1:1234/v1", model_name="local-model", enabled=False),
+        cloud=LLMHTTPConfig(base_url="https://example.com/v1", model_name="cloud-model", enabled=True),
+        usage=LLMUsagePolicy(runner_enabled=True),
+    )
+    monkeypatch.setattr(run_project, "load_llm_runtime_config", lambda: runtime_config)
+
+    resolved = run_project._build_llm_runtime_config(args, run_profile=resolve_run_profile("mock"))
+
+    assert resolved.usage.runner_enabled is True
+    assert resolved.local.enabled is True
+
+
 def test_resolve_project_root_uses_child_for_conductor_test_root() -> None:
     resolved = _resolve_project_root("C:/tmp/conductor_test", "case-1")
 

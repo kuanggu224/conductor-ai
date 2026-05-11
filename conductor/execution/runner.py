@@ -92,6 +92,7 @@ class Runner:
         self.artifact_store = artifact_store or ArtifactStore()
         self.context_builder = ContextBuilder(artifact_store=self.artifact_store)
         self._failed_once_workitems: set[str] = set()
+        self._uses_default_shell_harness = shell_harness is None
         self.shell_harness = shell_harness or ShellHarness()
         self.enable_tester_harness = enable_tester_harness
         self.cli_selection_config = cli_selection_config or CLISelectionConfig()
@@ -207,7 +208,7 @@ class Runner:
             return self._run_llm_harness(project_id, workitem, agent, project_root)
 
         if self._should_use_harness(workitem, agent):
-            if workitem.kind == "acceptance_check" and not self._has_project_deliverables(project_root):
+            if self._uses_default_shell_harness and not self._has_project_deliverables(project_root, project_id):
                 self.state_store.add_event(
                     project_id,
                     f"WorkItem {workitem.id} 未发现可验收交付文件，跳过真实验收 harness 以避免误跑平台测试。",
@@ -348,7 +349,7 @@ class Runner:
             return self._run_llm_code_harness(project_id, workitem, agent, project_root)
 
         if self._should_use_harness(workitem, agent):
-            if workitem.kind == "acceptance_check" and not self._has_project_deliverables(project_root):
+            if self._uses_default_shell_harness and not self._has_project_deliverables(project_root, project_id):
                 self.state_store.add_event(
                     project_id,
                     f"WorkItem {workitem.id} 未发现可验收交付文件，跳过真实验收 harness 以避免误跑平台测试。",
@@ -1842,9 +1843,11 @@ class Runner:
             or any(root.glob("static/*.css"))
         )
 
-    def _has_project_deliverables(self, working_directory: str) -> bool:
+    def _has_project_deliverables(self, working_directory: str, project_id: str | None = None) -> bool:
         """Return whether a project root contains files worth validating."""
         root = Path(working_directory)
+        if self._is_conductor_source_root(root) and project_id and not self._has_recorded_code_changes(project_id):
+            return False
         deliverable_paths = [
             "index.html",
             "app.py",
@@ -1857,6 +1860,22 @@ class Runner:
         if any((root / path).exists() for path in deliverable_paths):
             return True
         return False
+
+    def _is_conductor_source_root(self, root: Path) -> bool:
+        """Return whether the path is this platform's source checkout."""
+        return (
+            (root / "conductor" / "controller" / "engine.py").exists()
+            and (root / "app" / "run_project.py").exists()
+            and (root / "tests").exists()
+        )
+
+    def _has_recorded_code_changes(self, project_id: str) -> bool:
+        """Return whether previous executions changed files in the current project."""
+        try:
+            state = self.state_store.get_state(project_id)
+        except KeyError:
+            return False
+        return any(execution.changed_files for execution in state.executions)
 
     def _build_harness_skip_report(self, workitem: WorkItem, agent: Agent, working_directory: str) -> str:
         """Build a report when no concrete deliverable exists to validate."""

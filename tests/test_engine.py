@@ -34,6 +34,25 @@ def test_engine_can_create_list_and_get_projects(tmp_path) -> None:
     assert engine.read_project_logs(created.project.id)
 
 
+def test_mock_engine_disables_configured_runner_and_collaboration_llm(tmp_path) -> None:
+    runtime_config = LLMRuntimeConfig(
+        local=LLMHTTPConfig(base_url="http://127.0.0.1:11434/v1", model_name="local-test", enabled=True),
+        cloud=LLMHTTPConfig(base_url="https://api.example.com/v1", model_name="cloud-test", enabled=True),
+        usage=LLMUsagePolicy(runner_enabled=True),
+    )
+    engine = ConductorEngine(
+        log_dir=tmp_path / "logs",
+        artifact_dir=tmp_path / "artifacts",
+        llm_runtime_config=runtime_config,
+        execution_scope_config=ExecutionScopeConfig(),
+        cli_selection_config=CLISelectionConfig(),
+    )
+
+    assert engine.llm_runtime_config.usage.runner_enabled is False
+    assert engine.collaboration_runner.use_llm is False
+    assert runtime_config.usage.runner_enabled is True
+
+
 def test_engine_can_run_project_to_terminal_state(tmp_path) -> None:
     engine = ConductorEngine(
         log_dir=tmp_path / "logs",

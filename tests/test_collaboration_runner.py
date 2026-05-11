@@ -498,6 +498,77 @@ def test_requirement_final_arbitration_accepts_resolved_last_revision(tmp_path) 
     assert any("Requirement final arbitration" in event for event in latest.recent_events)
 
 
+def test_requirement_mock_revision_can_pass_offline_smoke_gate(tmp_path) -> None:
+    state_store = InMemoryStateStore()
+    registry = AgentRegistry()
+    artifact_store = ArtifactStore(tmp_path)
+    runner = CollaborationRunner(
+        state_store=state_store,
+        registry=registry,
+        artifact_store=artifact_store,
+        policy=CollaborationPolicy(
+            enabled=True,
+            max_rounds=2,
+            lead_role_by_stage={"requirement": "requirement_designer"},
+            peer_reviewer_roles_by_stage={"requirement": ["designer"]},
+            reviewer_roles_by_stage={"requirement": ["frontend_engineer", "tester"]},
+            enabled_kinds={"requirement_spec"},
+            dynamic_requirement_review_enabled=False,
+        ),
+        use_llm=False,
+    )
+    workitem = WorkItem(
+        id="workitem-offline-smoke",
+        description=(
+            "Build a small local static web app for managing a reading list. "
+            "Users can add a book with title, author, and priority, mark it finished, "
+            "filter all active finished, and persist data in localStorage. "
+            "No backend, no login, no cloud sync."
+        ),
+        stage="requirement",
+        kind="requirement_spec",
+        acceptance_criteria=[
+            "The app has an index.html entry point.",
+            "JavaScript updates visible UI state after adding and completing items.",
+            "CSS is present and readable.",
+            "Static validation passes without network access.",
+        ],
+    )
+    draft = artifact_store.save_markdown(
+        Artifact(
+            id="artifact-offline-smoke",
+            project_id="project-offline-smoke",
+            workitem_id=workitem.id,
+            agent_id="agent-requirement-designer",
+            kind="requirement_spec",
+            title="Initial requirement draft",
+            content="# Initial draft\n\nReading list app.",
+            source_backend="mock",
+        ),
+        project_root=tmp_path,
+    )
+    state_store.save_state(
+        SharedProjectState(
+            project=Project(
+                id="project-offline-smoke",
+                goal=workitem.description,
+                current_stage="requirement",
+                project_root=str(tmp_path),
+            ),
+            project_status=ProjectStatus.IN_PROGRESS,
+            current_stage="requirement",
+            workitems=[workitem],
+            artifacts=[draft],
+        )
+    )
+
+    collaboration = runner.run_review_loop("project-offline-smoke", workitem, draft)
+    latest = state_store.get_state("project-offline-smoke")
+
+    assert collaboration.status == CollaborationStatus.ACCEPTED
+    assert any(artifact.kind == "frozen_requirement_spec" for artifact in latest.artifacts)
+
+
 def test_requirement_collaboration_uses_dynamic_reviewer_seats(tmp_path) -> None:
     state_store = InMemoryStateStore()
     registry = AgentRegistry()

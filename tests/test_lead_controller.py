@@ -393,6 +393,52 @@ def test_feedback_rework_limits_next_testing_scope() -> None:
     assert state.pending_test_scope == []
 
 
+def test_testing_feedback_rework_has_project_level_limit() -> None:
+    controller = build_controller()
+    state = controller.initialize_project("Build static UI and validate it")
+    design = state.workitems[0]
+    first_rework = WorkItem(
+        id="workitem-010",
+        description="First feedback fix",
+        stage="development",
+        kind="ui_implementation",
+        status=WorkItemStatus.DONE,
+        dependencies=[design.id],
+        feedback_from=["workitem-008"],
+    )
+    second_rework = WorkItem(
+        id="workitem-011",
+        description="Second feedback fix",
+        stage="development",
+        kind="ui_implementation",
+        status=WorkItemStatus.DONE,
+        dependencies=[first_rework.id],
+        feedback_from=["workitem-009"],
+    )
+    failed_test = WorkItem(
+        id="workitem-012",
+        description="UI validation still fails",
+        stage="testing",
+        kind="ui_validation",
+        status=WorkItemStatus.FAILED,
+        dependencies=[second_rework.id],
+        retry_count=0,
+        max_retries=0,
+        result="No implementation files were produced.",
+    )
+    state.workitems = [design, first_rework, second_rework, failed_test]
+    state.current_stage = "testing"
+    state.project.current_stage = "testing"
+    state.project_status = ProjectStatus.IN_PROGRESS
+    controller.state_store.save_state(state)
+
+    state = controller.advance(state)
+
+    assert state.project_status == ProjectStatus.BLOCKED
+    assert state.blockers
+    assert not any(item.feedback_from == [failed_test.id] for item in state.workitems)
+
+
 def test_testing_stage_planning_uses_frozen_requirement_for_coverage_scope() -> None:
     controller = build_controller()
     state = controller.initialize_project("Build a simple local app")

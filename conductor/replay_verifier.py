@@ -704,6 +704,11 @@ class ManifestVerifier:
             for item in workitems
             if isinstance(item, dict) and str(item.get("id", ""))
         }
+        workitem_blocked_reasons = {
+            str(item.get("id", "")): str(item.get("blocked_reason", ""))
+            for item in workitems
+            if isinstance(item, dict) and str(item.get("id", ""))
+        }
 
         for index, agent in enumerate(self._list(payload.get("agents"))):
             if not isinstance(agent, dict):
@@ -760,7 +765,7 @@ class ManifestVerifier:
             for artifact_id in self._string_list(execution.get("artifact_ids", []) if isinstance(execution, dict) else []):
                 if artifact_id not in artifact_ids:
                     result.errors.append(f"execution references unknown Artifact: {artifact_id}")
-        self._verify_latest_execution_workitem_status(executions, workitem_statuses, result)
+        self._verify_latest_execution_workitem_status(executions, workitem_statuses, workitem_blocked_reasons, result)
 
         for artifact in artifacts:
             if not isinstance(artifact, dict):
@@ -922,6 +927,7 @@ class ManifestVerifier:
         self,
         executions: list[Any],
         workitem_statuses: dict[str, str],
+        workitem_blocked_reasons: dict[str, str],
         result: ManifestVerificationResult,
     ) -> None:
         latest_by_workitem: dict[str, dict[str, Any]] = {}
@@ -940,11 +946,19 @@ class ManifestVerifier:
             execution_status = str(execution.get("status", ""))
             expected_status = expected_workitem_statuses.get(execution_status)
             actual_status = workitem_statuses.get(workitem_id)
+            blocked_reason = workitem_blocked_reasons.get(workitem_id, "")
+            if execution_status == "failed" and actual_status == "done" and self._is_feedback_reclassified(blocked_reason):
+                continue
             if expected_status and actual_status and actual_status != expected_status:
                 result.warnings.append(
                     f"latest execution for WorkItem {workitem_id} has status {execution_status}, "
                     f"but WorkItem status is {actual_status}, expected {expected_status}"
                 )
+
+    def _is_feedback_reclassified(self, blocked_reason: str) -> bool:
+        """Return whether a failed testing WorkItem was intentionally closed after feedback rework."""
+        lowered = blocked_reason.lower()
+        return any(marker in lowered for marker in ("回流", "feedback", "flowed back", "rework"))
 
     def _verify_run_references(
         self,

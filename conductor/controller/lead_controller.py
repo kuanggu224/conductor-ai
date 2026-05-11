@@ -34,6 +34,7 @@ class LeadController:
     """Advance a project through workflow stages using explicit shared state."""
 
     MAX_REQUIREMENT_REWORK_DEPTH = 3
+    MAX_TEST_FEEDBACK_REWORK_CYCLES = 2
 
     def __init__(
         self,
@@ -503,6 +504,8 @@ class LeadController:
     def _create_feedback_rework(self, project_id: str) -> SharedProjectState:
         """Create development rework tasks from exhausted testing failures."""
         latest = self.state_store.get_state(project_id)
+        if self._feedback_rework_limit_reached(latest):
+            return self._escalate_project(project_id)
         failed_tests = [
             item
             for item in latest.workitems
@@ -618,6 +621,8 @@ class LeadController:
 
     def _can_create_feedback_rework(self, state: SharedProjectState) -> bool:
         """Return whether exhausted testing failures can be turned into rework tasks."""
+        if self._feedback_rework_limit_reached(state):
+            return False
         return any(
             item.stage == "testing"
             and item.status == WorkItemStatus.FAILED
@@ -637,6 +642,13 @@ class LeadController:
     def _has_existing_feedback_rework(self, state: SharedProjectState, failed_test_id: str) -> bool:
         """Return whether a failed testing WorkItem already produced a rework task."""
         return any(failed_test_id in item.feedback_from for item in state.workitems)
+
+    def _feedback_rework_limit_reached(self, state: SharedProjectState) -> bool:
+        """Return whether testing feedback has already re-entered development too many times."""
+        return (
+            len([item for item in state.workitems if item.stage == "development" and item.feedback_from])
+            >= self.MAX_TEST_FEEDBACK_REWORK_CYCLES
+        )
 
     def _feedback_target_kind(self, failed_test: WorkItem) -> str:
         """Map testing failures to the development Agent that should fix them."""

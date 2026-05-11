@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 from conductor.agents.registry import AgentRegistry
@@ -55,6 +56,12 @@ class ConductorEngine:
         self.cli_selection_config = cli_selection_config or load_cli_selection_config()
         self.run_profile = run_profile.value if isinstance(run_profile, RunProfile) else str(run_profile)
         self.llm_harness_backend = llm_harness_backend
+        self._mock_without_explicit_llm = self.run_profile == RunProfile.MOCK.value and llm_harness_backend is None
+        if self._mock_without_explicit_llm:
+            self.llm_runtime_config = replace(
+                self.llm_runtime_config,
+                usage=replace(self.llm_runtime_config.usage, runner_enabled=False),
+            )
         llm_harness_config = self._select_llm_harness_config(llm_harness_backend)
         self.planner = Planner(
             scope_config=self.execution_scope_config,
@@ -104,7 +111,7 @@ class ConductorEngine:
             cli_selection_config=CLISelectionConfig() if llm_harness_backend is not None else self.cli_selection_config,
             runtime_stream_store=self.runtime_stream_store,
             require_real_outputs=llm_harness_config is not None or require_real_design_outputs,
-            use_llm=llm_harness_backend is None,
+            use_llm=llm_harness_backend is None and not self._mock_without_explicit_llm,
             llm_harness=OpenAICompatibleLLMHarness() if llm_harness_config is not None else None,
             llm_harness_config=llm_harness_config,
         )

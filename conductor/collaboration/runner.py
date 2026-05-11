@@ -886,6 +886,8 @@ class CollaborationRunner:
         round_index: int,
     ) -> str:
         """Build a structured mock revision."""
+        if workitem.kind == "requirement_spec":
+            return self._build_mock_requirement_revision(workitem, reviews, round_index)
         review_summary = "\n".join(f"- {review.role}: {review.decision.value}" for review in reviews)
         return (
             f"# 修订版协作草案 - {workitem.id}\n\n"
@@ -896,6 +898,58 @@ class CollaborationRunner:
             "- 补充接口、页面、测试三类关注点，确保后续研发和测试有一致输入。\n"
             "- 明确主路径、异常路径、非目标范围和验收标准。\n"
             "- 将 reviewer 意见作为后续实现文档和测试文档的约束。\n"
+        )
+
+    def _build_mock_requirement_revision(
+        self,
+        workitem: WorkItem,
+        reviews: list[ReviewContribution],
+        round_index: int,
+    ) -> str:
+        """Build a deterministic requirement baseline for offline smoke runs."""
+        review_summary = "\n".join(f"- {review.role}: {review.decision.value}" for review in reviews) or "- No review notes."
+        criteria = "\n".join(f"- {item}" for item in workitem.acceptance_criteria) or "- Downstream stages must verify the stated user requirement."
+        return (
+            f"# Requirement Specification - {workitem.id}\n\n"
+            f"## Revision Round\n{round_index}\n\n"
+            "## Goal\n"
+            "Deliver the smallest useful product that satisfies the user request while preserving explicit scope boundaries.\n\n"
+            "## Requirement Understanding\n"
+            f"{workitem.description}\n\n"
+            "The product must support the named user workflow, data fields, UI states, persistence behavior, and validation paths described above.\n\n"
+            "## Scope Boundary\n"
+            "- In scope: the core user flow, visible UI state updates, local data handling, validation, and offline verification.\n"
+            "- Out of scope / non-goals: login, cloud sync, payment, notification, recommendation engines, analytics, and backend services unless explicitly requested.\n"
+            "- The implementation must not add unrelated platform features beyond the stated requirement.\n\n"
+            "## Non-Goals\n"
+            "- No authentication or account system.\n"
+            "- No network dependency or external service integration.\n"
+            "- No hidden admin dashboard or reporting module.\n\n"
+            "## Acceptance Criteria\n"
+            f"{criteria}\n"
+            "- Given valid input, when the user submits the form, then the visible list updates immediately.\n"
+            "- Given existing saved data, when the page reloads, then data is restored from localStorage or equivalent local persistence.\n"
+            "- Given invalid or empty required input, when the user submits, then a clear validation error is shown and no invalid record is added.\n"
+            "- Given a filter action, when the user selects all, active, or finished, then the list reflects the selected state.\n\n"
+            "## Edge / Error Cases\n"
+            "- Empty title, author, or required field input must be rejected with visible feedback.\n"
+            "- Empty state must explain that no records exist yet.\n"
+            "- localStorage or browser storage failure must not corrupt the current in-memory UI state.\n"
+            "- Duplicate or unusual text input should remain visible and should not break rendering.\n\n"
+            "## Risks And Assumptions\n"
+            "- Assumption: this is a single-user local browser experience.\n"
+            "- Risk: browser storage can be cleared by the user, so persistence is best-effort local persistence.\n"
+            "- Risk: weak validation would make downstream tests ambiguous.\n\n"
+            "## Open Questions / To Confirm\n"
+            "- Confirm whether UI copy should be English, Chinese, or configurable.\n"
+            "- Confirm whether records need edit and delete actions if not explicitly requested.\n\n"
+            "## Downstream Handoff Constraints\n"
+            "- Design must preserve this requirement baseline as the contract for later stages.\n"
+            "- Frontend implementation must include index.html, JavaScript, CSS, localStorage persistence, validation, empty state, and filterable visible state.\n"
+            "- Testing must cover add, complete, filter, invalid input, empty state, persistence after reload, and offline static validation.\n\n"
+            "## Review Resolution\n"
+            f"{review_summary}\n"
+            "- Reviewer concerns are resolved through explicit scope, acceptance, validation, persistence, edge cases, and downstream handoff constraints.\n"
         )
 
     def _create_final_artifact(
