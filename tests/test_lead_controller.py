@@ -273,6 +273,8 @@ def test_next_stage_workitems_depend_on_previous_stage() -> None:
 
     assert development_items
     assert all(set(item.dependencies) == design_ids for item in development_items)
+    assert all(requirement_artifact_ids.intersection(item.input_artifact_ids) for item in development_items)
+    assert all(design_artifact_ids.intersection(item.input_artifact_ids) for item in development_items)
     assert all(assignment.dependencies for assignment in state.task_assignments if assignment.workitem_id in {item.id for item in development_items})
     assert development_assignments
     assert all(requirement_artifact_ids.intersection(assignment.input_artifact_ids) for assignment in development_assignments)

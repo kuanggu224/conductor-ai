@@ -13,6 +13,7 @@ Last updated: 2026-05-11
 
 - Mock/offline project execution is isolated from configured real LLM backends unless `llm_harness` is explicitly selected.
 - Mock requirement collaboration now produces a structured requirement draft that can pass the offline quality gate.
+- Downstream WorkItems now persist context-selected `input_artifact_ids`, so frozen requirements and design artifacts are explicit in state, Task Center, manifest, and resume flows.
 - Testing-stage feedback rework has a project-level cap, preventing infinite development/testing loops.
 - Default ShellHarness validation skips real test commands when no project deliverables exist, especially when the project root is the Conductor source checkout.
 - Manifest verification accepts intentionally reclassified failed test WorkItems when their failures have been flowed back into development rework.

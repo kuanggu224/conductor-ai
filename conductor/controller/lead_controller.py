@@ -425,6 +425,7 @@ class LeadController:
         new_workitems = self._dedupe_new_workitem_ids(latest, new_workitems)
         new_workitems = self._apply_pending_test_scope(latest, next_stage.name, new_workitems)
         new_workitems = self._attach_stage_dependencies(new_workitems, latest.workitems)
+        new_workitems = self._attach_stage_input_artifacts(new_workitems, latest)
         new_assignments = self._build_task_assignments(new_workitems, latest)
         updated_project = replace(
             latest.project,
@@ -828,6 +829,20 @@ class LeadController:
         dependency_ids = [item.id for item in existing_workitems if item.stage == prerequisite_stage]
         return [
             replace(workitem, dependencies=[*dict.fromkeys([*workitem.dependencies, *dependency_ids])])
+            for workitem in new_workitems
+        ]
+
+    def _attach_stage_input_artifacts(
+        self,
+        new_workitems: list[WorkItem],
+        state: SharedProjectState,
+    ) -> list[WorkItem]:
+        """Persist context-selected artifact inputs on newly planned WorkItems."""
+        return [
+            replace(
+                workitem,
+                input_artifact_ids=self._context_input_artifact_ids(state, workitem),
+            )
             for workitem in new_workitems
         ]
 
