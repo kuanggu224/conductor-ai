@@ -4,8 +4,8 @@ Last updated: 2026-05-11
 
 ## Stable Checkpoint
 
-- Latest verified code checkpoint: `67d5259` (`Improve static web validation coverage`).
-- Current full test result: `python -m pytest -q` -> `509 passed in 41.79s`.
+- Latest verified code checkpoint: `cc6ca70` (`Reject mojibake static web artifacts`).
+- Current full test result: `python -m pytest -q` -> `516 passed in 43.80s`.
 - Current focus: backend orchestration, auditability, logs, manifest/replay, and task-center reliability.
 - Frontend Board exists, but visual redesign is intentionally not the current priority.
 
@@ -16,6 +16,7 @@ Last updated: 2026-05-11
 - Downstream WorkItems now persist context-selected `input_artifact_ids`, so frozen requirements and design artifacts are explicit in state, Task Center, manifest, and resume flows.
 - Scope contract checks no longer treat local browser APIs or localStorage write consistency as backend/cloud scope expansion.
 - StaticWebHarness can exercise common input + button UIs without a `<form>`, and now records interaction, localStorage persistence, reload, and export evidence for these pages.
+- StaticWebHarness and LLM-generated file checks now reject common UTF-8/GBK mojibake patterns in HTML/JS/CSS artifacts while preserving normal Chinese UI text.
 - Requirement coverage no longer treats input sanitization wording such as filtering newline characters as a filter/search UI requirement.
 - Testing-stage feedback rework has a project-level cap, preventing infinite development/testing loops.
 - Default ShellHarness validation skips real test commands when no project deliverables exist, especially when the project root is the Conductor source checkout.
@@ -29,6 +30,8 @@ Last updated: 2026-05-11
 - Generated files: `index.html`, `static/app.js`, `static/style.css`.
 - Verification: manifest, manifest verification, replay trace, and audit bundle all passed with 0 warnings.
 - StaticWebHarness evidence covered add interaction, localStorage persistence, reload persistence, and export/download.
+- Follow-up encoding audit confirmed the generated files contain valid UTF-8 Chinese text; garbled PowerShell output was a terminal display issue, not artifact corruption.
+- A synthetic corrupted JS artifact now fails StaticWebHarness with `script asset appears to contain mojibake/corrupted UTF-8 text`.
 
 ## What Works
 
