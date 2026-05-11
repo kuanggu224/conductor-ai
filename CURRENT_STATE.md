@@ -4,8 +4,8 @@ Last updated: 2026-05-11
 
 ## Stable Checkpoint
 
-- Latest verified code checkpoint: `922f020` (`Trace acceptance evidence for code execution`).
-- Current full test result: `python -m pytest -q` -> `526 passed in 42.42s`.
+- Latest verified code checkpoint: `235323e` (`Verify execution delivery evidence in manifests`).
+- Current full test result: `python -m pytest -q` -> `527 passed in 42.55s`.
 - Current focus: backend orchestration, auditability, logs, manifest/replay, and task-center reliability.
 - Frontend Board exists, but visual redesign is intentionally not the current priority.
 
@@ -27,6 +27,7 @@ Last updated: 2026-05-11
 - The same delivery contract is shared by direct Runner prompts for Agent CLI document/code execution, keeping internal execution and external Task Center handoff aligned.
 - Code execution reports, project reports, and manifest execution records now include acceptance trace evidence that maps WorkItem acceptance criteria to validation status and changed files.
 - Run Manifest schema is now `1.30`; WorkItem and retry history records include relationship fields and structured testing feedback for rework audit/replay, and execution records include delivery contracts plus acceptance traces.
+- Manifest verification now validates execution delivery contracts and acceptance traces, including required input artifact references, list-shaped fields, trace status values, and evidence field types.
 - Project reports render structured testing feedback under WorkItems, including failing checks, missing coverage, and suggested fixes.
 - Replay trace renders WorkItem rework lineage and structured testing feedback, so failed-test-to-rework chains are visible in read-only replay output.
 - Default ShellHarness validation skips real test commands when no project deliverables exist, especially when the project root is the Conductor source checkout.
