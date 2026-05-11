@@ -391,6 +391,7 @@ def test_static_web_harness_reports_delete_interaction(tmp_path) -> None:
       <input id="title" placeholder="Book title">
       <button type="submit">Add</button>
     </form>
+    <button id="exportList">Export</button>
     <ul id="items"></ul>
     <script src="static/app.js"></script>
   </body>
@@ -421,6 +422,13 @@ document.querySelector('#items').addEventListener('click', event => {
   save();
   render();
 });
+document.querySelector('#exportList').addEventListener('click', () => {
+  const blob = new Blob([items.map(item => item.title).join('\\n')], { type: 'text/plain' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'items.txt';
+  a.click();
+});
 render();
 """,
         encoding="utf-8",
@@ -429,6 +437,7 @@ render();
     result = StaticWebHarness().run(HarnessRequest(command=[], working_directory=str(tmp_path)))
 
     assert result.success is True
+    assert "Browser export/download action triggered" in result.stdout
     assert "Browser delete interaction removed visible item" in result.stdout
 
 
