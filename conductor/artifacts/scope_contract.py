@@ -26,6 +26,7 @@ NEGATION_TERMS = (
     "without",
     "out of scope",
     "non-goal",
+    "non-goals",
 )
 
 
@@ -138,8 +139,42 @@ def _find_positive_evidence(candidate_content: str, positive_terms: tuple[str, .
             continue
         if _contains_any(line, NEGATION_TERMS):
             continue
+        if _is_allowed_local_frontend_usage(line, positive_terms):
+            continue
         return line[:220]
     return ""
+
+
+def _is_allowed_local_frontend_usage(line: str, positive_terms: tuple[str, ...]) -> bool:
+    """Allow local browser APIs that are not backend/cloud scope expansion."""
+    matched_rule_ids = {
+        rule.rule_id
+        for rule in SCOPE_RULES
+        if rule.positive_terms == positive_terms
+    }
+    if "no_backend" in matched_rule_ids and _is_local_browser_api_line(line):
+        return True
+    if "no_cloud_sync" in matched_rule_ids and _is_local_storage_sync_line(line):
+        return True
+    return False
+
+
+def _is_local_browser_api_line(line: str) -> bool:
+    """Return whether `api` refers to a browser/localStorage API, not backend."""
+    if not _contains_any(line, ("localstorage api", "browser api", "dom api", "web api")):
+        return False
+    backend_terms = ("backend", "server", "endpoint", "route", "fastapi", "flask", "express", "http api", "rest api")
+    return not _contains_any(line, backend_terms)
+
+
+def _is_local_storage_sync_line(line: str) -> bool:
+    """Return whether sync language only describes localStorage consistency."""
+    if "localstorage" not in line:
+        return False
+    if not _contains_any(line, ("sync", "synchronize", "同步", "同步写入", "同步更新")):
+        return False
+    remote_terms = ("cloud", "remote", "backup", "upload", "multi-device", "cross-device", "云", "远程", "备份", "上传", "多设备", "跨设备")
+    return not _contains_any(line, remote_terms)
 
 
 def _iter_relevant_lines(text: str) -> list[str]:

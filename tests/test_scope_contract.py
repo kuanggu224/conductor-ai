@@ -60,3 +60,30 @@ def test_scope_contract_does_not_match_author_or_generic_interface_heading() -> 
     result = evaluate_scope_contract(requirement, candidate)
 
     assert result.passed is True
+
+
+def test_scope_contract_allows_localstorage_api_and_sync_wording() -> None:
+    requirement = "Non-goals: no backend API, no cloud sync."
+    candidate = """
+    ## Validation
+    - Add item updates the list and writes to localStorage synchronously.
+    - Use the localStorage API to assert browser persistence.
+    - No network request is introduced.
+    """
+
+    result = evaluate_scope_contract(requirement, candidate)
+
+    assert result.passed is True
+
+
+def test_scope_contract_still_flags_backend_api_and_remote_sync() -> None:
+    requirement = "Non-goals: no backend API, no cloud sync."
+    candidate = """
+    ## Plan
+    Add a FastAPI endpoint and remote sync service for cross-device backup.
+    """
+
+    result = evaluate_scope_contract(requirement, candidate)
+
+    assert result.passed is False
+    assert {item.rule_id for item in result.violations} == {"no_backend", "no_cloud_sync"}

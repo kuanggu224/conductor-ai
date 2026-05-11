@@ -168,8 +168,30 @@ def infer_coverage_rules(requirement_text: str) -> list[CoverageRule]:
     return [
         rule
         for rule in COVERAGE_RULES
-        if any(term.lower() in normalized for term in rule.requirement_terms)
+        if _rule_is_required(rule, normalized)
     ]
+
+
+def _rule_is_required(rule: CoverageRule, normalized_requirement: str) -> bool:
+    """Return whether a coverage rule is truly required by the requirement."""
+    if rule.rule_id != "filter":
+        return any(term.lower() in normalized_requirement for term in rule.requirement_terms)
+    return _has_filter_interaction_requirement(normalized_requirement)
+
+
+def _has_filter_interaction_requirement(normalized_requirement: str) -> bool:
+    """Avoid treating input sanitization wording as a filter UI requirement."""
+    sanitization_terms = ("换行符", "字符", "输入", "sanitize", "sanitise", "newline", "trim")
+    for raw_line in normalized_requirement.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        line = " ".join(raw_line.strip().split())
+        if not line:
+            continue
+        if not any(term.lower() in line for term in ("\u7b5b\u9009", "\u8fc7\u6ee4", "filter")):
+            continue
+        if any(term in line for term in sanitization_terms):
+            continue
+        return True
+    return False
 
 
 def _matched_terms(terms: tuple[str, ...], text: str) -> list[str]:

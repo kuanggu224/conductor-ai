@@ -258,7 +258,7 @@ class StaticWebHarness(BaseHarness):
         result = BrowserExerciseResult()
         forms = page.locator("form")
         if forms.count() < 1:
-            return result
+            return self._exercise_loose_controls(page)
         result.attempted = True
         form = forms.first
         inputs = form.locator("input, textarea, select")
@@ -298,6 +298,64 @@ class StaticWebHarness(BaseHarness):
             reloaded_body = page.locator("body").inner_text(timeout=5_000).strip()
             result.persisted_values = [value for value in result.visible_values if self._value_visible(value, reloaded_body)]
         return result
+
+    def _exercise_loose_controls(self, page) -> BrowserExerciseResult:
+        """Exercise common input + button UIs that do not use a <form>."""
+        result = BrowserExerciseResult()
+        inputs = page.locator(
+            "input:not([type=button]):not([type=submit]):not([type=reset]):not([type=file]):not([type=hidden]), textarea"
+        )
+        if inputs.count() < 1:
+            return result
+        result.attempted = True
+        submitted_values: list[str] = []
+        for index in range(inputs.count()):
+            control = inputs.nth(index)
+            input_type = control.get_attribute("type") or "text"
+            value = self._sample_value(input_type, self._control_identity(control))
+            control.fill(value)
+            submitted_values.append(value)
+        before_body = page.locator("body").inner_text(timeout=5_000).strip()
+        before_storage = self._local_storage_snapshot(page)
+        button = self._primary_action_button(page)
+        if button is not None:
+            button.click(timeout=5_000)
+            result.submitted = True
+            page.wait_for_timeout(500)
+        after_body = page.locator("body").inner_text(timeout=5_000).strip()
+        after_storage = self._local_storage_snapshot(page)
+        result.body_changed = after_body != before_body
+        result.local_storage_changed = after_storage != before_storage
+        result.visible_values = [value for value in submitted_values if self._value_visible(value, after_body)]
+        if result.visible_values:
+            page.reload(wait_until="domcontentloaded", timeout=10_000)
+            page.wait_for_timeout(300)
+            reloaded_body = page.locator("body").inner_text(timeout=5_000).strip()
+            result.persisted_values = [value for value in result.visible_values if self._value_visible(value, reloaded_body)]
+        return result
+
+    def _primary_action_button(self, page):
+        """Return the most likely submit/add button for non-form UIs."""
+        buttons = page.locator("button, input[type=button], input[type=submit]")
+        preferred = re.compile(r"add|create|save|submit|添加|新增|保存", re.IGNORECASE)
+        excluded = re.compile(r"export|download|delete|remove|导出|下载|删除|移除", re.IGNORECASE)
+        fallback = None
+        for index in range(buttons.count()):
+            button = buttons.nth(index)
+            label = " ".join(
+                [
+                    button.inner_text(timeout=1_000) if button.evaluate("el => el.tagName.toLowerCase()") == "button" else "",
+                    button.get_attribute("value") or "",
+                    button.get_attribute("aria-label") or "",
+                    button.get_attribute("id") or "",
+                    button.get_attribute("class") or "",
+                ]
+            ).strip()
+            if preferred.search(label):
+                return button
+            if fallback is None and not excluded.search(label):
+                fallback = button
+        return fallback
 
     def _check_download_action(self, page, result: BrowserExerciseResult) -> None:
         export_button = page.get_by_text(re.compile(r"CSV|Export|导出|下载", re.IGNORECASE)).first

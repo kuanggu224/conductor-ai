@@ -52,3 +52,19 @@ def test_requirement_coverage_fails_missing_persistence_evidence() -> None:
     assert result.traceability[1].requirement_terms == ["\u5237\u65b0\u540e", "\u4fdd\u7559\u6570\u636e"]
     assert result.traceability[1].evidence_terms == []
     assert result.summary() == "Requirement coverage missing: refresh persistence"
+
+
+def test_requirement_coverage_does_not_infer_filter_from_input_sanitization() -> None:
+    requirement = "\u4e66\u540d\u5305\u542b\u6362\u884c\u7b26\u65f6\uff0c\u524d\u7aef\u81ea\u52a8\u8fc7\u6ee4\u5e76\u53bb\u9664\u3002"
+
+    rules = infer_coverage_rules(requirement)
+
+    assert "filter" not in [rule.rule_id for rule in rules]
+
+
+def test_requirement_coverage_still_infers_filter_interaction() -> None:
+    requirement = "\u9875\u9762\u9700\u652f\u6301\u6309\u72b6\u6001\u7b5b\u9009\u6761\u76ee\u3002"
+
+    rules = infer_coverage_rules(requirement)
+
+    assert "filter" in [rule.rule_id for rule in rules]

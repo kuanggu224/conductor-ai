@@ -14,9 +14,21 @@ Last updated: 2026-05-11
 - Mock/offline project execution is isolated from configured real LLM backends unless `llm_harness` is explicitly selected.
 - Mock requirement collaboration now produces a structured requirement draft that can pass the offline quality gate.
 - Downstream WorkItems now persist context-selected `input_artifact_ids`, so frozen requirements and design artifacts are explicit in state, Task Center, manifest, and resume flows.
+- Scope contract checks no longer treat local browser APIs or localStorage write consistency as backend/cloud scope expansion.
+- StaticWebHarness can exercise common input + button UIs without a `<form>`, and now records interaction, localStorage persistence, reload, and export evidence for these pages.
+- Requirement coverage no longer treats input sanitization wording such as filtering newline characters as a filter/search UI requirement.
 - Testing-stage feedback rework has a project-level cap, preventing infinite development/testing loops.
 - Default ShellHarness validation skips real test commands when no project deliverables exist, especially when the project root is the Conductor source checkout.
 - Manifest verification accepts intentionally reclassified failed test WorkItems when their failures have been flowed back into development rework.
+
+## Latest Real E2E Smoke
+
+- Project root: `C:\99_self\conductor_test\static-reading-list-llm-harness-fast-20260511-r3`.
+- Command profile: `code_cli` with `--llm-harness cloud`, no Agent CLI binding.
+- Final status: `completed`.
+- Generated files: `index.html`, `static/app.js`, `static/style.css`.
+- Verification: manifest, manifest verification, replay trace, and audit bundle all passed with 0 warnings.
+- StaticWebHarness evidence covered add interaction, localStorage persistence, reload persistence, and export/download.
 
 ## What Works
 
@@ -70,8 +82,8 @@ python -m app.verify_manifest <project-root>\.conductor\manifests\<project-id>.m
 
 ## Next Priorities
 
-1. Run one small real end-to-end static web project through the platform and inspect manifest, report, artifacts, and replay trace.
+1. Inspect the latest real E2E smoke artifacts and identify remaining product gaps in development/testing quality.
 2. Strengthen development-stage handoff from frozen requirement and design artifacts into implementation WorkItems.
-3. Strengthen testing-stage behavior so test failures reliably create actionable development rework with stronger real-code evidence.
+3. Strengthen testing-stage behavior so failed requirement coverage produces more precise, actionable rework prompts.
 4. Add or improve health checks for configured LLM/CLI backends: server status, model availability, context length, timeout, and encoding.
 5. Keep frontend changes paused unless a backend API shape blocks inspection.

@@ -220,6 +220,56 @@ render();
     assert "Browser reload preserved submitted values: sample" in result.stdout
 
 
+def test_static_web_harness_exercises_input_button_ui_without_form(tmp_path) -> None:
+    (tmp_path / "static").mkdir()
+    (tmp_path / "index.html").write_text(
+        """<!doctype html>
+<html>
+  <head><title>Reading List</title></head>
+  <body>
+    <input id="bookTitle" placeholder="Book title">
+    <button id="addBook">Add</button>
+    <button id="exportList">Export</button>
+    <ul id="items"></ul>
+    <script src="static/app.js"></script>
+  </body>
+</html>
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "static" / "app.js").write_text(
+        """
+const items = JSON.parse(localStorage.getItem('readingList') || '[]');
+function render() {
+  document.querySelector('#items').innerHTML = items.map(item => `<li>${item}</li>`).join('');
+}
+document.querySelector('#addBook').addEventListener('click', () => {
+  const value = document.querySelector('#bookTitle').value;
+  items.push(value);
+  localStorage.setItem('readingList', JSON.stringify(items));
+  render();
+});
+document.querySelector('#exportList').addEventListener('click', () => {
+  const blob = new Blob([items.join('\\n')], { type: 'text/plain' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'reading-list.txt';
+  a.click();
+});
+render();
+""",
+        encoding="utf-8",
+    )
+
+    result = StaticWebHarness().run(HarnessRequest(command=[], working_directory=str(tmp_path)))
+
+    assert result.success is True
+    assert "Browser form interaction updated visible state: sample" in result.stdout
+    assert "Browser localStorage changed after form submit" in result.stdout
+    assert "Browser reload preserved submitted values: sample" in result.stdout
+    assert "Browser export/download action triggered" in result.stdout
+
+
 def test_static_web_harness_fails_missing_local_asset(tmp_path) -> None:
     (tmp_path / "index.html").write_text(
         """<!doctype html>
