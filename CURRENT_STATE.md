@@ -4,7 +4,7 @@ Last updated: 2026-05-11
 
 ## Stable Checkpoint
 
-- Latest checkpoint commit: `4cdb012` (`Document current platform checkpoint`).
+- Latest verified code checkpoint: `f9fcb69` (`Verify manifest llm cost token usage`).
 - Current full test result: `python -m pytest -q` -> `503 passed`.
 - Current focus: backend orchestration, auditability, logs, manifest/replay, and task-center reliability.
 - Frontend Board exists, but visual redesign is intentionally not the current priority.
