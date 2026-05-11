@@ -344,7 +344,11 @@ def test_testing_failure_creates_development_feedback_rework() -> None:
         agent_id="agent-tester",
         kind="ui_validation",
         title="Failed UI Validation",
-        content="Clicking the button did not update the visible list.",
+        content=(
+            "Static Web Validation: FAIL\n\n"
+            "Errors:\n"
+            "- Browser form submit did not change visible page state\n"
+        ),
     )
     frozen_requirement_artifact = Artifact(
         id="artifact-frozen-requirement",
@@ -398,6 +402,9 @@ def test_testing_failure_creates_development_feedback_rework() -> None:
     assert frozen_requirement_artifact.id in rework_items[0].input_artifact_ids
     assert design_artifact.id in rework_items[0].input_artifact_ids
     assert "原始实现 WorkItem" in rework_items[0].description
+    assert "## 结构化测试反馈" in rework_items[0].description
+    assert "Browser form submit did not change visible page state" in rework_items[0].description
+    assert "检查表单/按钮事件绑定" in rework_items[0].description
     assert "保持冻结需求和设计产物定义的范围边界" in rework_items[0].acceptance_criteria
     assert state.pending_test_scope == ["ui_validation"]
     rework_assignment = next(assignment for assignment in state.task_assignments if assignment.workitem_id == rework_items[0].id)

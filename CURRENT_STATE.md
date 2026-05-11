@@ -4,8 +4,8 @@ Last updated: 2026-05-11
 
 ## Stable Checkpoint
 
-- Latest verified code checkpoint: `cc6ca70` (`Reject mojibake static web artifacts`).
-- Current full test result: `python -m pytest -q` -> `516 passed in 43.64s`.
+- Latest verified code checkpoint: `a708816` (`Persist feedback rework artifact inputs`).
+- Current full test result: `python -m pytest -q` -> `518 passed in 43.53s`.
 - Current focus: backend orchestration, auditability, logs, manifest/replay, and task-center reliability.
 - Frontend Board exists, but visual redesign is intentionally not the current priority.
 
@@ -20,6 +20,7 @@ Last updated: 2026-05-11
 - Requirement coverage no longer treats input sanitization wording such as filtering newline characters as a filter/search UI requirement.
 - Testing-stage feedback rework has a project-level cap, preventing infinite development/testing loops.
 - Testing-stage feedback rework now persists explicit inputs on the rework WorkItem and Task Center assignment: failed test artifacts, original implementation artifacts, frozen requirement, and design artifacts.
+- Testing-stage feedback rework now embeds structured failure feedback extracted from failed test reports: failure signals, missing requirement coverage, exit code, and suggested fix directions.
 - Default ShellHarness validation skips real test commands when no project deliverables exist, especially when the project root is the Conductor source checkout.
 - Manifest verification accepts intentionally reclassified failed test WorkItems when their failures have been flowed back into development rework.
 

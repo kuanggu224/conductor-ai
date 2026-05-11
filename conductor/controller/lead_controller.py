@@ -27,6 +27,7 @@ from conductor.execution.failure_policy import parse_retryable_failure
 from conductor.execution.router import Router
 from conductor.execution.runner import Runner
 from conductor.state.store import InMemoryStateStore
+from conductor.testing.failure_feedback import build_testing_failure_feedback
 from conductor.workflow.template import GateDecision, WorkflowGateEvaluator, WorkflowTemplate
 
 
@@ -527,6 +528,8 @@ class LeadController:
             original_workitem_id = self._primary_development_workitem_id(latest, target_kind)
             original_artifact_ids = self._workitem_artifact_ids(latest, original_workitem_id) if original_workitem_id else []
             input_artifact_ids = list(dict.fromkeys([*failed_artifact_ids, *original_artifact_ids]))
+            failed_artifacts = [artifact for artifact in latest.artifacts if artifact.id in failed_artifact_ids]
+            feedback = build_testing_failure_feedback(failed, failed_artifacts)
             rework_items.append(
                 WorkItem(
                     id=self._next_workitem_id(latest, [*rework_items]),
@@ -534,7 +537,8 @@ class LeadController:
                         f"根据测试失败回流修复 `{failed.id}`: {failed.description}\n\n"
                         f"失败摘要: {(failed.failure_summary or failed.result or failed.blocked_reason or '无详细结果')[:500]}\n"
                         f"原始实现 WorkItem: {original_workitem_id or '未找到'}\n"
-                        "要求：只修复测试反馈指向的问题，保持冻结需求和既有设计边界，不扩展新功能。"
+                        "要求：只修复测试反馈指向的问题，保持冻结需求和既有设计边界，不扩展新功能。\n\n"
+                        f"{feedback.render_markdown()}"
                     ),
                     stage="development",
                     kind=target_kind,
