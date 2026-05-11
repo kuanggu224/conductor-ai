@@ -187,6 +187,30 @@ def test_requirement_evaluator_counts_chinese_keyword_variants() -> None:
     assert evaluation.checks["keyword_coverage"] is True
 
 
+def test_requirement_evaluator_counts_search_and_delete_keyword_variants() -> None:
+    case = RequirementBenchmarkCase(
+        id="search-delete-variants",
+        name="Search/Delete Keyword Variants",
+        requirement=(
+            "\u8bfb\u4e66\u6e05\u5355\u9700\u8981\u6309\u5173\u952e\u8bcd\u641c\u7d22\uff0c"
+            "\u5e76\u652f\u6301\u5220\u9664\u6761\u76ee\u3002"
+        ),
+        expected_keywords=["\u641c\u7d22", "\u5173\u952e\u8bcd", "\u5220\u9664"],
+    )
+    document = """
+    目标：维护读书清单。
+    范围：用户可以查找条目，也可以移除不再需要的条目。
+    验收标准：输入关键词后列表缩小；点击移除后对应条目不再显示。
+    测试验证：覆盖检索和删除。
+    """
+
+    evaluation = evaluate_requirement_document(document, case)
+
+    assert evaluation.metrics["keyword_coverage"] == 100
+    assert evaluation.metrics["keyword_matches"]["\u641c\u7d22"] in {"\u5173\u952e\u8bcd", "\u67e5\u627e", "\u68c0\u7d22"}
+    assert evaluation.metrics["keyword_matches"]["\u5220\u9664"] in {"\u5220\u9664", "\u79fb\u9664"}
+
+
 def test_requirement_evaluator_reports_keyword_match_evidence() -> None:
     case = RequirementBenchmarkCase(
         id="semantic-aliases",

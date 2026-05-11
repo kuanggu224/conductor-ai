@@ -180,6 +180,10 @@ CJK_KEYWORD_TERMS: tuple[str, ...] = (
     "\u5907\u6ce8",
     "\u7b5b\u9009",
     "\u8fc7\u6ee4",
+    "\u641c\u7d22",
+    "\u5173\u952e\u8bcd",
+    "\u5220\u9664",
+    "\u79fb\u9664",
     "\u5bfc\u51fa",
     "\u4e0b\u8f7d",
     "\u5237\u65b0\u540e",
@@ -228,6 +232,10 @@ CJK_SEMANTIC_KEYWORD_ALIASES: dict[str, tuple[str, ...]] = {
     "\u4f5c\u8005": ("\u4f5c\u8005", "\u521b\u4f5c\u8005"),
     "\u4fdd\u7559\u6570\u636e": ("\u4fdd\u7559\u6570\u636e", "\u4fdd\u5b58\u6570\u636e", "\u6301\u4e45\u5316", "\u5237\u65b0\u540e\u4fdd\u7559"),
     "\u7b5b\u9009": ("\u7b5b\u9009", "\u8fc7\u6ee4", "\u6309\u72b6\u6001\u7b5b\u9009", "\u6761\u4ef6\u8fc7\u6ee4"),
+    "\u641c\u7d22": ("\u641c\u7d22", "\u5173\u952e\u8bcd", "\u67e5\u627e", "\u68c0\u7d22"),
+    "\u5173\u952e\u8bcd": ("\u5173\u952e\u8bcd", "\u641c\u7d22", "\u67e5\u627e", "\u68c0\u7d22"),
+    "\u5220\u9664": ("\u5220\u9664", "\u79fb\u9664", "\u6e05\u9664"),
+    "\u79fb\u9664": ("\u79fb\u9664", "\u5220\u9664", "\u6e05\u9664"),
 }
 
 
