@@ -113,6 +113,33 @@ def test_testing_failure_feedback_suggests_filter_fix_for_missing_filter_coverag
     assert "\u68c0\u67e5\u7b5b\u9009/\u641c\u7d22\u63a7\u4ef6\u4e8b\u4ef6\u7ed1\u5b9a" in markdown
 
 
+def test_testing_failure_feedback_suggests_delete_fix_for_missing_delete_coverage() -> None:
+    workitem = WorkItem(
+        id="workitem-delete",
+        description="Acceptance check",
+        stage="testing",
+        kind="acceptance_check",
+        failure_summary="Requirement coverage missing: delete item interaction",
+        testing_checklist=[
+            {
+                "rule_id": "delete_item",
+                "label": "delete item interaction",
+                "status": "pending",
+                "requirement_terms": ["delete"],
+                "required_evidence_terms": ["browser delete interaction removed visible item"],
+            }
+        ],
+    )
+
+    feedback = build_testing_failure_feedback(workitem, [])
+    markdown = feedback.render_markdown()
+
+    assert feedback.missing_coverage == ["delete item interaction"]
+    assert feedback.missing_checklist_items[0]["rule_id"] == "delete_item"
+    assert "browser delete interaction removed visible item" in markdown
+    assert "\u68c0\u67e5\u5220\u9664/\u79fb\u9664\u6309\u94ae\u4e8b\u4ef6\u7ed1\u5b9a" in markdown
+
+
 def test_testing_feedback_for_rework_follows_feedback_from_testing_workitem() -> None:
     failed_test = WorkItem(
         id="workitem-ui-test",

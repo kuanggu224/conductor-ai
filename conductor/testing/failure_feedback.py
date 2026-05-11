@@ -163,6 +163,8 @@ def _suggest_actions(*, text: str, failing_checks: list[str], missing_coverage: 
         suggestions.append("检查导出按钮、下载触发和 CSV/text 内容生成。")
     if "filter interaction" in lowered or "browser filter interaction" in lowered:
         suggestions.append("检查筛选/搜索控件事件绑定，确保切换条件后可见结果列表发生变化。")
+    if "delete item interaction" in lowered or "browser delete interaction" in lowered:
+        suggestions.append("检查删除/移除按钮事件绑定，确保触发后对应条目从可见列表中移除。")
     if "mojibake" in lowered or "corrupted utf-8" in lowered:
         suggestions.append("修复生成文件中的中文编码问题，确保 HTML/JS/CSS 均为 UTF-8。")
     if "missing" in lowered and ("asset" in lowered or "index.html" in lowered):
