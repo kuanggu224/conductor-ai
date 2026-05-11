@@ -350,6 +350,9 @@ class StaticWebHarness(BaseHarness):
         if not any(self._value_visible(value, before_body) for value in visible_values):
             return False
         try:
+            tag = control.evaluate("el => el.tagName.toLowerCase()")
+            if tag == "select":
+                return self._check_select_filter_interaction(page, control, visible_values, before_body)
             control.fill("__no_match_filter__")
             page.wait_for_timeout(250)
             after_body = page.locator("body").inner_text(timeout=5_000).strip()
@@ -357,10 +360,31 @@ class StaticWebHarness(BaseHarness):
         except Exception:
             return False
 
+    def _check_select_filter_interaction(self, page, control, visible_values: list[str], before_body: str) -> bool:
+        """Try select options until the visible result list changes."""
+        options = control.locator("option")
+        current_value = control.input_value(timeout=1_000)
+        for index in range(options.count()):
+            value = options.nth(index).evaluate("el => el.value")
+            if value == current_value:
+                continue
+            try:
+                control.select_option(value)
+                page.wait_for_timeout(250)
+                after_body = page.locator("body").inner_text(timeout=5_000).strip()
+                if after_body != before_body and any(
+                    self._value_visible(item, before_body) and not self._value_visible(item, after_body)
+                    for item in visible_values
+                ):
+                    return True
+            except Exception:
+                continue
+        return False
+
     def _filter_control(self, page):
-        """Return the most likely text input used for filtering/searching."""
+        """Return the most likely control used for filtering/searching."""
         controls = page.locator(
-            "input:not([type=button]):not([type=submit]):not([type=reset]):not([type=file]):not([type=hidden]), textarea"
+            "input:not([type=button]):not([type=submit]):not([type=reset]):not([type=file]):not([type=hidden]), textarea, select"
         )
         preferred = re.compile(r"search|filter|query|筛选|过滤|搜索|关键词", re.IGNORECASE)
         for index in range(controls.count()):

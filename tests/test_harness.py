@@ -320,6 +320,65 @@ render();
     assert "Browser filter interaction changed visible results" in result.stdout
 
 
+def test_static_web_harness_reports_select_filter_interaction(tmp_path) -> None:
+    (tmp_path / "static").mkdir()
+    (tmp_path / "index.html").write_text(
+        """<!doctype html>
+<html>
+  <head><title>Status Filter</title></head>
+  <body>
+    <form id="addForm">
+      <input id="title" placeholder="Book title">
+      <select id="status">
+        <option value="unread">Unread</option>
+        <option value="done">Done</option>
+      </select>
+      <button type="submit">Add</button>
+    </form>
+    <select id="statusFilter" aria-label="Filter status">
+      <option value="all">All</option>
+      <option value="unread">Unread</option>
+      <option value="done">Done</option>
+    </select>
+    <ul id="items"></ul>
+    <script src="static/app.js"></script>
+  </body>
+</html>
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "static" / "app.js").write_text(
+        """
+const items = JSON.parse(localStorage.getItem('items') || '[]');
+let filter = 'all';
+function render() {
+  const visible = filter === 'all' ? items : items.filter(item => item.status === filter);
+  document.querySelector('#items').innerHTML = visible.map(item => `<li>${item.title} ${item.status}</li>`).join('');
+}
+document.querySelector('#addForm').addEventListener('submit', event => {
+  event.preventDefault();
+  items.push({
+    title: document.querySelector('#title').value,
+    status: document.querySelector('#status').value,
+  });
+  localStorage.setItem('items', JSON.stringify(items));
+  render();
+});
+document.querySelector('#statusFilter').addEventListener('change', event => {
+  filter = event.target.value;
+  render();
+});
+render();
+""",
+        encoding="utf-8",
+    )
+
+    result = StaticWebHarness().run(HarnessRequest(command=[], working_directory=str(tmp_path)))
+
+    assert result.success is True
+    assert "Browser filter interaction changed visible results" in result.stdout
+
+
 def test_static_web_harness_fails_missing_local_asset(tmp_path) -> None:
     (tmp_path / "index.html").write_text(
         """<!doctype html>
