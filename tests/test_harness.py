@@ -270,6 +270,56 @@ render();
     assert "Browser export/download action triggered" in result.stdout
 
 
+def test_static_web_harness_reports_filter_interaction(tmp_path) -> None:
+    (tmp_path / "static").mkdir()
+    (tmp_path / "index.html").write_text(
+        """<!doctype html>
+<html>
+  <head><title>Reading List</title></head>
+  <body>
+    <form id="addForm">
+      <input id="title" placeholder="Book title">
+      <input id="author" placeholder="Author">
+      <button type="submit">Add</button>
+    </form>
+    <input id="search" placeholder="Search books">
+    <ul id="items"></ul>
+    <script src="static/app.js"></script>
+  </body>
+</html>
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "static" / "app.js").write_text(
+        """
+const items = JSON.parse(localStorage.getItem('items') || '[]');
+function render(list = items) {
+  document.querySelector('#items').innerHTML = list.map(item => `<li>${item.title} ${item.author}</li>`).join('');
+}
+document.querySelector('#addForm').addEventListener('submit', event => {
+  event.preventDefault();
+  items.push({
+    title: document.querySelector('#title').value,
+    author: document.querySelector('#author').value,
+  });
+  localStorage.setItem('items', JSON.stringify(items));
+  render();
+});
+document.querySelector('#search').addEventListener('input', event => {
+  const keyword = event.target.value.toLowerCase();
+  render(items.filter(item => item.title.toLowerCase().includes(keyword) || item.author.toLowerCase().includes(keyword)));
+});
+render();
+""",
+        encoding="utf-8",
+    )
+
+    result = StaticWebHarness().run(HarnessRequest(command=[], working_directory=str(tmp_path)))
+
+    assert result.success is True
+    assert "Browser filter interaction changed visible results" in result.stdout
+
+
 def test_static_web_harness_fails_missing_local_asset(tmp_path) -> None:
     (tmp_path / "index.html").write_text(
         """<!doctype html>

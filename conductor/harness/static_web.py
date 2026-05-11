@@ -58,6 +58,7 @@ class BrowserExerciseResult:
     selected_values: list[str] = field(default_factory=list)
     local_storage_changed: bool = False
     persisted_values: list[str] = field(default_factory=list)
+    filter_interaction_changed: bool = False
     download_triggered: bool = False
 
 
@@ -240,6 +241,8 @@ class StaticWebHarness(BaseHarness):
                     report.checks.append(
                         f"Browser reload preserved submitted values: {', '.join(exercise_result.persisted_values)}"
                     )
+                if exercise_result.filter_interaction_changed:
+                    report.checks.append("Browser filter interaction changed visible results")
                 if exercise_result.download_triggered:
                     report.checks.append("Browser export/download action triggered")
             if page_errors:
@@ -297,6 +300,7 @@ class StaticWebHarness(BaseHarness):
             page.wait_for_timeout(300)
             reloaded_body = page.locator("body").inner_text(timeout=5_000).strip()
             result.persisted_values = [value for value in result.visible_values if self._value_visible(value, reloaded_body)]
+            result.filter_interaction_changed = self._check_filter_interaction(page, result.persisted_values)
         return result
 
     def _exercise_loose_controls(self, page) -> BrowserExerciseResult:
@@ -332,7 +336,39 @@ class StaticWebHarness(BaseHarness):
             page.wait_for_timeout(300)
             reloaded_body = page.locator("body").inner_text(timeout=5_000).strip()
             result.persisted_values = [value for value in result.visible_values if self._value_visible(value, reloaded_body)]
+            result.filter_interaction_changed = self._check_filter_interaction(page, result.persisted_values)
         return result
+
+    def _check_filter_interaction(self, page, visible_values: list[str]) -> bool:
+        """Exercise a likely filter/search control and verify visible results change."""
+        if not visible_values:
+            return False
+        control = self._filter_control(page)
+        if control is None:
+            return False
+        before_body = page.locator("body").inner_text(timeout=5_000).strip()
+        if not any(self._value_visible(value, before_body) for value in visible_values):
+            return False
+        try:
+            control.fill("__no_match_filter__")
+            page.wait_for_timeout(250)
+            after_body = page.locator("body").inner_text(timeout=5_000).strip()
+            return any(self._value_visible(value, before_body) and not self._value_visible(value, after_body) for value in visible_values)
+        except Exception:
+            return False
+
+    def _filter_control(self, page):
+        """Return the most likely text input used for filtering/searching."""
+        controls = page.locator(
+            "input:not([type=button]):not([type=submit]):not([type=reset]):not([type=file]):not([type=hidden]), textarea"
+        )
+        preferred = re.compile(r"search|filter|query|筛选|过滤|搜索|关键词", re.IGNORECASE)
+        for index in range(controls.count()):
+            control = controls.nth(index)
+            identity = self._control_identity(control)
+            if preferred.search(identity):
+                return control
+        return None
 
     def _primary_action_button(self, page):
         """Return the most likely submit/add button for non-form UIs."""

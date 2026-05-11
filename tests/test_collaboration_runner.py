@@ -342,6 +342,8 @@ def test_collaboration_runner_uses_llm_harness_for_reviews_and_revision(tmp_path
     modes = [request.metadata.get("mode") for request in llm_harness.requests]
     assert modes.count("collaboration_review") == 10
     assert modes.count("collaboration_revision") == 4
+    assert all("原始用户需求" in request.prompt for request in llm_harness.requests)
+    assert any("CRUD" in request.prompt for request in llm_harness.requests if request.metadata.get("mode") == "collaboration_revision")
     reviewer_roles = {
         request.metadata.get("agent_role")
         for request in llm_harness.requests

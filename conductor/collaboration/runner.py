@@ -540,15 +540,18 @@ class CollaborationRunner:
             for review in reviews
         )
         draft_excerpt = self._clip_text(draft, 3200)
+        original_requirement = self._project_goal(project_id)
         prompt = (
             "你是需求设计阶段的 lead designer agent。请在完整阅读所有 reviewer 意见后统一修订草案。\n"
             f"当前评审阶段: {phase}\n"
             f"WorkItem: {workitem.id} / {workitem.description}\n\n"
+            f"# 原始用户需求（最高优先级，不得扩展）\n{original_requirement}\n\n"
             f"# 当前草案摘要\n{draft_excerpt}\n\n"
             f"# 本轮审阅意见\n{review_text}\n\n"
             "请直接输出修订后的完整中文 Markdown 需求设计文档，不要只输出差异。"
             "需求规格类文档必须保留并完善：目标、需求理解、范围边界、非目标、验收标准、边界/异常场景、风险与假设、待确认问题、下游交付约束。"
             "不要把用户未明确要求的功能升级为正式范围；例如编辑、删除、登录、同步、导入等能力只能写入待确认问题或非目标，除非原始需求明确要求。"
+            "不要使用“增删查”“增删改查”“CRUD”这类会暗含编辑/删除的缩写，除非原始需求明确要求这些动作。"
             "设计类文档必须保留并完善：目标、需求理解、范围边界、关键假设、方案、交付物、验收标准、风险。"
         )
         if self.agent_cli_executor.resolve_binding(lead) == "claude":
@@ -556,10 +559,12 @@ class CollaborationRunner:
                 "You are the lead requirement/design agent in Conductor.\n"
                 f"Work item kind: {workitem.kind}\n"
                 f"Review phase: {phase}\n"
+                f"Original user requirement, highest priority:\n{original_requirement}\n\n"
                 "Revise the current design draft after reading all reviewer feedback.\n"
                 "Return a full Chinese markdown requirement design document, not a diff.\n"
                 "For requirement_spec, keep these sections clear and practical: 目标, 需求理解, 范围边界, 非目标, 验收标准, 边界/异常场景, 风险与假设, 待确认问题, 下游交付约束.\n"
                 "Do not promote unrequested features such as edit, delete, login, sync, or import into in-scope requirements; keep them as open questions or non-goals unless explicitly requested.\n"
+                "Do not use generic CRUD wording if edit/delete are not explicitly requested.\n"
                 "For other design docs, keep sections: 目标, 需求理解, 范围边界, 关键假设, 方案, 交付物, 验收标准, 风险.\n\n"
                 f"Current draft:\n{draft_excerpt[:2400]}\n\n"
                 f"Reviewer feedback:\n{review_text[:2400]}"
@@ -637,6 +642,7 @@ class CollaborationRunner:
             "tester": "重点检查验收标准、测试覆盖、边界条件、异常路径、可验证性。",
         }.get(reviewer.role, "重点检查当前角色负责的交付风险和缺失信息。")
         review_focus = self._review_focus_overrides.get(reviewer.id, review_focus)
+        original_requirement = self._project_goal(project_id)
         phase_instruction = (
             "这是设计同侪评审阶段。请优先判断需求本身是否合理、完整、符合用户目标；不要只从代码实现难度出发。"
             if phase == "design_peer_review"
@@ -653,6 +659,7 @@ class CollaborationRunner:
             f"{phase_instruction}\n"
             f"{scope_guard}\n"
             f"评审重点：{review_focus}\n"
+            f"原始用户需求（最高优先级，不得扩展）：{original_requirement}\n"
             f"WorkItem: {workitem.id} / {workitem.description}\n\n"
             f"# Draft 摘要\n{self._clip_text(draft, 4200)}\n\n"
             "请用中文输出 Markdown，必须包含 `Decision: approve` 或 `Decision: request_changes`，"
@@ -810,6 +817,7 @@ class CollaborationRunner:
                     "- Must include executable acceptance cases with concrete input and expected output.\n"
                     "- For requirement_spec, include non-goals, edge/error cases, open questions, and downstream handoff constraints.\n"
                     "- Do not convert reviewer suggestions into new in-scope features unless the original user requirement explicitly asked for them.\n"
+                    "- Do not use generic CRUD wording if edit/delete are not explicitly requested by the original requirement.\n"
                     "- Incorporate all reviewer roles before approving the draft.\n"
                 ),
                 system_prompt=(
@@ -851,6 +859,10 @@ class CollaborationRunner:
     def _is_disabled_llm_response(self, content: str) -> bool:
         """Return whether the response is a disabled-backend placeholder."""
         return content.startswith("[local-disabled]") or content.startswith("[cloud-disabled]")
+
+    def _project_goal(self, project_id: str) -> str:
+        """Return the immutable source requirement for collaboration prompts."""
+        return self.state_store.get_state(project_id).project.goal
 
     def _clip_text(self, text: str, limit: int) -> str:
         """Clip prompt context while keeping the boundary explicit."""
