@@ -70,6 +70,16 @@ def test_requirement_coverage_still_infers_filter_interaction() -> None:
     assert "filter" in [rule.rule_id for rule in rules]
 
 
+def test_requirement_coverage_infers_filter_interaction_from_search_terms() -> None:
+    requirement = "\u9875\u9762\u9700\u652f\u6301\u6309\u5173\u952e\u8bcd\u641c\u7d22\u6761\u76ee\u3002"
+
+    result = evaluate_requirement_coverage(requirement, "Browser filter interaction changed visible results")
+
+    assert result.passed is True
+    assert [rule.rule_id for rule in result.required_rules] == ["filter"]
+    assert result.traceability[0].requirement_terms == ["\u641c\u7d22", "\u5173\u952e\u8bcd"]
+
+
 def test_requirement_coverage_requires_explicit_filter_interaction_evidence() -> None:
     requirement = "\u9875\u9762\u9700\u652f\u6301\u6309\u72b6\u6001\u7b5b\u9009\u6761\u76ee\u3002"
 

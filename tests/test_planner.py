@@ -74,7 +74,7 @@ def test_planner_adds_requirement_coverage_criteria_to_acceptance_check() -> Non
 def test_planner_adds_filter_evidence_to_testing_checklist() -> None:
     workflow = WorkflowTemplate()
     planner = Planner()
-    requirement = "\u9875\u9762\u9700\u652f\u6301\u6309\u72b6\u6001\u7b5b\u9009\u6761\u76ee\u3002"
+    requirement = "\u9875\u9762\u9700\u652f\u6301\u6309\u5173\u952e\u8bcd\u641c\u7d22\u6761\u76ee\u3002"
 
     testing_workitems = planner.plan_stage_workitems(workflow.get_next_stage("development"), requirement)
     acceptance_check = testing_workitems[0]

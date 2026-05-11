@@ -124,7 +124,11 @@ COVERAGE_RULES: tuple[CoverageRule, ...] = (
         requirement_terms=(
             "\u7b5b\u9009",
             "\u8fc7\u6ee4",
+            "\u641c\u7d22",
+            "\u5173\u952e\u8bcd",
             "filter",
+            "search",
+            "query",
         ),
         evidence_terms=("browser filter interaction changed visible results",),
     ),
@@ -200,7 +204,10 @@ def _has_filter_interaction_requirement(normalized_requirement: str) -> bool:
         line = " ".join(raw_line.strip().split())
         if not line:
             continue
-        if not any(term.lower() in line for term in ("\u7b5b\u9009", "\u8fc7\u6ee4", "filter")):
+        if not any(
+            term.lower() in line
+            for term in ("\u7b5b\u9009", "\u8fc7\u6ee4", "\u641c\u7d22", "\u5173\u952e\u8bcd", "filter", "search", "query")
+        ):
             continue
         if any(term in line for term in sanitization_terms):
             continue
