@@ -283,6 +283,7 @@ def test_static_web_harness_reports_filter_interaction(tmp_path) -> None:
       <button type="submit">Add</button>
     </form>
     <input id="bookLookup" placeholder="\u641c\u7d22\u4e66\u7c4d">
+    <input id="unrelatedNotes" placeholder="Notes">
     <ul id="items"></ul>
     <script src="static/app.js"></script>
   </body>

@@ -389,7 +389,10 @@ class StaticWebHarness(BaseHarness):
             "input:not([type=button]):not([type=submit]):not([type=reset]):not([type=file]):not([type=hidden]), textarea, select"
         )
         preferred = re.compile(r"search|filter|query|筛选|过滤|搜索|关键词", re.IGNORECASE)
-        preferred = re.compile("search|filter|query|\u7b5b\u9009|\u8fc7\u6ee4|\u641c\u7d22|\u5173\u952e\u8bcd", re.IGNORECASE)
+        preferred = re.compile(
+            "search|filter|query|lookup|find|\u7b5b\u9009|\u8fc7\u6ee4|\u641c\u7d22|\u5173\u952e\u8bcd",
+            re.IGNORECASE,
+        )
         fallback = None
         for index in range(controls.count()):
             control = controls.nth(index)
