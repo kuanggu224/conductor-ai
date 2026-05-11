@@ -86,6 +86,33 @@ def test_testing_failure_feedback_extracts_requirement_coverage_gaps() -> None:
     assert "补齐缺失的冻结需求验收证据" in feedback.render_markdown()
 
 
+def test_testing_failure_feedback_suggests_filter_fix_for_missing_filter_coverage() -> None:
+    workitem = WorkItem(
+        id="workitem-filter",
+        description="Acceptance check",
+        stage="testing",
+        kind="acceptance_check",
+        failure_summary="Requirement coverage missing: filter interaction",
+        testing_checklist=[
+            {
+                "rule_id": "filter",
+                "label": "filter interaction",
+                "status": "pending",
+                "requirement_terms": ["filter"],
+                "required_evidence_terms": ["browser filter interaction changed visible results"],
+            }
+        ],
+    )
+
+    feedback = build_testing_failure_feedback(workitem, [])
+    markdown = feedback.render_markdown()
+
+    assert feedback.missing_coverage == ["filter interaction"]
+    assert feedback.missing_checklist_items[0]["rule_id"] == "filter"
+    assert "browser filter interaction changed visible results" in markdown
+    assert "filter/search input binding" in markdown
+
+
 def test_testing_feedback_for_rework_follows_feedback_from_testing_workitem() -> None:
     failed_test = WorkItem(
         id="workitem-ui-test",
