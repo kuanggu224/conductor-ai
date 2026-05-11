@@ -59,6 +59,7 @@ class BrowserExerciseResult:
     local_storage_changed: bool = False
     persisted_values: list[str] = field(default_factory=list)
     filter_interaction_changed: bool = False
+    delete_interaction_removed: bool = False
     download_triggered: bool = False
 
 
@@ -243,6 +244,8 @@ class StaticWebHarness(BaseHarness):
                     )
                 if exercise_result.filter_interaction_changed:
                     report.checks.append("Browser filter interaction changed visible results")
+                if exercise_result.delete_interaction_removed:
+                    report.checks.append("Browser delete interaction removed visible item")
                 if exercise_result.download_triggered:
                     report.checks.append("Browser export/download action triggered")
             if page_errors:
@@ -301,6 +304,7 @@ class StaticWebHarness(BaseHarness):
             reloaded_body = page.locator("body").inner_text(timeout=5_000).strip()
             result.persisted_values = [value for value in result.visible_values if self._value_visible(value, reloaded_body)]
             result.filter_interaction_changed = self._check_filter_interaction(page, result.persisted_values)
+            result.delete_interaction_removed = self._check_delete_interaction(page, result.persisted_values)
         return result
 
     def _exercise_loose_controls(self, page) -> BrowserExerciseResult:
@@ -337,6 +341,7 @@ class StaticWebHarness(BaseHarness):
             reloaded_body = page.locator("body").inner_text(timeout=5_000).strip()
             result.persisted_values = [value for value in result.visible_values if self._value_visible(value, reloaded_body)]
             result.filter_interaction_changed = self._check_filter_interaction(page, result.persisted_values)
+            result.delete_interaction_removed = self._check_delete_interaction(page, result.persisted_values)
         return result
 
     def _check_filter_interaction(self, page, visible_values: list[str]) -> bool:
@@ -400,6 +405,47 @@ class StaticWebHarness(BaseHarness):
                 return control
             fallback = control
         return fallback
+
+    def _check_delete_interaction(self, page, visible_values: list[str]) -> bool:
+        """Click a likely delete/remove action and verify a visible item disappears."""
+        if not visible_values:
+            return False
+        before_body = page.locator("body").inner_text(timeout=5_000).strip()
+        if not any(self._value_visible(value, before_body) for value in visible_values):
+            return False
+        action = self._delete_action(page)
+        if action is None:
+            return False
+        try:
+            action.click(timeout=5_000)
+            page.wait_for_timeout(300)
+            after_body = page.locator("body").inner_text(timeout=5_000).strip()
+            return any(
+                self._value_visible(value, before_body) and not self._value_visible(value, after_body)
+                for value in visible_values
+            )
+        except Exception:
+            return False
+
+    def _delete_action(self, page):
+        """Return the first likely delete/remove button or link."""
+        actions = page.locator("button, input[type=button], input[type=submit], a[role=button]")
+        preferred = re.compile("delete|remove|\u5220\u9664|\u79fb\u9664", re.IGNORECASE)
+        for index in range(actions.count()):
+            action = actions.nth(index)
+            label = " ".join(
+                [
+                    action.inner_text(timeout=1_000) if action.evaluate("el => el.tagName.toLowerCase()") != "input" else "",
+                    action.get_attribute("value") or "",
+                    action.get_attribute("aria-label") or "",
+                    action.get_attribute("title") or "",
+                    action.get_attribute("id") or "",
+                    action.get_attribute("class") or "",
+                ]
+            ).strip()
+            if preferred.search(label):
+                return action
+        return None
 
     def _primary_action_button(self, page):
         """Return the most likely submit/add button for non-form UIs."""

@@ -380,6 +380,58 @@ render();
     assert "Browser filter interaction changed visible results" in result.stdout
 
 
+def test_static_web_harness_reports_delete_interaction(tmp_path) -> None:
+    (tmp_path / "static").mkdir()
+    (tmp_path / "index.html").write_text(
+        """<!doctype html>
+<html>
+  <head><title>Delete Item</title></head>
+  <body>
+    <form id="addForm">
+      <input id="title" placeholder="Book title">
+      <button type="submit">Add</button>
+    </form>
+    <ul id="items"></ul>
+    <script src="static/app.js"></script>
+  </body>
+</html>
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "static" / "app.js").write_text(
+        """
+let items = JSON.parse(localStorage.getItem('items') || '[]');
+function save() {
+  localStorage.setItem('items', JSON.stringify(items));
+}
+function render() {
+  document.querySelector('#items').innerHTML = items
+    .map((item, index) => `<li>${item.title} <button class="delete" data-index="${index}">Delete</button></li>`)
+    .join('');
+}
+document.querySelector('#addForm').addEventListener('submit', event => {
+  event.preventDefault();
+  items.push({ title: document.querySelector('#title').value });
+  save();
+  render();
+});
+document.querySelector('#items').addEventListener('click', event => {
+  if (!event.target.matches('.delete')) return;
+  items.splice(Number(event.target.dataset.index), 1);
+  save();
+  render();
+});
+render();
+""",
+        encoding="utf-8",
+    )
+
+    result = StaticWebHarness().run(HarnessRequest(command=[], working_directory=str(tmp_path)))
+
+    assert result.success is True
+    assert "Browser delete interaction removed visible item" in result.stdout
+
+
 def test_static_web_harness_fails_missing_local_asset(tmp_path) -> None:
     (tmp_path / "index.html").write_text(
         """<!doctype html>

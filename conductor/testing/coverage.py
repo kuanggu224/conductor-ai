@@ -132,6 +132,17 @@ COVERAGE_RULES: tuple[CoverageRule, ...] = (
         ),
         evidence_terms=("browser filter interaction changed visible results",),
     ),
+    CoverageRule(
+        rule_id="delete_item",
+        label="delete item interaction",
+        requirement_terms=(
+            "\u5220\u9664",
+            "\u79fb\u9664",
+            "delete",
+            "remove",
+        ),
+        evidence_terms=("browser delete interaction removed visible item",),
+    ),
 )
 
 

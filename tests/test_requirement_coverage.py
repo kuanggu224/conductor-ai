@@ -90,3 +90,15 @@ def test_requirement_coverage_requires_explicit_filter_interaction_evidence() ->
     assert [rule.rule_id for rule in missing.missing_rules] == ["filter"]
     assert covered.passed is True
     assert covered.traceability[0].evidence_terms == ["browser filter interaction changed visible results"]
+
+
+def test_requirement_coverage_infers_delete_interaction() -> None:
+    requirement = "\u9875\u9762\u9700\u652f\u6301\u5220\u9664\u6761\u76ee\u3002"
+
+    missing = evaluate_requirement_coverage(requirement, "Browser form interaction updated visible state: sample")
+    covered = evaluate_requirement_coverage(requirement, "Browser delete interaction removed visible item")
+
+    assert [rule.rule_id for rule in missing.required_rules] == ["delete_item"]
+    assert missing.passed is False
+    assert covered.passed is True
+    assert covered.traceability[0].evidence_terms == ["browser delete interaction removed visible item"]
