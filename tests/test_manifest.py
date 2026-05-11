@@ -539,7 +539,8 @@ def test_manifest_records_requirement_coverage_results(tmp_path) -> None:
         "\u7528\u6237\u53ef\u4ee5\u6dfb\u52a0\u4e66\u7c4d\uff0c"
         "\u5237\u65b0\u540e\u4fdd\u7559\u6570\u636e\uff0c"
         "\u5e76\u5bfc\u51fa CSV\uff0c"
-        "\u652f\u6301\u6309\u72b6\u6001\u7b5b\u9009\u6761\u76ee\u3002"
+        "\u652f\u6301\u6309\u72b6\u6001\u7b5b\u9009\u6761\u76ee\uff0c"
+        "\u652f\u6301\u5220\u9664\u6761\u76ee\u3002"
     )
     validation_item = WorkItem(
         id="workitem-validation",
@@ -558,6 +559,7 @@ def test_manifest_records_requirement_coverage_results(tmp_path) -> None:
                     [
                         "Browser form interaction updated visible state: sample",
                         "Browser filter interaction changed visible results",
+                        "Browser delete interaction removed visible item",
                         "Browser export/download action triggered",
                     ]
                 ),
@@ -590,8 +592,8 @@ def test_manifest_records_requirement_coverage_results(tmp_path) -> None:
             "agent_id": "agent-tester",
             "status": "missing_coverage",
             "passed": False,
-            "required_rules": ["add_item", "persistence", "export_csv", "filter"],
-            "covered_rules": ["add_item", "export_csv", "filter"],
+            "required_rules": ["add_item", "persistence", "export_csv", "filter", "delete_item"],
+            "covered_rules": ["add_item", "export_csv", "filter", "delete_item"],
             "missing_rules": ["persistence"],
             "missing_labels": ["refresh persistence"],
             "traceability": [
@@ -622,6 +624,13 @@ def test_manifest_records_requirement_coverage_results(tmp_path) -> None:
                     "status": "covered",
                     "requirement_terms": ["\u7b5b\u9009"],
                     "evidence_terms": ["browser filter interaction changed visible results"],
+                },
+                {
+                    "rule_id": "delete_item",
+                    "label": "delete item interaction",
+                    "status": "covered",
+                    "requirement_terms": ["\u5220\u9664"],
+                    "evidence_terms": ["browser delete interaction removed visible item"],
                 },
             ],
             "summary": "Requirement coverage missing: refresh persistence",
