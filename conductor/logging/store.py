@@ -15,7 +15,7 @@ from conductor.execution.failure_policy import remediation_suggestions
 from conductor.preflight_gate import read_preflight_gate
 from conductor.task_center.service import TaskCenterService
 from conductor.testing.coverage import evaluate_requirement_coverage
-from conductor.testing.failure_feedback import build_testing_failure_feedback
+from conductor.testing.failure_feedback import build_testing_feedback_for_workitem
 
 
 @dataclass(slots=True)
@@ -282,25 +282,7 @@ class ProjectLogStore:
 
     def _testing_feedback_for_workitem(self, state: SharedProjectState, item) -> list:
         """Return structured testing feedback related to this WorkItem."""
-        testing_items = []
-        if item.stage == "testing" and (item.failure_type or item.failure_summary or item.blocked_reason or item.result):
-            testing_items.append(item)
-        if item.feedback_from:
-            by_id = {workitem.id: workitem for workitem in state.workitems}
-            testing_items.extend(
-                workitem
-                for workitem_id in item.feedback_from
-                if (workitem := by_id.get(workitem_id)) is not None and workitem.stage == "testing"
-            )
-        feedback_items = []
-        seen: set[str] = set()
-        for testing_item in testing_items:
-            if testing_item.id in seen:
-                continue
-            seen.add(testing_item.id)
-            artifacts = [artifact for artifact in state.artifacts if artifact.workitem_id == testing_item.id]
-            feedback_items.append(build_testing_failure_feedback(testing_item, artifacts))
-        return feedback_items
+        return build_testing_feedback_for_workitem(state, item)
 
     def _preflight_gate_lines(self, state: SharedProjectState) -> list[str]:
         """Render persisted run preflight gate evidence for human reports."""

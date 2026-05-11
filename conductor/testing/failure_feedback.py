@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from conductor.domain.models import Artifact, WorkItem
+from conductor.domain.models import Artifact, SharedProjectState, WorkItem
 
 
 @dataclass(slots=True)
@@ -65,6 +65,39 @@ def build_testing_failure_feedback(workitem: WorkItem, artifacts: list[Artifact]
         failing_checks=failing_checks[:8],
         missing_coverage=missing_coverage[:8],
         suggested_actions=suggested_actions[:8],
+    )
+
+
+def build_testing_feedback_for_workitem(state: SharedProjectState, workitem: WorkItem) -> list[TestingFailureFeedback]:
+    """Return structured testing feedback related to a WorkItem or its feedback sources."""
+    testing_items: list[WorkItem] = []
+    if workitem.stage == "testing":
+        testing_items.append(workitem)
+    if workitem.feedback_from:
+        by_id = {item.id: item for item in state.workitems}
+        testing_items.extend(
+            item
+            for workitem_id in workitem.feedback_from
+            if (item := by_id.get(workitem_id)) is not None and item.stage == "testing"
+        )
+
+    feedback_items: list[TestingFailureFeedback] = []
+    seen: set[str] = set()
+    for testing_item in testing_items:
+        if testing_item.id in seen:
+            continue
+        seen.add(testing_item.id)
+        artifacts = [artifact for artifact in state.artifacts if artifact.workitem_id == testing_item.id]
+        if not _has_testing_failure_evidence(testing_item) and not artifacts:
+            continue
+        feedback_items.append(build_testing_failure_feedback(testing_item, artifacts))
+    return feedback_items
+
+
+def _has_testing_failure_evidence(workitem: WorkItem) -> bool:
+    return (
+        workitem.stage == "testing"
+        and bool(workitem.failure_type or workitem.failure_summary or workitem.blocked_reason or workitem.result)
     )
 
 
@@ -178,4 +211,4 @@ def _dedupe(values) -> list[str]:
     return result
 
 
-__all__ = ["TestingFailureFeedback", "build_testing_failure_feedback"]
+__all__ = ["TestingFailureFeedback", "build_testing_failure_feedback", "build_testing_feedback_for_workitem"]

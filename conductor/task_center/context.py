@@ -7,7 +7,7 @@ from dataclasses import asdict
 from conductor.artifacts.store import ArtifactStore
 from conductor.domain.models import Artifact, SharedProjectState, TaskAssignment
 from conductor.task_center.service import TaskCenterError, TaskCenterService
-from conductor.testing.failure_feedback import build_testing_failure_feedback
+from conductor.testing.failure_feedback import build_testing_feedback_for_workitem
 
 
 class TaskContextBuilder:
@@ -229,16 +229,11 @@ class TaskContextBuilder:
 
     def _testing_feedback_payloads(self, state: SharedProjectState, feedback_from: list[str]) -> list[dict[str, object]]:
         """Return machine-readable structured feedback for failed testing WorkItems."""
-        feedback_items = [
-            item
-            for item in state.workitems
-            if item.id in feedback_from and item.stage == "testing"
-        ]
         payloads: list[dict[str, object]] = []
-        for item in feedback_items:
-            artifacts = [artifact for artifact in state.artifacts if artifact.workitem_id == item.id]
-            feedback = build_testing_failure_feedback(item, artifacts)
-            payloads.append(asdict(feedback))
+        for item in state.workitems:
+            if item.id not in feedback_from or item.stage != "testing":
+                continue
+            payloads.extend(asdict(feedback) for feedback in build_testing_feedback_for_workitem(state, item))
         return payloads
 
     def _ensure_frozen_requirement_input(

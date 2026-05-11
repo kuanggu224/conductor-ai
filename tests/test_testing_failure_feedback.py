@@ -1,7 +1,7 @@
 """Structured testing failure feedback tests."""
 
-from conductor.domain.models import Artifact, WorkItem
-from conductor.testing.failure_feedback import build_testing_failure_feedback
+from conductor.domain.models import Artifact, Project, ProjectStatus, SharedProjectState, WorkItem
+from conductor.testing.failure_feedback import build_testing_failure_feedback, build_testing_feedback_for_workitem
 
 
 def test_testing_failure_feedback_extracts_static_web_errors_and_suggestions() -> None:
@@ -65,3 +65,42 @@ def test_testing_failure_feedback_extracts_requirement_coverage_gaps() -> None:
 
     assert feedback.missing_coverage == ["refresh persistence", "CSV export/download"]
     assert "补齐缺失的冻结需求验收证据" in feedback.render_markdown()
+
+
+def test_testing_feedback_for_rework_follows_feedback_from_testing_workitem() -> None:
+    failed_test = WorkItem(
+        id="workitem-ui-test",
+        description="Validate UI",
+        stage="testing",
+        kind="ui_validation",
+        failure_type="validation_failed",
+        failure_summary="Validation exit_code=1",
+    )
+    rework = WorkItem(
+        id="workitem-ui-rework",
+        description="Fix UI",
+        stage="development",
+        kind="ui_implementation",
+        feedback_from=[failed_test.id],
+    )
+    artifact = Artifact(
+        id="artifact-ui-test",
+        project_id="project-1",
+        workitem_id=failed_test.id,
+        agent_id="agent-tester",
+        kind="ui_validation",
+        title="Failed UI Validation",
+        content="- Browser form submit did not change visible page state",
+    )
+    state = SharedProjectState(
+        project=Project(id="project-1", goal="Build UI", current_stage="development"),
+        project_status=ProjectStatus.IN_PROGRESS,
+        current_stage="development",
+        workitems=[failed_test, rework],
+        artifacts=[artifact],
+    )
+
+    feedback = build_testing_feedback_for_workitem(state, rework)
+
+    assert [item.workitem_id for item in feedback] == [failed_test.id]
+    assert "Browser form submit did not change visible page state" in feedback[0].failing_checks
