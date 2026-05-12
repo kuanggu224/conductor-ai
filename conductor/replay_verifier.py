@@ -900,6 +900,8 @@ class ManifestVerifier:
                 self._warn_non_list_fields(run, f"{run_list_name}[{index}]", ("output_files",), result)
                 if run_list_name == "llm_runs" and "token_usage" in run:
                     self._verify_token_usage(run.get("token_usage"), f"llm_runs[{index}].token_usage", result)
+                if run_list_name == "llm_runs":
+                    self._verify_llm_run_identity(run, f"llm_runs[{index}]", result)
                 self._verify_run_references(
                     run_list_name,
                     index,
@@ -1228,6 +1230,18 @@ class ManifestVerifier:
                 result.warnings.append(f"{owner}.{key} must be an integer")
             elif parsed < 0:
                 result.warnings.append(f"{owner}.{key} must be non-negative")
+
+    def _verify_llm_run_identity(self, run: dict[str, Any], owner: str, result: ManifestVerificationResult) -> None:
+        """Warn when an LLM run cannot prove which concrete model was called."""
+        source_backend = str(run.get("source_backend", ""))
+        model = str(run.get("model", "")).strip()
+        if not model:
+            result.warnings.append(f"{owner}.model is missing; cannot audit actual LLM provider usage")
+            return
+        if source_backend.startswith("llm/") and model in {"local", "cloud", "hybrid", "unknown"}:
+            result.warnings.append(
+                f"{owner}.model should identify the actual model, not the backend label: {model}"
+            )
 
     def _safe_token_usage(self, value: Any) -> dict[str, int] | None:
         """Return token usage when every value is a non-negative integer."""

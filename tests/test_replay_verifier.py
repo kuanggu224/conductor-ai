@@ -2331,6 +2331,48 @@ def test_manifest_verifier_warns_for_malformed_llm_run_token_usage(tmp_path) -> 
     assert "llm_runs[0].token_usage.completion_tokens must be an integer" in result.warnings
 
 
+def test_manifest_verifier_warns_when_llm_run_model_is_not_auditable(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "summary": {
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 2,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+            },
+            "llm_runs": [
+                {
+                    "source_backend": "llm/cloud",
+                    "agent_id": "agent-llm",
+                    "model": "cloud",
+                    "token_usage": {},
+                    "output_files": [],
+                },
+                {
+                    "source_backend": "llm/cloud",
+                    "agent_id": "agent-llm",
+                    "token_usage": {},
+                    "output_files": [],
+                },
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert "llm_runs[0].model should identify the actual model, not the backend label: cloud" in result.warnings
+    assert "llm_runs[1].model is missing; cannot audit actual LLM provider usage" in result.warnings
+
+
 def test_manifest_verifier_rejects_run_unknown_workitem_references(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,
