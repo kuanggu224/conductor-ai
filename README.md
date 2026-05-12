@@ -193,11 +193,21 @@ Validate the configured key without printing it:
 python -m app.requirement_benchmark preflight --backend cloud --output-dir .conductor\diagnostics\jiutian-preflight
 ```
 
+The preflight writes both `cloud.preflight.txt` and `cloud.preflight.json`.
+The JSON file records `success`, `model`, `base_url`, `duration_ms`, `error`,
+and `content`, but never stores the API key.
+
 Run one platform-vs-direct requirement check with the cloud backend:
 
 ```powershell
 python -m app.requirement_benchmark run-suite --cases reading_list --output-dir .conductor\diagnostics\jiutian-reading-list --platform-llm cloud --direct-llm cloud --direct-prompt-mode plain --max-steps 4 --collaboration-max-rounds 1 --static-requirement-review
 ```
+
+To confirm a project actually used Jiutian, inspect the generated run manifest:
+`summary.llm_models` should contain `jiutian-lan-comv3`, and
+`summary.llm_source_backends` should show the LLM path used by the run. The
+manifest verifier warns when an LLM run only records a generic backend label
+such as `cloud` instead of a concrete model name.
 
 ### Manifest Verification
 
