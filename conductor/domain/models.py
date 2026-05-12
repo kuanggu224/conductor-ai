@@ -185,6 +185,10 @@ class AgentTeamPlan:
     complexity_level: str
     reasons: list[str] = field(default_factory=list)
     agent_specs: list[DynamicAgentSpec] = field(default_factory=list)
+    decision_source: str = "rule_planner"
+    decided_by: str = ""
+    decision_summary: str = ""
+    fallback_reason: str = ""
 
 
 @dataclass(slots=True)

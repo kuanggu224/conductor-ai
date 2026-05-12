@@ -2,7 +2,8 @@
 
 from conductor.agents.registry import AgentRegistry
 from conductor.agents.team_planner import AgentTeamPlanner
-from conductor.domain.models import Project, ProjectStatus, SharedProjectState, WorkItem
+from conductor.controller.tl_agent import TechnicalLeadAgent
+from conductor.domain.models import Project, ProjectStatus, SharedProjectState, WorkItem, WorkItemStatus
 
 
 def test_agent_team_planner_generates_same_role_frontend_instances() -> None:
@@ -95,3 +96,51 @@ def test_agent_registry_registers_dynamic_agent_instance() -> None:
     assert agent.role == "frontend_engineer"
     assert registry.get_agent_by_id(agent.id) is agent
     assert agent.profile is profile
+
+
+def test_tl_agent_owns_dynamic_team_plan_decision() -> None:
+    planner = AgentTeamPlanner()
+    tl_agent = TechnicalLeadAgent()
+    state = SharedProjectState(
+        project=Project(id="project-tl-team", goal="Build an API and UI page with data storage.", current_stage="development"),
+        project_status=ProjectStatus.IN_PROGRESS,
+        current_stage="development",
+        workitems=[
+            WorkItem(id="workitem-ui", description="Implement UI page.", stage="development", kind="ui_implementation"),
+            WorkItem(id="workitem-api", description="Implement API and data model.", stage="development", kind="api_implementation"),
+        ],
+    )
+
+    plan = tl_agent.plan_agent_team(state, planner)
+
+    assert plan.decision_source == "tl_agent"
+    assert plan.decided_by == "tl_agent"
+    assert "candidate_specs=" in plan.decision_summary
+    assert any(spec.role == "frontend_engineer" for spec in plan.agent_specs)
+    assert any(spec.role == "backend_engineer" for spec in plan.agent_specs)
+
+
+def test_tl_agent_adds_runtime_failure_triage_agent() -> None:
+    planner = AgentTeamPlanner()
+    tl_agent = TechnicalLeadAgent()
+    state = SharedProjectState(
+        project=Project(id="project-tl-risk", goal="Build a backend worker.", current_stage="development"),
+        project_status=ProjectStatus.IN_PROGRESS,
+        current_stage="development",
+        workitems=[
+            WorkItem(
+                id="workitem-dev",
+                description="Implement backend worker.",
+                stage="development",
+                kind="generic_implementation",
+                status=WorkItemStatus.FAILED,
+                retry_count=1,
+            )
+        ],
+    )
+
+    plan = tl_agent.plan_agent_team(state, planner, trigger="runtime_risk")
+
+    assert plan.decision_source == "tl_agent"
+    assert plan.complexity_level == "complex"
+    assert any(spec.role == "tester" and spec.instance_id == "failure_triage" for spec in plan.agent_specs)

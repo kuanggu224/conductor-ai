@@ -116,6 +116,7 @@ def test_file_state_store_persists_agent_team_plans(tmp_path) -> None:
     restored = FileStateStore(state_dir).get_state("project-team-plan")
 
     assert restored.agent_team_plans[0].stage == "development"
+    assert restored.agent_team_plans[0].decision_source == plan.decision_source
     assert restored.agent_team_plans[0].agent_specs[0].agent_id.startswith("agent-")
     assert restored.agent_team_plans[0].agent_specs[0].write_scope
 

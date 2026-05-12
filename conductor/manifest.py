@@ -548,6 +548,10 @@ class RunManifestWriter:
             "trigger": plan.trigger,
             "complexity_level": plan.complexity_level,
             "reasons": list(plan.reasons),
+            "decision_source": getattr(plan, "decision_source", "rule_planner"),
+            "decided_by": getattr(plan, "decided_by", ""),
+            "decision_summary": getattr(plan, "decision_summary", ""),
+            "fallback_reason": getattr(plan, "fallback_reason", ""),
             "agent_specs": [
                 {
                     "role": spec.role,

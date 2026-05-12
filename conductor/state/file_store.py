@@ -268,6 +268,10 @@ class FileStateStore(InMemoryStateStore):
             complexity_level=data.get("complexity_level", "simple"),
             reasons=list(data.get("reasons", [])),
             agent_specs=[self._dynamic_agent_spec(item) for item in data.get("agent_specs", [])],
+            decision_source=data.get("decision_source", "rule_planner"),
+            decided_by=data.get("decided_by", ""),
+            decision_summary=data.get("decision_summary", ""),
+            fallback_reason=data.get("fallback_reason", ""),
         )
 
     def _dynamic_agent_spec(self, data: dict[str, Any]) -> DynamicAgentSpec:

@@ -458,6 +458,8 @@ def test_agent_team_planner_creates_dynamic_agents_on_development_stage() -> Non
     development_plan = next(plan for plan in state.agent_team_plans if plan.stage == "development")
     dynamic_activations = [activation for activation in state.agent_activations if activation.dynamic]
 
+    assert development_plan.decision_source == "tl_agent"
+    assert development_plan.decided_by == "tl_agent"
     assert development_plan.agent_specs
     assert any(spec.role == "frontend_engineer" and spec.instance_id == "ui_layout" for spec in development_plan.agent_specs)
     assert any(spec.role == "frontend_engineer" and spec.instance_id == "state_logic" for spec in development_plan.agent_specs)

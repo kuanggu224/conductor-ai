@@ -149,6 +149,8 @@ class LeadController:
             gate_history=[*latest.gate_history, f"{state.current_stage}:{gate_decision.value}"],
         )
         latest = self.tl_agent.append_decision(latest, action)
+        if action in {"retry_workitem", "feedback_rework", "escalate_project"}:
+            latest = self._apply_agent_team_plan_to_state(latest, trigger="runtime_risk")
         self.state_store.save_state(latest)
         self.state_store.add_event(project_id, f"TLAgent 决策: {latest.tl_decisions[-1].summary}")
         self.state_store.add_event(project_id, f"GateDecision: {state.current_stage} -> {gate_decision.value}")
@@ -1086,7 +1088,7 @@ class LeadController:
         """Generate and persist dynamic Agent instances for the current stage."""
         if any(plan.stage == state.current_stage and plan.trigger == trigger for plan in state.agent_team_plans):
             return state
-        plan = self.agent_team_planner.plan(state, trigger=trigger)
+        plan = self.tl_agent.plan_agent_team(state, self.agent_team_planner, trigger=trigger)
         if not plan.agent_specs:
             return state
         activations = [self._activation_from_dynamic_spec(spec) for spec in plan.agent_specs]
@@ -1132,8 +1134,8 @@ class LeadController:
         """Build a compact event for a generated Agent team plan."""
         agent_ids = ", ".join(spec.agent_id for spec in plan.agent_specs)
         return (
-            f"AgentTeamPlanner 生成团队计划 {plan.id}: "
-            f"stage={plan.stage}, level={plan.complexity_level}, agents={agent_ids}"
+            f"TLAgent 生成团队计划 {plan.id}: "
+            f"stage={plan.stage}, level={plan.complexity_level}, source={plan.decision_source}, agents={agent_ids}"
         )
 
     def _build_agent_activation_events(self, activations: list[AgentActivation]) -> list[str]:

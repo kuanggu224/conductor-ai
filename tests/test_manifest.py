@@ -27,7 +27,7 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     manifest_path = engine.write_run_manifest(state.project.id, report_path)
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-    assert payload["schema_version"] == "1.33"
+    assert payload["schema_version"] == "1.34"
     assert payload["run_id"].startswith(state.project.id)
     assert payload["project_id"] == state.project.id
     assert payload["run_profile"] == "mock"
@@ -128,6 +128,9 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     assert isinstance(payload["summary"]["llm_context_windows"], list)
     assert payload["summary"]["collaboration_run_count"] == len(payload["collaboration_runs"])
     assert payload["summary"]["agent_team_plan_count"] == len(payload["agent_team_plans"])
+    if payload["agent_team_plans"]:
+        assert "decision_source" in payload["agent_team_plans"][0]
+        assert "decided_by" in payload["agent_team_plans"][0]
     assert payload["summary"]["tl_decision_count"] == len(payload["tl_decisions"])
     assert payload["summary"]["human_control_action_count"] == len(payload["human_control_actions"])
     assert isinstance(payload["summary"]["changed_files"], list)

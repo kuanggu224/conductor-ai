@@ -69,6 +69,34 @@ class AgentTeamPlanner:
             default_workitem_kinds=list(spec.workitem_kinds),
         )
 
+    def build_spec(
+        self,
+        *,
+        role: str,
+        instance_id: str,
+        stage: str,
+        mission: str,
+        reason: str,
+        scope: str,
+        mode: str,
+        parallel_safe: bool = False,
+        write_scope: list[str] | None = None,
+        workitem_kinds: list[str] | None = None,
+    ) -> DynamicAgentSpec:
+        """Build a dynamic Agent spec for controller/TL-owned planning overlays."""
+        return self._spec(
+            role=role,
+            instance_id=instance_id,
+            stage=stage,
+            mission=mission,
+            reason=reason,
+            scope=scope,
+            mode=mode,
+            parallel_safe=parallel_safe,
+            write_scope=write_scope,
+            workitem_kinds=workitem_kinds,
+        )
+
     def _planning_specs(self, stage: str, features: set[str], workitems: list[WorkItem]) -> list[DynamicAgentSpec]:
         specs: list[DynamicAgentSpec] = []
         if "ui" in features:
