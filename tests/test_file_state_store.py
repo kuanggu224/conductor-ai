@@ -52,6 +52,7 @@ def test_file_state_store_persists_and_reloads_project(tmp_path) -> None:
     assert isinstance(restored.task_assignments[0].last_heartbeat_at, str)
     assert restored.workitems[0].testing_checklist[0]["rule_id"] == "add_item"
     assert restored.agent_capability_stats[0].completed_count == 1
+    assert restored.tl_decisions[0].action == "execute_workitem"
     assert [activation.role for activation in restored.agent_activations] == [
         activation.role for activation in state.agent_activations
     ]

@@ -8,6 +8,7 @@ from uuid import uuid4
 from conductor.agents.registry import AgentRegistry
 from conductor.collaboration.models import CollaborationStatus
 from conductor.collaboration.runner import CollaborationRunner
+from conductor.controller.tl_agent import TechnicalLeadAgent
 from conductor.context.builder import ContextBuilder
 from conductor.domain.models import (
     AgentActivation,
@@ -58,6 +59,7 @@ class LeadController:
         self.gate_evaluator = gate_evaluator or WorkflowGateEvaluator()
         self.collaboration_runner = collaboration_runner
         self.context_builder = ContextBuilder()
+        self.tl_agent = TechnicalLeadAgent()
 
     def initialize_project(self, requirement: str, project_root: str | None = None) -> SharedProjectState:
         """Initialize a project and register its first-stage tasks."""
@@ -137,7 +139,9 @@ class LeadController:
             latest,
             gate_history=[*latest.gate_history, f"{state.current_stage}:{gate_decision.value}"],
         )
+        latest = self.tl_agent.append_decision(latest, action)
         self.state_store.save_state(latest)
+        self.state_store.add_event(project_id, f"TLAgent 决策: {latest.tl_decisions[-1].summary}")
         self.state_store.add_event(project_id, f"GateDecision: {state.current_stage} -> {gate_decision.value}")
 
         if action == "execute_workitem":

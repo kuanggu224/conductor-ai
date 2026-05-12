@@ -40,6 +40,7 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     assert payload["executions"]
     assert "llm_runs" in payload
     assert "collaboration_runs" in payload
+    assert "tl_decisions" in payload
     assert "retry_history" in payload
     assert "team_plan" in payload["collaboration_runs"][0]
     assert "requirement_evaluations" in payload
@@ -124,6 +125,7 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     assert isinstance(payload["summary"]["llm_cost_estimate"], dict)
     assert isinstance(payload["summary"]["llm_context_windows"], list)
     assert payload["summary"]["collaboration_run_count"] == len(payload["collaboration_runs"])
+    assert payload["summary"]["tl_decision_count"] == len(payload["tl_decisions"])
     assert isinstance(payload["summary"]["changed_files"], list)
     assert payload["summary"]["changed_file_count"] == len(payload["summary"]["changed_files"])
     assert payload["summary"]["artifact_file_count"] == len(payload["artifact_files"])

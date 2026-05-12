@@ -53,6 +53,7 @@ class RunManifest:
     cli_runs: list[dict[str, object]]
     llm_runs: list[dict[str, object]]
     collaboration_runs: list[dict[str, object]]
+    tl_decisions: list[dict[str, object]]
     retry_history: list[dict[str, object]]
     requirement_evaluations: list[dict[str, object]]
     requirement_coverage_results: list[dict[str, object]]
@@ -154,6 +155,7 @@ class RunManifestWriter:
                 "llm_cost_estimate": llm_cost_estimate,
                 "llm_context_windows": llm_context_windows,
                 "collaboration_run_count": len(collaboration_runs),
+                "tl_decision_count": len(state.tl_decisions),
                 "changed_file_count": len(self._changed_files(executions)),
                 "changed_files": self._changed_files(executions),
                 "artifact_file_count": len(artifact_files),
@@ -171,6 +173,7 @@ class RunManifestWriter:
             cli_runs=cli_runs,
             llm_runs=llm_runs,
             collaboration_runs=collaboration_runs,
+            tl_decisions=[self._tl_decision_record(decision) for decision in state.tl_decisions],
             retry_history=retry_history,
             requirement_evaluations=requirement_evaluations,
             requirement_coverage_results=requirement_coverage_results,
@@ -512,6 +515,20 @@ class RunManifestWriter:
     def _non_retryable_failure_count(self, state: SharedProjectState) -> int:
         """Return non-retryable failed WorkItem count."""
         return len([item for item in state.workitems if item.status.value == "failed" and not item.retryable])
+
+    def _tl_decision_record(self, decision) -> dict[str, object]:
+        """Return a manifest-safe TL decision record."""
+        return {
+            "id": decision.id,
+            "project_id": decision.project_id,
+            "stage": decision.stage,
+            "action": decision.action,
+            "risk_level": decision.risk_level,
+            "summary": decision.summary,
+            "recommendations": list(decision.recommendations),
+            "human_action_required": decision.human_action_required,
+            "created_at": decision.created_at,
+        }
 
     def _retry_history(self, state: SharedProjectState) -> list[dict[str, object]]:
         """Return structured retry and exhausted-failure evidence per WorkItem."""

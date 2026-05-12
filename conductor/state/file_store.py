@@ -30,6 +30,7 @@ from conductor.domain.models import (
     SharedProjectState,
     TaskAssignment,
     TaskAssignmentStatus,
+    TLDecision,
     WorkItem,
     WorkItemStatus,
 )
@@ -148,6 +149,7 @@ class FileStateStore(InMemoryStateStore):
             agent_capability_stats=[
                 self._agent_capability_stats(item) for item in data.get("agent_capability_stats", [])
             ],
+            tl_decisions=[self._tl_decision(item) for item in data.get("tl_decisions", [])],
         )
 
     def _project(self, data: dict[str, Any]) -> Project:
@@ -242,6 +244,19 @@ class FileStateStore(InMemoryStateStore):
             related_workitem_kinds=list(data.get("related_workitem_kinds", [])),
             execution_backend=data.get("execution_backend", "mock"),
             preferred_backend=data.get("preferred_backend", "local"),
+        )
+
+    def _tl_decision(self, data: dict[str, Any]) -> TLDecision:
+        return TLDecision(
+            id=data["id"],
+            project_id=data.get("project_id", ""),
+            stage=data.get("stage", ""),
+            action=data.get("action", ""),
+            risk_level=data.get("risk_level", "low"),
+            summary=data.get("summary", ""),
+            recommendations=list(data.get("recommendations", [])),
+            human_action_required=bool(data.get("human_action_required", False)),
+            created_at=data.get("created_at", ""),
         )
 
     def _artifact(self, data: dict[str, Any]) -> Artifact:

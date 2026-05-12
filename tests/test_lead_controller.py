@@ -302,6 +302,18 @@ def test_task_center_records_claim_and_return() -> None:
     assert any("任务中心" in event for event in state.recent_events)
 
 
+def test_advance_records_tl_decision(tmp_path) -> None:
+    controller = build_controller()
+    state = controller.initialize_project("Build a small static app", project_root=str(tmp_path / "project"))
+
+    state = controller.advance(state)
+
+    assert state.tl_decisions
+    assert state.tl_decisions[-1].action == "execute_workitem"
+    assert state.tl_decisions[-1].risk_level == "low"
+    assert any("TLAgent 决策" in event for event in state.recent_events)
+
+
 def test_next_stage_workitems_depend_on_previous_stage() -> None:
     controller = build_controller()
     state = controller.initialize_project("实现 API 和 UI 页面")

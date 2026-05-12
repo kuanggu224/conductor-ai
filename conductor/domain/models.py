@@ -178,6 +178,21 @@ class AgentCapabilityStats:
 
 
 @dataclass(slots=True)
+class TLDecision:
+    """Technical lead control-plane decision snapshot."""
+
+    id: str
+    project_id: str
+    stage: str
+    action: str
+    risk_level: str
+    summary: str
+    recommendations: list[str] = field(default_factory=list)
+    human_action_required: bool = False
+    created_at: str = ""
+
+
+@dataclass(slots=True)
 class RouteDecision:
     """WorkItem 到 Agent 的路由结果。"""
 
@@ -225,6 +240,7 @@ class SharedProjectState:
     gate_history: list[str] = field(default_factory=list)
     pending_test_scope: list[str] = field(default_factory=list)
     agent_capability_stats: list[AgentCapabilityStats] = field(default_factory=list)
+    tl_decisions: list[TLDecision] = field(default_factory=list)
 
 
 # Sprint 1 兼容别名：部分文档会把 Execution 称为 ExecutionResult。
@@ -247,6 +263,7 @@ __all__ = [
     "Stage",
     "TaskAssignment",
     "TaskAssignmentStatus",
+    "TLDecision",
     "WorkItem",
     "WorkItemStatus",
 ]

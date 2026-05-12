@@ -11,6 +11,7 @@ from conductor.domain.models import (
     RouteDecision,
     SharedProjectState,
     Stage,
+    TLDecision,
     WorkItem,
 )
 from conductor.memory.models import GlobalMemory
@@ -28,6 +29,14 @@ def test_core_models_can_be_created() -> None:
         input_artifact_ids=["artifact-0"],
     )
     route = RouteDecision(workitem_id=workitem.id, selected_agent="agent-1")
+    tl_decision = TLDecision(
+        id="tl-0001",
+        project_id=project.id,
+        stage=stage.name,
+        action="execute_workitem",
+        risk_level="low",
+        summary="TL action=execute_workitem",
+    )
     artifact = Artifact(
         id="artifact-1",
         project_id=project.id,
@@ -45,6 +54,7 @@ def test_core_models_can_be_created() -> None:
         current_stage=stage.name,
         workitems=[workitem],
         artifacts=[artifact],
+        tl_decisions=[tl_decision],
     )
     memory = GlobalMemory(project_memory=["需求已记录"])
     context = ContextPack(
@@ -59,6 +69,7 @@ def test_core_models_can_be_created() -> None:
     assert execution.status == ExecutionStatus.SUCCESS
     assert execution.input_artifact_ids == ["artifact-0"]
     assert route.selected_agent == "agent-1"
+    assert state.tl_decisions[0].risk_level == "low"
     assert state.artifacts[0].title == "设计文档"
     assert state.artifacts[0].version == 1
     assert state.artifacts[0].derived_from == ["artifact-0"]
