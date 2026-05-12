@@ -57,4 +57,14 @@ def test_system_config_save_and_load_round_trip(tmp_path) -> None:
     assert loaded.planner.ui_keywords == ("ui", "页面")
     assert loaded.collaboration.max_rounds == 3
     assert loaded.collaboration.enabled_kinds == {"requirement_spec", "design_overview"}
+    assert loaded.collaboration.lead_role_by_kind["requirement_spec"] == "requirement_designer"
+    assert loaded.collaboration.peer_reviewer_roles_by_stage["development"] == [
+        "backend_engineer",
+        "frontend_engineer",
+    ]
+    assert loaded.collaboration.reviewer_roles_by_stage["testing"] == [
+        "backend_engineer",
+        "frontend_engineer",
+        "solution_designer",
+    ]
     assert loaded.agents.default_profiles[0]["role_name"] == "designer"

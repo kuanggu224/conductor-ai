@@ -33,12 +33,16 @@ class CollaborationPolicy:
         default_factory=lambda: {
             "requirement": ["designer", "solution_designer"],
             "design": ["requirement_designer", "solution_designer"],
+            "development": ["backend_engineer", "frontend_engineer"],
+            "testing": ["tester"],
         }
     )
     reviewer_roles_by_stage: dict[str, list[str]] = field(
         default_factory=lambda: {
             "requirement": ["backend_engineer", "frontend_engineer", "tester"],
             "design": ["backend_engineer", "frontend_engineer", "tester"],
+            "development": ["solution_designer", "tester"],
+            "testing": ["backend_engineer", "frontend_engineer", "solution_designer"],
         }
     )
     enabled_kinds: set[str] = field(default_factory=lambda: {"requirement_spec", "design_overview"})

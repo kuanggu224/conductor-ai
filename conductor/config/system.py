@@ -194,12 +194,16 @@ class CollaborationConfig:
         default_factory=lambda: {
             "requirement": ["designer", "solution_designer"],
             "design": ["requirement_designer", "solution_designer"],
+            "development": ["backend_engineer", "frontend_engineer"],
+            "testing": ["tester"],
         }
     )
     reviewer_roles_by_stage: dict[str, list[str]] = field(
         default_factory=lambda: {
             "requirement": ["backend_engineer", "frontend_engineer", "tester"],
             "design": ["backend_engineer", "frontend_engineer", "tester"],
+            "development": ["solution_designer", "tester"],
+            "testing": ["backend_engineer", "frontend_engineer", "solution_designer"],
         }
     )
     enabled_kinds: set[str] = field(default_factory=lambda: {"requirement_spec", "design_overview"})
@@ -281,6 +285,8 @@ class SystemConfig:
             )
         )
         peer_reviewers.setdefault("requirement", ["designer", "solution_designer"])
+        peer_reviewers.setdefault("development", ["backend_engineer", "frontend_engineer"])
+        peer_reviewers.setdefault("testing", ["tester"])
         functional_reviewers = dict(
             collaboration_section.get(
                 "reviewer_roles_by_stage",
@@ -288,6 +294,8 @@ class SystemConfig:
             )
         )
         functional_reviewers.setdefault("requirement", ["backend_engineer", "frontend_engineer", "tester"])
+        functional_reviewers.setdefault("development", ["solution_designer", "tester"])
+        functional_reviewers.setdefault("testing", ["backend_engineer", "frontend_engineer", "solution_designer"])
         enabled_kinds = set(collaboration_section.get("enabled_kinds", {"design_overview"}))
         enabled_kinds.add("requirement_spec")
 

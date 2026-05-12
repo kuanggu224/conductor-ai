@@ -235,8 +235,8 @@ def test_collaboration_runner_uses_kind_specific_lead_role(tmp_path) -> None:
             max_rounds=1,
             lead_role_by_stage={"development": "backend_engineer"},
             lead_role_by_kind={"ui_implementation": "frontend_engineer"},
-            peer_reviewer_roles_by_stage={"development": []},
-            reviewer_roles_by_stage={"development": []},
+            peer_reviewer_roles_by_stage={"development": ["backend_engineer", "frontend_engineer"]},
+            reviewer_roles_by_stage={"development": ["solution_designer", "tester"]},
             enabled_kinds={"ui_implementation"},
         ),
         use_llm=False,
@@ -269,6 +269,10 @@ def test_collaboration_runner_uses_kind_specific_lead_role(tmp_path) -> None:
 
     assert collaboration.lead_agent_id == "agent-frontend"
     assert runner.lead_role_for_workitem(workitem) == "frontend_engineer"
+    assert "agent-frontend" not in collaboration.reviewer_agent_ids
+    assert set(collaboration.reviewer_agent_ids) == {"agent-backend", "agent-solution-designer", "agent-tester"}
+    assert collaboration.team_plan["lead_role"] == "frontend_engineer"
+    assert collaboration.team_plan["functional_seats"]
 
 
 def test_collaboration_runner_uses_agent_cli_for_reviews_and_revision(tmp_path, monkeypatch) -> None:

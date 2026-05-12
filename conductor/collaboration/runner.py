@@ -384,12 +384,34 @@ class CollaborationRunner:
         """Build concrete reviewer agents, including dynamic requirement-stage seats."""
         self._review_focus_overrides = {}
         self._current_team_plan = {}
+        lead_role = self.lead_role_for_workitem(workitem)
         peer_roles = self.policy.peer_reviewer_roles_by_stage.get(workitem.stage, [])
         functional_roles = self.policy.reviewer_roles_by_stage.get(workitem.stage, [])
         if workitem.stage != "requirement" or not self.policy.dynamic_requirement_review_enabled:
+            peer_seats = [
+                ReviewSeat(role=role, seat_id=role, phase="design_peer_review", focus=self._static_review_focus(role))
+                for role in self._reviewer_roles_without_lead(peer_roles, lead_role)
+            ]
+            functional_seats = [
+                ReviewSeat(
+                    role=role,
+                    seat_id=role,
+                    phase="cross_functional_review",
+                    focus=self._static_review_focus(role),
+                )
+                for role in self._reviewer_roles_without_lead(functional_roles, lead_role)
+            ]
+            self._current_team_plan = {
+                "complexity_level": "configured",
+                "complexity_score": len(peer_seats) + len(functional_seats),
+                "reasons": [f"{workitem.stage} collaboration enabled for {workitem.kind}"],
+                "lead_role": lead_role,
+                "peer_seats": [self._review_seat_to_dict(seat) for seat in peer_seats],
+                "functional_seats": [self._review_seat_to_dict(seat) for seat in functional_seats],
+            }
             return (
-                [self.registry.get_agent_by_role(role) for role in peer_roles],
-                [self.registry.get_agent_by_role(role) for role in functional_roles],
+                [self._agent_for_review_seat(seat) for seat in peer_seats],
+                [self._agent_for_review_seat(seat) for seat in functional_seats],
             )
 
         state = self.state_store.get_state(project_id)
@@ -412,6 +434,20 @@ class CollaborationRunner:
             [self._agent_for_review_seat(seat) for seat in plan.peer_seats],
             [self._agent_for_review_seat(seat) for seat in plan.functional_seats],
         )
+
+    def _reviewer_roles_without_lead(self, roles: list[str], lead_role: str) -> list[str]:
+        """Return reviewer roles without duplicating the lead role."""
+        return [role for role in dict.fromkeys(roles) if role and role != lead_role]
+
+    def _static_review_focus(self, role: str) -> str:
+        """Return a default review focus for configured non-requirement teams."""
+        return {
+            "requirement_designer": "Review whether the output still follows frozen requirements and scope boundaries.",
+            "solution_designer": "Review consistency, integration boundaries, and downstream handoff risk.",
+            "backend_engineer": "Review API, data, persistence, and backend failure-mode impact.",
+            "frontend_engineer": "Review UI state, interaction, accessibility, and frontend integration impact.",
+            "tester": "Review acceptance coverage, regression risk, and observable pass/fail evidence.",
+        }.get(role, "Review from the default responsibility of this role.")
 
     def _team_plan_to_dict(self, plan) -> dict[str, object]:
         """Return a serializable requirement team plan snapshot."""
