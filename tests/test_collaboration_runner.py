@@ -223,6 +223,54 @@ def test_collaboration_runner_collects_all_reviews_before_revision(tmp_path) -> 
     assert latest.collaborations[0].id == collaboration.id
 
 
+def test_collaboration_runner_uses_kind_specific_lead_role(tmp_path) -> None:
+    state_store = InMemoryStateStore()
+    registry = AgentRegistry()
+    artifact_store = ArtifactStore(tmp_path)
+    runner = CollaborationRunner(
+        state_store=state_store,
+        registry=registry,
+        artifact_store=artifact_store,
+        policy=CollaborationPolicy(
+            max_rounds=1,
+            lead_role_by_stage={"development": "backend_engineer"},
+            lead_role_by_kind={"ui_implementation": "frontend_engineer"},
+            peer_reviewer_roles_by_stage={"development": []},
+            reviewer_roles_by_stage={"development": []},
+            enabled_kinds={"ui_implementation"},
+        ),
+        use_llm=False,
+    )
+    workitem = WorkItem(
+        id="workitem-ui",
+        description="Implement UI",
+        stage="development",
+        kind="ui_implementation",
+    )
+    state_store.save_state(
+        SharedProjectState(
+            project=Project(id="project-ui", goal="Build a UI", project_root=str(tmp_path)),
+            project_status=ProjectStatus.IN_PROGRESS,
+            current_stage="development",
+            workitems=[workitem],
+        )
+    )
+    artifact = Artifact(
+        id="artifact-ui",
+        project_id="project-ui",
+        workitem_id=workitem.id,
+        agent_id="agent-frontend",
+        kind="ui_implementation",
+        title="UI implementation",
+        content="目标\n方案\n验收\n",
+    )
+
+    collaboration = runner.run_review_loop("project-ui", workitem, artifact)
+
+    assert collaboration.lead_agent_id == "agent-frontend"
+    assert runner.lead_role_for_workitem(workitem) == "frontend_engineer"
+
+
 def test_collaboration_runner_uses_agent_cli_for_reviews_and_revision(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr("conductor.agents.cli_executor.shutil.which", lambda name: f"C:/bin/{name}.cmd")
     state_store = InMemoryStateStore()

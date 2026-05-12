@@ -189,6 +189,7 @@ class CollaborationConfig:
     enabled: bool = True
     max_rounds: int = 2
     lead_role_by_stage: dict[str, str] = field(default_factory=lambda: {"requirement": "requirement_designer", "design": "designer"})
+    lead_role_by_kind: dict[str, str] = field(default_factory=_default_role_mapping)
     peer_reviewer_roles_by_stage: dict[str, list[str]] = field(
         default_factory=lambda: {
             "requirement": ["designer", "solution_designer"],
@@ -272,6 +273,7 @@ class SystemConfig:
         workflow_stages = _with_requirement_stage(list(workflow_section.get("stages", _default_workflow_stages())))
         lead_roles = dict(collaboration_section.get("lead_role_by_stage", {"design": "designer"}))
         lead_roles.setdefault("requirement", "requirement_designer")
+        lead_roles_by_kind = dict(collaboration_section.get("lead_role_by_kind", kind_to_role))
         peer_reviewers = dict(
             collaboration_section.get(
                 "peer_reviewer_roles_by_stage",
@@ -309,6 +311,7 @@ class SystemConfig:
                 enabled=bool(collaboration_section.get("enabled", True)),
                 max_rounds=int(collaboration_section.get("max_rounds", 2)),
                 lead_role_by_stage=lead_roles,
+                lead_role_by_kind=lead_roles_by_kind,
                 peer_reviewer_roles_by_stage=peer_reviewers,
                 reviewer_roles_by_stage=functional_reviewers,
                 enabled_kinds=enabled_kinds,

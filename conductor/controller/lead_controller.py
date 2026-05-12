@@ -818,8 +818,14 @@ class LeadController:
         if self.collaboration_runner is None:
             return
         policy = self.collaboration_runner.policy
+        lead_role_for_workitem = getattr(self.collaboration_runner, "lead_role_for_workitem", None)
+        lead_role = (
+            lead_role_for_workitem(workitem)
+            if callable(lead_role_for_workitem)
+            else policy.lead_role_by_stage.get(workitem.stage, "designer")
+        )
         roles = [
-            policy.lead_role_by_stage.get(workitem.stage, "designer"),
+            lead_role,
             *policy.peer_reviewer_roles_by_stage.get(workitem.stage, []),
             *policy.reviewer_roles_by_stage.get(workitem.stage, []),
         ]

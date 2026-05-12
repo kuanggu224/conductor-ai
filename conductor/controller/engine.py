@@ -101,6 +101,7 @@ class ConductorEngine:
                 enabled=self.execution_scope_config.design_collaboration_enabled and self.system_config.collaboration.enabled,
                 max_rounds=self.system_config.collaboration.max_rounds,
                 lead_role_by_stage=self.system_config.collaboration.lead_role_by_stage,
+                lead_role_by_kind=self.system_config.collaboration.lead_role_by_kind,
                 peer_reviewer_roles_by_stage=self.system_config.collaboration.peer_reviewer_roles_by_stage,
                 reviewer_roles_by_stage=self.system_config.collaboration.reviewer_roles_by_stage,
                 enabled_kinds=self.system_config.collaboration.enabled_kinds,

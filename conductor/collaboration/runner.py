@@ -78,7 +78,7 @@ class CollaborationRunner:
     def run_review_loop(self, project_id: str, workitem: WorkItem, draft_artifact: Artifact) -> Collaboration:
         """Run one collaboration session around an existing draft artifact."""
         project_root = self.state_store.get_state(project_id).project.project_root
-        lead = self.registry.get_agent_by_role(self.policy.lead_role_by_stage[workitem.stage])
+        lead = self.registry.get_agent_by_role(self.lead_role_for_workitem(workitem))
         peer_reviewers, functional_reviewers = self._build_reviewers(project_id, workitem)
         reviewers = [*peer_reviewers, *functional_reviewers]
         collaboration_id = f"collaboration-{workitem.id}"
@@ -314,6 +314,12 @@ class CollaborationRunner:
             message=f"[collaboration] {status.value}",
         )
         return collaboration
+
+    def lead_role_for_workitem(self, workitem: WorkItem) -> str:
+        """Return the lead role for a collaboration target."""
+        if workitem.kind in self.policy.lead_role_by_kind:
+            return self.policy.lead_role_by_kind[workitem.kind]
+        return self.policy.lead_role_by_stage[workitem.stage]
 
     def _evaluate_requirement_quality(self, project_id: str, draft: str):
         """Evaluate whether an accepted requirement draft is good enough to freeze."""

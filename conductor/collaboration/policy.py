@@ -12,6 +12,23 @@ class CollaborationPolicy:
     enabled: bool = True
     max_rounds: int = 2
     lead_role_by_stage: dict[str, str] = field(default_factory=lambda: {"requirement": "requirement_designer", "design": "designer"})
+    lead_role_by_kind: dict[str, str] = field(
+        default_factory=lambda: {
+            "requirement_spec": "requirement_designer",
+            "design_overview": "designer",
+            "ui_design": "designer",
+            "api_design": "designer",
+            "test_design": "designer",
+            "api_implementation": "backend_engineer",
+            "data_implementation": "backend_engineer",
+            "generic_implementation": "backend_engineer",
+            "ui_implementation": "frontend_engineer",
+            "acceptance_check": "tester",
+            "automated_test": "tester",
+            "api_validation": "tester",
+            "ui_validation": "tester",
+        }
+    )
     peer_reviewer_roles_by_stage: dict[str, list[str]] = field(
         default_factory=lambda: {
             "requirement": ["designer", "solution_designer"],
