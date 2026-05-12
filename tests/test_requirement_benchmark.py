@@ -612,6 +612,10 @@ def test_requirement_llm_preflight_reports_backend_status(tmp_path) -> None:
     assert result.backend == "local"
     assert result.model == "preflight-model"
     assert harness.requests[0].metadata["mode"] == "requirement_benchmark_preflight"
+    preflight_json = json.loads((tmp_path / "local.preflight.json").read_text(encoding="utf-8"))
+    assert preflight_json["success"] is True
+    assert preflight_json["model"] == "preflight-model"
+    assert preflight_json["base_url"] == "http://127.0.0.1:1234/v1"
 
 
 def test_requirement_llm_preflight_preserves_failure_reason(tmp_path) -> None:
@@ -628,3 +632,6 @@ def test_requirement_llm_preflight_preserves_failure_reason(tmp_path) -> None:
 
     assert result.success is False
     assert result.error == "connection refused"
+    preflight_json = json.loads((tmp_path / "local.preflight.json").read_text(encoding="utf-8"))
+    assert preflight_json["success"] is False
+    assert preflight_json["error"] == "connection refused"

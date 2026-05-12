@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -557,7 +557,7 @@ def run_requirement_llm_preflight(
             },
         )
     )
-    return RequirementLLMPreflightResult(
+    preflight = RequirementLLMPreflightResult(
         backend=backend,
         success=result.success and bool(result.content.strip()),
         model=result.model_name,
@@ -566,6 +566,11 @@ def run_requirement_llm_preflight(
         error=result.error,
         content=result.content.strip(),
     )
+    (output_path / f"{backend}.preflight.json").write_text(
+        json.dumps(asdict(preflight), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return preflight
 
 
 def build_direct_requirement_prompt(requirement: str, *, mode: str = "plain") -> str:
