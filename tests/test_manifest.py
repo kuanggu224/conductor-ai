@@ -27,7 +27,7 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     manifest_path = engine.write_run_manifest(state.project.id, report_path)
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-    assert payload["schema_version"] == "1.34"
+    assert payload["schema_version"] == "1.35"
     assert payload["run_id"].startswith(state.project.id)
     assert payload["project_id"] == state.project.id
     assert payload["run_profile"] == "mock"
@@ -48,6 +48,7 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     assert "requirement_evaluations" in payload
     assert "requirement_coverage_results" in payload
     assert "scope_contract_results" in payload
+    assert "delivery_readiness" in payload
     assert payload["requirement_evaluations"]
     assert payload["requirement_evaluations"][0]["kind"] == "requirement_spec"
     assert "score" in payload["requirement_evaluations"][0]
@@ -113,6 +114,10 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     assert "requirement_coverage_status" in payload["summary"]
     assert "scope_contract_status" in payload["summary"]
     assert "scope_contract_violation_count" in payload["summary"]
+    assert "delivery_readiness_status" in payload["summary"]
+    assert "delivery_readiness_score" in payload["summary"]
+    assert payload["summary"]["delivery_readiness_status"] == payload["delivery_readiness"]["status"]
+    assert payload["summary"]["delivery_readiness_score"] == payload["delivery_readiness"]["score"]
     assert payload["summary"]["workitem_status_counts"]
     assert payload["summary"]["execution_status_counts"]
     assert isinstance(payload["summary"]["failed_workitem_ids"], list)

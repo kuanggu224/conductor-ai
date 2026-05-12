@@ -184,6 +184,11 @@ class BoardRunAuditView:
     scope_contract_status: str = "not_evaluated"
     scope_contract_status_label: str = "未评估"
     scope_contract_violation_count: int = 0
+    delivery_readiness_status: str = "not_evaluated"
+    delivery_readiness_status_label: str = "未评估"
+    delivery_readiness_score: int = 0
+    delivery_readiness_blocking_count: int = 0
+    delivery_readiness_warning_count: int = 0
     risk_level: str = "normal"
     risk_level_label: str = "正常"
 
@@ -255,3 +260,5 @@ class BoardProjectSummary:
     scope_contract_status: str = "not_evaluated"
     scope_contract_status_label: str = "未评估"
     scope_contract_violation_count: int = 0
+    delivery_readiness_status: str = "not_evaluated"
+    delivery_readiness_score: int = 0

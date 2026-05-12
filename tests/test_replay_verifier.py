@@ -803,6 +803,47 @@ def test_manifest_verifier_accepts_requirement_coverage_status_without_results(t
     assert result.passed is True
 
 
+def test_manifest_verifier_rejects_bad_delivery_readiness_summary(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "delivery_readiness": {
+                "status": "blocked",
+                "score": 30,
+                "blocking_count": 2,
+                "warning_count": 1,
+                "checks": [],
+            },
+            "summary": {
+                "final_status": "completed",
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+                "delivery_readiness_status": "ready",
+                "delivery_readiness_score": 99,
+                "delivery_readiness_blocking_count": 0,
+                "delivery_readiness_warning_count": 0,
+            },
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert "summary.delivery_readiness_status=ready does not match delivery_readiness.status=blocked" in result.errors
+    assert "summary.delivery_readiness_score=99 does not match delivery_readiness.score=30" in result.errors
+    assert "summary.delivery_readiness_blocking_count=0 does not match delivery_readiness.blocking_count=2" in result.errors
+    assert "summary.delivery_readiness_warning_count=0 does not match delivery_readiness.warning_count=1" in result.errors
+
+
 def test_manifest_verifier_rejects_bad_scope_contract_status(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,
@@ -3044,7 +3085,7 @@ def test_manifest_verifier_checks_execution_delivery_contract_and_acceptance_tra
     manifest_path = _write_manifest(
         tmp_path,
         {
-            "schema_version": "1.34",
+            "schema_version": "1.35",
             "executions": [
                 {
                     "workitem_id": "workitem-1",
@@ -3252,7 +3293,7 @@ def test_manifest_verifier_warns_for_non_current_schema_version(tmp_path) -> Non
     result = verify_manifest(manifest_path)
 
     assert result.passed is True
-    assert "manifest schema_version 1.0 differs from current 1.34" in result.warnings
+    assert "manifest schema_version 1.0 differs from current 1.35" in result.warnings
 
 
 def test_manifest_verifier_rejects_api_key_fields(tmp_path) -> None:

@@ -21,6 +21,7 @@ from conductor.board.models import (
 from conductor.artifacts.scope_contract import evaluate_scope_contract
 from conductor.artifacts.store import ArtifactStore
 from conductor.domain.models import SharedProjectState
+from conductor.delivery_readiness import evaluate_delivery_readiness
 from conductor.config.cli import CLISelectionConfig
 from conductor.config.llm import LLMRuntimeConfig
 from conductor.execution.failure_policy import remediation_suggestions
@@ -323,6 +324,8 @@ class BoardService:
                 scope_contract_status=run_audit.scope_contract_status,
                 scope_contract_status_label=run_audit.scope_contract_status_label,
                 scope_contract_violation_count=run_audit.scope_contract_violation_count,
+                delivery_readiness_status=run_audit.delivery_readiness_status,
+                delivery_readiness_score=run_audit.delivery_readiness_score,
             ))
         return summaries
 
@@ -335,10 +338,11 @@ class BoardService:
             if item.retry_count > 0 or item.status.value == "failed" or bool(item.blocked_reason)
         ]
         scope_status, scope_violation_count = self._scope_contract_status(state)
+        delivery_readiness = evaluate_delivery_readiness(state)
         risk_level = self._risk_level(
             failed_count=len(failed_workitem_ids),
             retry_attempt_count=sum(item.retry_count for item in retry_items),
-            scope_violation_count=scope_violation_count,
+            scope_violation_count=scope_violation_count + delivery_readiness.blocking_count,
             blocker_count=len(state.blockers),
         )
         return BoardRunAuditView(
@@ -348,6 +352,11 @@ class BoardService:
             scope_contract_status=scope_status,
             scope_contract_status_label=self._scope_status_label(scope_status),
             scope_contract_violation_count=scope_violation_count,
+            delivery_readiness_status=delivery_readiness.status,
+            delivery_readiness_status_label=self._delivery_readiness_status_label(delivery_readiness.status),
+            delivery_readiness_score=delivery_readiness.score,
+            delivery_readiness_blocking_count=delivery_readiness.blocking_count,
+            delivery_readiness_warning_count=delivery_readiness.warning_count,
             risk_level=risk_level,
             risk_level_label=self._risk_level_label(risk_level),
         )
@@ -397,6 +406,15 @@ class BoardService:
             "medium": "注意",
             "high": "高风险",
         }.get(risk_level, risk_level)
+
+    def _delivery_readiness_status_label(self, status: str) -> str:
+        return {
+            "ready": "可交付",
+            "at_risk": "有风险",
+            "blocked": "已阻塞",
+            "incomplete": "未完成",
+            "not_evaluated": "未评估",
+        }.get(status, status)
 
     def build_role_labels(self, roles: list[str]) -> list[str]:
         """构建角色中文展示名。"""

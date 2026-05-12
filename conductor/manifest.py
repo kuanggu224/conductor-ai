@@ -16,6 +16,7 @@ from conductor.config.cli import CLISelectionConfig
 from conductor.config.execution import RunProfile
 from conductor.config.llm import LLMRuntimeConfig
 from conductor.delivery_contract import build_acceptance_trace, build_delivery_contract
+from conductor.delivery_readiness import evaluate_delivery_readiness
 from conductor.diagnostics import build_platform_diagnostics
 from conductor.domain.models import AgentActivation, SharedProjectState
 from conductor.execution.failure_policy import remediation_suggestions
@@ -60,6 +61,7 @@ class RunManifest:
     requirement_evaluations: list[dict[str, object]]
     requirement_coverage_results: list[dict[str, object]]
     scope_contract_results: list[dict[str, object]]
+    delivery_readiness: dict[str, object]
     workitems: list[dict[str, object]]
     task_assignments: list[dict[str, object]]
     artifacts: list[dict[str, object]]
@@ -97,6 +99,7 @@ class RunManifestWriter:
         requirement_evaluations = self._requirement_evaluations(state)
         requirement_coverage_results = self._requirement_coverage_results(state)
         scope_contract_results = self._scope_contract_results(state)
+        delivery_readiness = evaluate_delivery_readiness(state).to_dict()
         task_center = TaskCenterService(_ManifestStateStore(state))
         artifact_files = [artifact.path or "" for artifact in state.artifacts if artifact.path]
         task_prompt_files = self._dedupe([assignment.prompt_file for assignment in state.task_assignments])
@@ -143,6 +146,10 @@ class RunManifestWriter:
                 "scope_contract_violation_count": sum(
                     len(item.get("violations", [])) for item in scope_contract_results
                 ),
+                "delivery_readiness_status": delivery_readiness["status"],
+                "delivery_readiness_score": delivery_readiness["score"],
+                "delivery_readiness_blocking_count": delivery_readiness["blocking_count"],
+                "delivery_readiness_warning_count": delivery_readiness["warning_count"],
                 "task_center_summary": task_center.summary(state),
                 "workitem_status_counts": self._workitem_status_counts(state),
                 "execution_status_counts": self._execution_status_counts(executions),
@@ -187,6 +194,7 @@ class RunManifestWriter:
             requirement_evaluations=requirement_evaluations,
             requirement_coverage_results=requirement_coverage_results,
             scope_contract_results=scope_contract_results,
+            delivery_readiness=delivery_readiness,
             workitems=[
                 {
                     "id": item.id,

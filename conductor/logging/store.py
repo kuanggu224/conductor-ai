@@ -13,6 +13,7 @@ from conductor.artifacts.store import ArtifactStore
 from conductor.domain.models import SharedProjectState
 from conductor.execution.failure_policy import remediation_suggestions
 from conductor.delivery_contract import build_acceptance_trace
+from conductor.delivery_readiness import evaluate_delivery_readiness, render_delivery_readiness_markdown
 from conductor.preflight_gate import read_preflight_gate
 from conductor.task_center.service import TaskCenterService
 from conductor.testing.coverage import evaluate_requirement_coverage
@@ -217,6 +218,9 @@ class ProjectLogStore:
         lines.extend(["", "## Requirement Coverage Traceability"])
         coverage_lines = self._requirement_coverage_traceability_lines(state)
         lines.extend(coverage_lines or ["- Not evaluated"])
+
+        lines.extend(["", "## Delivery Readiness"])
+        lines.extend(render_delivery_readiness_markdown(evaluate_delivery_readiness(state)))
 
         lines.extend(["", "## Scope Contract Audit"])
         scope_lines = self._scope_contract_lines(state)

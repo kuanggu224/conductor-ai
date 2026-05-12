@@ -162,7 +162,7 @@ class ManifestVerifier:
         ):
             if key in payload and not isinstance(payload.get(key), list):
                 result.errors.append(f"{key} must be a list")
-        for key in ("summary", "resume_cursor", "files", "role_cli_bindings"):
+        for key in ("summary", "resume_cursor", "files", "role_cli_bindings", "delivery_readiness"):
             if key in payload and not isinstance(payload.get(key), dict):
                 result.errors.append(f"{key} must be an object")
         self._verify_cli_config(payload, result)
@@ -230,6 +230,7 @@ class ManifestVerifier:
         self._verify_requirement_quality_score(summary, self._list(payload.get("requirement_evaluations")), result)
         self._verify_requirement_coverage_status(summary, self._list(payload.get("requirement_coverage_results")), result)
         self._verify_scope_contract_summary(summary, self._list(payload.get("scope_contract_results")), result)
+        self._verify_delivery_readiness_summary(summary, self._dict(payload.get("delivery_readiness")), result)
         self._verify_llm_context_windows(summary, self._list(payload.get("llm_runs")), result)
 
         changed_files = self._list(summary.get("changed_files"))
@@ -469,6 +470,41 @@ class ManifestVerifier:
         if any(bool(self._string_list(record.get("rule_ids", []))) for record in records):
             return "pass"
         return "no_rules"
+
+    def _verify_delivery_readiness_summary(
+        self,
+        summary: dict[str, Any],
+        delivery_readiness: dict[str, Any],
+        result: ManifestVerificationResult,
+    ) -> None:
+        if not delivery_readiness:
+            if any(key.startswith("delivery_readiness_") for key in summary):
+                result.errors.append("summary contains delivery_readiness fields but delivery_readiness is missing")
+            return
+        if "delivery_readiness_status" in summary:
+            expected_status = str(delivery_readiness.get("status", ""))
+            actual_status = str(summary.get("delivery_readiness_status", ""))
+            if actual_status != expected_status:
+                result.errors.append(
+                    f"summary.delivery_readiness_status={actual_status} does not match delivery_readiness.status={expected_status}"
+                )
+        for summary_key, payload_key in (
+            ("delivery_readiness_score", "score"),
+            ("delivery_readiness_blocking_count", "blocking_count"),
+            ("delivery_readiness_warning_count", "warning_count"),
+        ):
+            if summary_key not in summary:
+                continue
+            actual = self._as_int(summary.get(summary_key))
+            expected = self._as_int(delivery_readiness.get(payload_key))
+            if actual is None:
+                result.errors.append(f"summary.{summary_key} must be an integer")
+            elif expected is None:
+                result.errors.append(f"delivery_readiness.{payload_key} must be an integer")
+            elif actual != expected:
+                result.errors.append(
+                    f"summary.{summary_key}={actual} does not match delivery_readiness.{payload_key}={expected}"
+                )
 
     def _verify_llm_context_windows(
         self,

@@ -89,6 +89,8 @@ def test_board_service_builds_snapshot_from_state() -> None:
     assert snapshot.preflight_gate.status == "not_recorded"
     assert snapshot.run_audit.risk_level in {"normal", "medium", "high"}
     assert isinstance(snapshot.run_audit.failed_workitem_ids, list)
+    assert snapshot.run_audit.delivery_readiness_status in {"ready", "at_risk", "blocked", "incomplete"}
+    assert isinstance(snapshot.run_audit.delivery_readiness_score, int)
 
 
 def test_board_service_exposes_run_audit_risk_summary(tmp_path) -> None:
@@ -141,6 +143,8 @@ def test_board_service_exposes_run_audit_risk_summary(tmp_path) -> None:
     assert snapshot.run_audit.scope_contract_status == "violation"
     assert snapshot.run_audit.scope_contract_status_label == "范围风险"
     assert snapshot.run_audit.scope_contract_violation_count == 2
+    assert snapshot.run_audit.delivery_readiness_status == "blocked"
+    assert snapshot.run_audit.delivery_readiness_blocking_count >= 1
     assert snapshot.run_audit.risk_level == "high"
     assert snapshot.run_audit.risk_level_label == "高风险"
 
@@ -346,6 +350,8 @@ def test_board_service_project_summaries_include_run_audit_status(tmp_path) -> N
     assert summaries[0].scope_contract_status == "violation"
     assert summaries[0].scope_contract_status_label == "范围风险"
     assert summaries[0].scope_contract_violation_count == 1
+    assert summaries[0].delivery_readiness_status == "blocked"
+    assert isinstance(summaries[0].delivery_readiness_score, int)
 
 
 def test_board_service_exposes_task_center_readiness() -> None:
