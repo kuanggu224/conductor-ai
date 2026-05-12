@@ -232,6 +232,7 @@ class ManifestVerifier:
         self._verify_scope_contract_summary(summary, self._list(payload.get("scope_contract_results")), result)
         self._verify_delivery_readiness_summary(summary, self._dict(payload.get("delivery_readiness")), result)
         self._verify_llm_context_windows(summary, self._list(payload.get("llm_runs")), result)
+        self._verify_summary_llm_identity_lists(summary, self._list(payload.get("llm_runs")), result)
 
         changed_files = self._list(summary.get("changed_files"))
         if "changed_files" in summary and not isinstance(summary.get("changed_files"), list):
@@ -299,6 +300,26 @@ class ManifestVerifier:
             result.errors.append(
                 f"summary.llm_token_usage={actual_usage} does not match llm_runs token_usage={expected_usage}"
             )
+
+    def _verify_summary_llm_identity_lists(
+        self,
+        summary: dict[str, Any],
+        llm_runs: list[Any],
+        result: ManifestVerificationResult,
+    ) -> None:
+        """Verify summary-level LLM model/backend lists mirror llm_runs."""
+        for summary_key, run_key in (("llm_models", "model"), ("llm_source_backends", "source_backend")):
+            if summary_key not in summary:
+                continue
+            if not isinstance(summary.get(summary_key), list):
+                result.errors.append(f"summary.{summary_key} must be a list")
+                continue
+            actual = self._string_list(summary.get(summary_key))
+            expected = self._dedupe(
+                [str(run.get(run_key, "")) for run in llm_runs if isinstance(run, dict) and run.get(run_key)]
+            )
+            if actual != expected:
+                result.errors.append(f"summary.{summary_key}={actual} does not match llm_runs {run_key}={expected}")
 
     def _verify_summary_status_counts(
         self,

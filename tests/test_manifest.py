@@ -1136,6 +1136,8 @@ def test_manifest_records_llm_harness_collaboration_runtime(tmp_path) -> None:
     assert any(run["mode"] == "workitem_execution" for run in payload["llm_runs"])
     assert any(run["mode"] == "collaboration_review" for run in payload["llm_runs"])
     assert any(run["mode"] == "collaboration_revision" for run in payload["llm_runs"])
+    assert payload["summary"]["llm_models"] == ["qwen/qwen3.6-35b-a3b"]
+    assert payload["summary"]["llm_source_backends"] == ["llm_harness/qwen/qwen3.6-35b-a3b"]
     assert payload["collaboration_runs"][0]["phases"] == ["design_peer_review"]
     assert payload["collaboration_runs"][0]["reviews"][0]["duration_ms"] == 1234
     assert payload["collaboration_runs"][0]["reviews"][0]["token_usage"]["total_tokens"] == 7

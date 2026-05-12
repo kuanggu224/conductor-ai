@@ -112,6 +112,10 @@ class RunManifestWriter:
         ).to_dict()
         llm_context_windows = self._llm_context_windows(platform_diagnostics)
         llm_runs = self._llm_runs(state, executions, llm_context_windows)
+        llm_models = self._dedupe([str(run.get("model", "")) for run in llm_runs if run.get("model")])
+        llm_source_backends = self._dedupe(
+            [str(run.get("source_backend", "")) for run in llm_runs if run.get("source_backend")]
+        )
         llm_token_usage = self._sum_token_usage([dict(run.get("token_usage", {})) for run in llm_runs])
         llm_cost_estimate = self._llm_cost_estimate(llm_runs, llm_runtime_config)
         resume_cursor = self._resume_cursor(state)
@@ -161,6 +165,8 @@ class RunManifestWriter:
                 "retry_attempt_count": sum(int(item.get("retry_count", 0)) for item in retry_history),
                 "cli_run_count": len(cli_runs),
                 "llm_run_count": len(llm_runs),
+                "llm_models": llm_models,
+                "llm_source_backends": llm_source_backends,
                 "llm_token_usage": llm_token_usage,
                 "llm_cost_estimate": llm_cost_estimate,
                 "llm_context_windows": llm_context_windows,

@@ -2373,6 +2373,44 @@ def test_manifest_verifier_warns_when_llm_run_model_is_not_auditable(tmp_path) -
     assert "llm_runs[1].model is missing; cannot audit actual LLM provider usage" in result.warnings
 
 
+def test_manifest_verifier_rejects_summary_llm_identity_mismatch(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "summary": {
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 1,
+                "llm_models": ["cloud"],
+                "llm_source_backends": ["llm/local"],
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+            },
+            "llm_runs": [
+                {
+                    "source_backend": "llm/cloud",
+                    "agent_id": "agent-llm",
+                    "model": "jiutian-lan-comv3",
+                    "token_usage": {},
+                    "output_files": [],
+                }
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert "summary.llm_models=['cloud'] does not match llm_runs model=['jiutian-lan-comv3']" in result.errors
+    assert "summary.llm_source_backends=['llm/local'] does not match llm_runs source_backend=['llm/cloud']" in result.errors
+
+
 def test_manifest_verifier_rejects_run_unknown_workitem_references(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,
