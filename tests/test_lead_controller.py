@@ -1,8 +1,11 @@
 """LeadController 测试。"""
 
 from conductor.controller.lead_controller import LeadController
+from conductor.agents.registry import AgentRegistry
+from conductor.artifacts.store import ArtifactStore
 from conductor.collaboration.models import Collaboration, CollaborationDraftVersion, CollaborationStatus
 from conductor.collaboration.policy import CollaborationPolicy
+from conductor.collaboration.runner import CollaborationRunner
 from conductor.domain.models import Artifact, ProjectStatus, TaskAssignmentStatus, WorkItem, WorkItemStatus
 from conductor.execution.runner import Runner
 from conductor.state.store import InMemoryStateStore
@@ -323,6 +326,63 @@ def test_task_center_records_claim_and_return() -> None:
     assert state.agent_capability_stats[0].completed_count == 1
     assert "requirement_spec" in state.agent_capability_stats[0].workitem_kinds
     assert any("任务中心" in event for event in state.recent_events)
+
+
+def test_development_workitem_can_enter_multi_agent_collaboration(tmp_path) -> None:
+    state_store = InMemoryStateStore()
+    registry = AgentRegistry()
+    artifact_store = ArtifactStore(tmp_path)
+    runner = Runner(state_store=state_store, artifact_store=artifact_store)
+    collaboration_runner = CollaborationRunner(
+        state_store=state_store,
+        registry=registry,
+        artifact_store=artifact_store,
+        policy=CollaborationPolicy(
+            max_rounds=2,
+            lead_role_by_stage={"development": "backend_engineer"},
+            lead_role_by_kind={"ui_implementation": "frontend_engineer"},
+            peer_reviewer_roles_by_stage={"development": ["backend_engineer", "frontend_engineer"]},
+            reviewer_roles_by_stage={"development": ["solution_designer", "tester"]},
+            enabled_kinds={"ui_implementation"},
+        ),
+        use_llm=False,
+    )
+    controller = LeadController(
+        workflow_template=WorkflowTemplate(),
+        state_store=state_store,
+        runner=runner,
+        registry=registry,
+        collaboration_runner=collaboration_runner,
+    )
+    state = controller.initialize_project("Build a small UI", project_root=str(tmp_path))
+    development_workitem = WorkItem(
+        id="workitem-ui",
+        description="Implement the browser UI",
+        stage="development",
+        kind="ui_implementation",
+    )
+    state.workitems = [development_workitem]
+    state.current_stage = "development"
+    state.project.current_stage = "development"
+    state_store.save_state(state)
+
+    state = controller.advance(state)
+
+    completed = next(item for item in state.workitems if item.id == "workitem-ui")
+    collaboration = state.collaborations[0]
+
+    assert completed.status == WorkItemStatus.DONE
+    assert completed.collaboration_session_id == collaboration.id
+    assert collaboration.lead_agent_id == "agent-frontend"
+    assert "agent-frontend" not in collaboration.reviewer_agent_ids
+    assert set(collaboration.reviewer_agent_ids) == {"agent-backend", "agent-solution-designer", "agent-tester"}
+    assert collaboration.team_plan["lead_role"] == "frontend_engineer"
+    assert {activation.role for activation in state.agent_activations} >= {
+        "frontend_engineer",
+        "backend_engineer",
+        "solution_designer",
+        "tester",
+    }
 
 
 def test_advance_records_tl_decision(tmp_path) -> None:
