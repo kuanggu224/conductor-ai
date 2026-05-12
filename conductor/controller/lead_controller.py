@@ -42,6 +42,7 @@ class LeadController:
 
     MAX_REQUIREMENT_REWORK_DEPTH = 1
     MAX_TEST_FEEDBACK_REWORK_CYCLES = 2
+    MAX_FAILURE_REWORK_DEPTH = 1
 
     def __init__(
         self,
@@ -124,6 +125,8 @@ class LeadController:
                 return "escalate_project"
             return "retry_workitem"
         if gate_decision == GateDecision.ESCALATE:
+            if self._can_create_failure_rework(state):
+                return "failure_rework"
             if current_stage == "testing" and self._can_create_feedback_rework(state):
                 return "feedback_rework"
             return "escalate_project"
@@ -149,7 +152,7 @@ class LeadController:
             gate_history=[*latest.gate_history, f"{state.current_stage}:{gate_decision.value}"],
         )
         latest = self.tl_agent.append_decision(latest, action)
-        if action in {"retry_workitem", "feedback_rework", "escalate_project"}:
+        if action in {"retry_workitem", "failure_rework", "feedback_rework", "escalate_project"}:
             latest = self._apply_agent_team_plan_to_state(latest, trigger="runtime_risk")
         self.state_store.save_state(latest)
         self.state_store.add_event(project_id, f"TLAgent 决策: {latest.tl_decisions[-1].summary}")
@@ -176,6 +179,8 @@ class LeadController:
             return self._escalate_project(project_id)
         if action == "feedback_rework":
             return self._create_feedback_rework(project_id)
+        if action == "failure_rework":
+            return self._create_failure_rework(project_id)
         if action == "block_dependency":
             return self._block_dependency(project_id)
         if action == "wait_for_dependencies":
@@ -653,6 +658,85 @@ class LeadController:
         self.state_store.save_state(latest_state)
         return latest_state
 
+    def _create_failure_rework(self, project_id: str) -> SharedProjectState:
+        """Create executable same-stage rework tasks for exhausted retryable failures."""
+        latest = self.state_store.get_state(project_id)
+        failed_items = [
+            item
+            for item in latest.workitems
+            if item.stage == latest.current_stage
+            and item.status == WorkItemStatus.FAILED
+            and item.retryable
+            and item.retry_count >= item.max_retries
+            and self._failure_rework_depth(latest, item) < self.MAX_FAILURE_REWORK_DEPTH
+            and not self._has_existing_failure_rework(latest, item.id)
+        ]
+        if not failed_items:
+            return self._escalate_project(project_id)
+
+        rework_items: list[WorkItem] = []
+        for failed in failed_items:
+            input_artifact_ids = list(
+                dict.fromkeys([*failed.input_artifact_ids, *self._workitem_artifact_ids(latest, failed.id)])
+            )
+            rework_items.append(
+                WorkItem(
+                    id=self._next_workitem_id(latest, rework_items),
+                    description=(
+                        f"Failure recovery rework for `{failed.id}`: {failed.description}\n\n"
+                        f"Failure type: {failed.failure_type or 'unknown'}\n"
+                        f"Failure summary: {failed.failure_summary or failed.blocked_reason or failed.result or '-'}\n"
+                        f"Original retry count: {failed.retry_count}/{failed.max_retries}\n\n"
+                        "Instructions: fix only the failed delivery scope, preserve the frozen requirement and existing "
+                        "design boundary, and include concrete evidence for the next validation step."
+                    ),
+                    stage=failed.stage,
+                    kind=failed.kind,
+                    dependencies=list(failed.dependencies),
+                    input_artifact_ids=input_artifact_ids,
+                    acceptance_criteria=[
+                        f"Resolve failure from {failed.id}",
+                        "Reference the prior failure evidence and affected artifacts.",
+                        "Do not expand scope beyond the frozen requirement/design boundary.",
+                        "Produce output that can be validated by the next gate.",
+                    ],
+                    feedback_from=[failed.id],
+                    rework_of=failed.id,
+                )
+            )
+
+        failed_ids = {item.id for item in failed_items}
+        reclassified_workitems = [
+            replace(item, status=WorkItemStatus.DONE, blocked_reason="failure converted to explicit rework task")
+            if item.id in failed_ids
+            else item
+            for item in latest.workitems
+        ]
+        assignments = self._build_task_assignments(rework_items, latest)
+        rework_roles = self.router.plan_roles_for_workitems(rework_items)
+        existing_activation_roles = {activation.role for activation in latest.agent_activations}
+        new_activation_roles = [role for role in rework_roles if role not in existing_activation_roles]
+        new_activations = self._build_agent_activations(latest.current_stage or "", new_activation_roles, rework_items)
+        updated_project = replace(latest.project, status=ProjectStatus.IN_PROGRESS)
+        latest_state = replace(
+            latest,
+            project=updated_project,
+            project_status=ProjectStatus.IN_PROGRESS,
+            workitems=[*reclassified_workitems, *rework_items],
+            task_assignments=[*latest.task_assignments, *assignments],
+            agent_activations=[*latest.agent_activations, *new_activations],
+            planned_roles=list(dict.fromkeys([*latest.planned_roles, *rework_roles])),
+            recent_events=[
+                *latest.recent_events,
+                f"FailureRecovery: created {len(rework_items)} executable rework WorkItem(s)",
+                f"FailureRecovery: converted failed WorkItems to rework source: {', '.join(sorted(failed_ids))}",
+                *self._build_agent_activation_events(new_activations),
+                *[f"FailureRecovery WorkItem {item.id} ({item.kind}) source={', '.join(item.feedback_from)}" for item in rework_items],
+            ],
+        )
+        self.state_store.save_state(latest_state)
+        return latest_state
+
     def _block_dependency(self, project_id: str) -> SharedProjectState:
         latest = self.state_store.get_state(project_id)
         blocked_items = [
@@ -699,6 +783,20 @@ class LeadController:
             for item in state.workitems
         )
 
+    def _can_create_failure_rework(self, state: SharedProjectState) -> bool:
+        """Return whether exhausted same-stage failures can become explicit rework tasks."""
+        if state.current_stage != "development":
+            return False
+        return any(
+            item.stage == state.current_stage
+            and item.status == WorkItemStatus.FAILED
+            and item.retryable
+            and item.retry_count >= item.max_retries
+            and self._failure_rework_depth(state, item) < self.MAX_FAILURE_REWORK_DEPTH
+            and not self._has_existing_failure_rework(state, item.id)
+            for item in state.workitems
+        )
+
     def _has_non_retryable_failure(self, workitems: list[WorkItem]) -> bool:
         """Return whether failed WorkItems should not be retried automatically."""
         return any(
@@ -710,6 +808,25 @@ class LeadController:
     def _has_existing_feedback_rework(self, state: SharedProjectState, failed_test_id: str) -> bool:
         """Return whether a failed testing WorkItem already produced a rework task."""
         return any(failed_test_id in item.feedback_from for item in state.workitems)
+
+    def _has_existing_failure_rework(self, state: SharedProjectState, failed_workitem_id: str) -> bool:
+        """Return whether one failed WorkItem already produced a same-stage rework task."""
+        return any(item.rework_of == failed_workitem_id or failed_workitem_id in item.feedback_from for item in state.workitems)
+
+    def _failure_rework_depth(self, state: SharedProjectState, workitem: WorkItem) -> int:
+        """Return rework depth for generic same-stage failure recovery."""
+        by_id = {item.id: item for item in state.workitems}
+        depth = 0
+        current = workitem
+        seen: set[str] = set()
+        while current.rework_of and current.rework_of not in seen:
+            seen.add(current.id)
+            parent = by_id.get(current.rework_of)
+            if parent is None:
+                break
+            depth += 1
+            current = parent
+        return depth
 
     def _feedback_rework_limit_reached(self, state: SharedProjectState) -> bool:
         """Return whether testing feedback has already re-entered development too many times."""
@@ -790,6 +907,11 @@ class LeadController:
         for item in [*state.workitems, *pending_new_items]:
             try:
                 numbers.append(int(item.id.rsplit("-", 1)[-1]))
+            except ValueError:
+                continue
+        for assignment in state.task_assignments:
+            try:
+                numbers.append(int(assignment.workitem_id.rsplit("-", 1)[-1]))
             except ValueError:
                 continue
         return f"workitem-{(max(numbers) + 1 if numbers else 1):03d}"

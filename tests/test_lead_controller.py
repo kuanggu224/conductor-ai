@@ -310,6 +310,60 @@ def test_non_retryable_failed_workitem_blocks_without_retry() -> None:
     assert "configuration_required" in state.blockers[-1]
 
 
+def test_retry_exhausted_development_failure_creates_executable_rework() -> None:
+    controller = build_controller()
+    state = controller.initialize_project("Build API implementation")
+    failed_workitem = WorkItem(
+        id="workitem-dev",
+        description="Implement API endpoint",
+        stage="development",
+        kind="api_implementation",
+        status=WorkItemStatus.FAILED,
+        retry_count=1,
+        max_retries=1,
+        failure_type="validation_failed",
+        retryable=True,
+        failure_summary="pytest failed on endpoint contract",
+        blocked_reason="failure_type=validation_failed; retryable=true; summary=pytest failed on endpoint contract",
+        input_artifact_ids=["artifact-design"],
+    )
+    state.workitems = [failed_workitem]
+    state.current_stage = "development"
+    state.project.current_stage = "development"
+    state.project.status = ProjectStatus.IN_PROGRESS
+    state.project_status = ProjectStatus.IN_PROGRESS
+    state.artifacts = [
+        Artifact(
+            id="artifact-dev-failure",
+            project_id=state.project.id,
+            workitem_id=failed_workitem.id,
+            agent_id="agent-backend",
+            kind="api_implementation",
+            title="Failure report",
+            content="pytest failed on endpoint contract",
+        )
+    ]
+    controller.state_store.save_state(state)
+
+    state = controller.advance(state)
+
+    source = next(item for item in state.workitems if item.id == "workitem-dev")
+    rework = next(item for item in state.workitems if item.rework_of == "workitem-dev")
+    assignment = next(item for item in state.task_assignments if item.workitem_id == rework.id)
+
+    assert source.status == WorkItemStatus.DONE
+    assert rework.stage == "development"
+    assert rework.kind == "api_implementation"
+    assert rework.status == WorkItemStatus.PENDING
+    assert rework.feedback_from == ["workitem-dev"]
+    assert "pytest failed on endpoint contract" in rework.description
+    assert "artifact-dev-failure" in rework.input_artifact_ids
+    assert assignment.status == TaskAssignmentStatus.QUEUED
+    assert assignment.role == "backend_engineer"
+    assert state.project_status == ProjectStatus.IN_PROGRESS
+    assert any("FailureRecovery: created" in event for event in state.recent_events)
+
+
 def test_task_center_records_claim_and_return() -> None:
     controller = build_controller()
     state = controller.initialize_project("实现最小骨架")
