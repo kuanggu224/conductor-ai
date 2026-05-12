@@ -127,6 +127,10 @@ def test_run_project_parser_accepts_collaboration_overrides() -> None:
             "demo",
             "--collaboration-max-rounds",
             "1",
+            "--collaboration-kind",
+            "ui_implementation",
+            "--collaboration-kind",
+            "acceptance_check",
             "--static-requirement-review",
             "--diagnose-cli",
             "--diagnose-llm",
@@ -134,9 +138,29 @@ def test_run_project_parser_accepts_collaboration_overrides() -> None:
     )
 
     assert args.collaboration_max_rounds == 1
+    assert args.collaboration_kind == ["ui_implementation", "acceptance_check"]
     assert args.static_requirement_review is True
     assert args.diagnose_cli is True
     assert args.diagnose_llm is True
+
+
+def test_run_project_system_config_applies_collaboration_kind_override(monkeypatch) -> None:
+    args = build_parser().parse_args(
+        [
+            "--requirement",
+            "demo",
+            "--collaboration-kind",
+            "ui_implementation",
+            "--collaboration-kind",
+            "acceptance_check",
+        ]
+    )
+    monkeypatch.setattr(run_project.SystemConfig, "load", lambda: run_project.SystemConfig())
+
+    config = run_project._build_system_config(args)
+
+    assert "ui_implementation" in config.collaboration.enabled_kinds
+    assert "acceptance_check" in config.collaboration.enabled_kinds
 
 
 def test_run_project_parser_accepts_skip_preflight_gate() -> None:

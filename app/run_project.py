@@ -83,6 +83,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override requirement/design collaboration max rounds for this run.",
     )
     parser.add_argument(
+        "--collaboration-kind",
+        action="append",
+        default=[],
+        help=(
+            "Enable multi-agent collaboration for an additional WorkItem kind in this run. "
+            "Repeat to enable multiple kinds, e.g. ui_implementation and acceptance_check."
+        ),
+    )
+    parser.add_argument(
         "--static-requirement-review",
         action="store_true",
         help="Disable dynamic requirement review seats for faster controlled smoke runs.",
@@ -696,6 +705,10 @@ def _build_system_config(args) -> SystemConfig:
     config = SystemConfig.load()
     if args.collaboration_max_rounds is not None:
         config.collaboration.max_rounds = args.collaboration_max_rounds
+    for kind in args.collaboration_kind:
+        normalized = str(kind).strip()
+        if normalized:
+            config.collaboration.enabled_kinds.add(normalized)
     if args.static_requirement_review:
         config.collaboration.dynamic_requirement_review_enabled = False
     return config
