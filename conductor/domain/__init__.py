@@ -7,11 +7,13 @@ from importlib import import_module
 _EXPORTS = {
     "AgentCapabilityStats": ("conductor.domain.models", "AgentCapabilityStats"),
     "AgentActivation": ("conductor.domain.models", "AgentActivation"),
+    "AgentTeamPlan": ("conductor.domain.models", "AgentTeamPlan"),
     "Artifact": ("conductor.domain.models", "Artifact"),
     "Capability": ("conductor.domain.models", "Capability"),
     "Execution": ("conductor.domain.models", "Execution"),
     "ExecutionResult": ("conductor.domain.models", "ExecutionResult"),
     "ExecutionStatus": ("conductor.domain.models", "ExecutionStatus"),
+    "DynamicAgentSpec": ("conductor.domain.models", "DynamicAgentSpec"),
     "Project": ("conductor.domain.models", "Project"),
     "ProjectStatus": ("conductor.domain.models", "ProjectStatus"),
     "RouteDecision": ("conductor.domain.models", "RouteDecision"),

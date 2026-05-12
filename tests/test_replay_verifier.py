@@ -3044,7 +3044,7 @@ def test_manifest_verifier_checks_execution_delivery_contract_and_acceptance_tra
     manifest_path = _write_manifest(
         tmp_path,
         {
-            "schema_version": "1.32",
+            "schema_version": "1.33",
             "executions": [
                 {
                     "workitem_id": "workitem-1",
@@ -3252,7 +3252,7 @@ def test_manifest_verifier_warns_for_non_current_schema_version(tmp_path) -> Non
     result = verify_manifest(manifest_path)
 
     assert result.passed is True
-    assert "manifest schema_version 1.0 differs from current 1.32" in result.warnings
+    assert "manifest schema_version 1.0 differs from current 1.33" in result.warnings
 
 
 def test_manifest_verifier_rejects_api_key_fields(tmp_path) -> None:

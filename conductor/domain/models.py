@@ -145,6 +145,46 @@ class AgentActivation:
     related_workitem_kinds: list[str] = field(default_factory=list)
     execution_backend: str = "mock"
     preferred_backend: str = "local"
+    instance_id: str = ""
+    scope: str = ""
+    dynamic: bool = False
+    parallel_safe: bool = True
+    write_scope: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class DynamicAgentSpec:
+    """Runtime-generated Agent role instance specification."""
+
+    role: str
+    agent_id: str
+    instance_id: str
+    stage: str
+    mission: str
+    reason: str
+    scope: str
+    collaboration_mode: str
+    parallel_safe: bool
+    write_scope: list[str] = field(default_factory=list)
+    output_contract: list[str] = field(default_factory=list)
+    review_focus: list[str] = field(default_factory=list)
+    revision_rules: list[str] = field(default_factory=list)
+    preferred_backend: str = "local"
+    allowed_collaboration_modes: list[str] = field(default_factory=list)
+    workitem_kinds: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class AgentTeamPlan:
+    """Project-scoped dynamic team plan generated from current state."""
+
+    id: str
+    project_id: str
+    stage: str
+    trigger: str
+    complexity_level: str
+    reasons: list[str] = field(default_factory=list)
+    agent_specs: list[DynamicAgentSpec] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -268,6 +308,7 @@ class SharedProjectState:
     agent_capability_stats: list[AgentCapabilityStats] = field(default_factory=list)
     tl_decisions: list[TLDecision] = field(default_factory=list)
     human_control_actions: list[HumanControlAction] = field(default_factory=list)
+    agent_team_plans: list[AgentTeamPlan] = field(default_factory=list)
 
 
 # Sprint 1 兼容别名：部分文档会把 Execution 称为 ExecutionResult。
@@ -278,11 +319,13 @@ ExecutionResult = Execution
 __all__ = [
     "AgentCapabilityStats",
     "AgentActivation",
+    "AgentTeamPlan",
     "Artifact",
     "Capability",
     "Execution",
     "ExecutionResult",
     "ExecutionStatus",
+    "DynamicAgentSpec",
     "HumanControlAction",
     "HumanControlActionType",
     "Project",

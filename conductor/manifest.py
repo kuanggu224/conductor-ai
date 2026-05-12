@@ -17,7 +17,7 @@ from conductor.config.execution import RunProfile
 from conductor.config.llm import LLMRuntimeConfig
 from conductor.delivery_contract import build_acceptance_trace, build_delivery_contract
 from conductor.diagnostics import build_platform_diagnostics
-from conductor.domain.models import SharedProjectState
+from conductor.domain.models import AgentActivation, SharedProjectState
 from conductor.execution.failure_policy import remediation_suggestions
 from conductor.manifest_schema import RUN_MANIFEST_SCHEMA_VERSION
 from conductor.preflight_gate import read_preflight_gate
@@ -53,6 +53,7 @@ class RunManifest:
     cli_runs: list[dict[str, object]]
     llm_runs: list[dict[str, object]]
     collaboration_runs: list[dict[str, object]]
+    agent_team_plans: list[dict[str, object]]
     tl_decisions: list[dict[str, object]]
     human_control_actions: list[dict[str, object]]
     retry_history: list[dict[str, object]]
@@ -111,6 +112,7 @@ class RunManifestWriter:
         llm_token_usage = self._sum_token_usage([dict(run.get("token_usage", {})) for run in llm_runs])
         llm_cost_estimate = self._llm_cost_estimate(llm_runs, llm_runtime_config)
         resume_cursor = self._resume_cursor(state)
+        agent_records = self._agent_records(state, cli_config)
         manifest = RunManifest(
             schema_version=RUN_MANIFEST_SCHEMA_VERSION,
             run_id=f"{state.project.id}:{generated_at}",
@@ -130,7 +132,7 @@ class RunManifestWriter:
                 "workitem_count": len(state.workitems),
                 "execution_count": len(state.executions),
                 "artifact_count": len(state.artifacts),
-                "agent_count": len(state.agent_activations),
+                "agent_count": len(agent_records),
                 "blocked_count": len(state.blockers),
                 "requirement_quality_score": max(
                     [int(item["score"]) for item in requirement_evaluations],
@@ -156,6 +158,7 @@ class RunManifestWriter:
                 "llm_cost_estimate": llm_cost_estimate,
                 "llm_context_windows": llm_context_windows,
                 "collaboration_run_count": len(collaboration_runs),
+                "agent_team_plan_count": len(state.agent_team_plans),
                 "tl_decision_count": len(state.tl_decisions),
                 "human_control_action_count": len(state.human_control_actions),
                 "changed_file_count": len(self._changed_files(executions)),
@@ -170,11 +173,12 @@ class RunManifestWriter:
             resume_cursor=resume_cursor,
             run_environment=self._run_environment_snapshot(),
             platform_diagnostics=platform_diagnostics,
-            agents=[self._agent_record(state, activation, cli_config) for activation in state.agent_activations],
+            agents=agent_records,
             executions=executions,
             cli_runs=cli_runs,
             llm_runs=llm_runs,
             collaboration_runs=collaboration_runs,
+            agent_team_plans=[self._agent_team_plan_record(plan) for plan in state.agent_team_plans],
             tl_decisions=[self._tl_decision_record(decision) for decision in state.tl_decisions],
             human_control_actions=[
                 self._human_control_action_record(action) for action in state.human_control_actions
@@ -535,6 +539,38 @@ class RunManifestWriter:
             "created_at": decision.created_at,
         }
 
+    def _agent_team_plan_record(self, plan) -> dict[str, object]:
+        """Return a manifest-safe dynamic Agent team plan."""
+        return {
+            "id": plan.id,
+            "project_id": plan.project_id,
+            "stage": plan.stage,
+            "trigger": plan.trigger,
+            "complexity_level": plan.complexity_level,
+            "reasons": list(plan.reasons),
+            "agent_specs": [
+                {
+                    "role": spec.role,
+                    "agent_id": spec.agent_id,
+                    "instance_id": spec.instance_id,
+                    "stage": spec.stage,
+                    "mission": spec.mission,
+                    "reason": spec.reason,
+                    "scope": spec.scope,
+                    "collaboration_mode": spec.collaboration_mode,
+                    "parallel_safe": spec.parallel_safe,
+                    "write_scope": list(spec.write_scope),
+                    "output_contract": list(spec.output_contract),
+                    "review_focus": list(spec.review_focus),
+                    "revision_rules": list(spec.revision_rules),
+                    "preferred_backend": spec.preferred_backend,
+                    "allowed_collaboration_modes": list(spec.allowed_collaboration_modes),
+                    "workitem_kinds": list(spec.workitem_kinds),
+                }
+                for spec in plan.agent_specs
+            ],
+        }
+
     def _human_control_action_record(self, action) -> dict[str, object]:
         """Return a manifest-safe human control record."""
         return {
@@ -866,6 +902,77 @@ class RunManifestWriter:
             "artifact_files": [artifact.path or "" for artifact in artifacts if artifact.path],
         }
 
+    def _agent_records(self, state: SharedProjectState, cli_config: CLISelectionConfig) -> list[dict[str, object]]:
+        """Return all Agents that participated, including review-only collaboration seats."""
+        records: list[dict[str, object]] = []
+        seen: set[str] = set()
+        for activation in state.agent_activations:
+            records.append(self._agent_record(state, activation, cli_config))
+            seen.add(activation.agent_id)
+
+        for activation in self._collaboration_only_agent_activations(state):
+            if activation.agent_id in seen:
+                continue
+            records.append(self._agent_record(state, activation, cli_config))
+            seen.add(activation.agent_id)
+        return records
+
+    def _collaboration_only_agent_activations(self, state: SharedProjectState) -> list[AgentActivation]:
+        """Synthesize AgentActivation records for reviewers that only appear in collaboration logs."""
+        result: list[AgentActivation] = []
+        seen: set[str] = set()
+        workitems_by_id = {item.id: item for item in state.workitems}
+        for collaboration in state.collaborations:
+            workitem = workitems_by_id.get(collaboration.workitem_id)
+            stage = workitem.stage if workitem else ""
+            kinds = [workitem.kind] if workitem else []
+            participant_ids = [
+                collaboration.lead_agent_id,
+                *list(collaboration.reviewer_agent_ids),
+                *[draft.author_agent_id for draft in collaboration.draft_versions],
+                *[review.agent_id for review in collaboration.contributions],
+            ]
+            for agent_id in participant_ids:
+                if not agent_id or agent_id in seen:
+                    continue
+                seen.add(agent_id)
+                if any(activation.agent_id == agent_id for activation in state.agent_activations):
+                    continue
+                role, instance_id = self._infer_collaboration_agent_role(agent_id)
+                result.append(
+                    AgentActivation(
+                        role=role,
+                        agent_id=agent_id,
+                        stage=stage,
+                        reason="collaboration_participant",
+                        related_workitem_kinds=list(kinds),
+                        execution_backend="collaboration",
+                        preferred_backend="local",
+                        instance_id=instance_id,
+                        scope="collaboration review/revision",
+                        dynamic=bool(instance_id),
+                        parallel_safe=True,
+                    )
+                )
+        return result
+
+    def _infer_collaboration_agent_role(self, agent_id: str) -> tuple[str, str]:
+        """Infer a stable role and optional seat id from a collaboration Agent id."""
+        base_agent_id, separator, seat_id = agent_id.partition(":")
+        if separator and seat_id:
+            role = seat_id.split(".", 1)[0].replace("-", "_")
+            return role, seat_id
+        role_by_agent_id = {
+            "agent-requirement-designer": "requirement_designer",
+            "agent-designer": "designer",
+            "agent-backend": "backend_engineer",
+            "agent-frontend": "frontend_engineer",
+            "agent-tester": "tester",
+        }
+        if base_agent_id in role_by_agent_id:
+            return role_by_agent_id[base_agent_id], ""
+        return base_agent_id.removeprefix("agent-").replace("-", "_"), ""
+
     def _agent_record(self, state: SharedProjectState, activation, cli_config: CLISelectionConfig) -> dict[str, object]:
         """Build one agent manifest record from actual runtime evidence."""
         role_cli = self._cli_for_role(activation.role, cli_config)
@@ -914,6 +1021,11 @@ class RunManifestWriter:
             "role": activation.role,
             "stage": activation.stage,
             "execution_backend": self._effective_agent_backend(activation.execution_backend, source_backends),
+            "instance_id": getattr(activation, "instance_id", ""),
+            "scope": getattr(activation, "scope", ""),
+            "dynamic": bool(getattr(activation, "dynamic", False)),
+            "parallel_safe": bool(getattr(activation, "parallel_safe", True)),
+            "write_scope": list(getattr(activation, "write_scope", [])),
             "source_backends": source_backends,
             "cli_name": role_cli,
             "model": models[0] if models else "",

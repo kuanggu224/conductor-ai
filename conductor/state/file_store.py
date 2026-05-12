@@ -21,7 +21,9 @@ from conductor.collaboration.models import (
 from conductor.domain.models import (
     AgentActivation,
     AgentCapabilityStats,
+    AgentTeamPlan,
     Artifact,
+    DynamicAgentSpec,
     Execution,
     ExecutionStatus,
     HumanControlAction,
@@ -155,6 +157,7 @@ class FileStateStore(InMemoryStateStore):
             human_control_actions=[
                 self._human_control_action(item) for item in data.get("human_control_actions", [])
             ],
+            agent_team_plans=[self._agent_team_plan(item) for item in data.get("agent_team_plans", [])],
         )
 
     def _project(self, data: dict[str, Any]) -> Project:
@@ -249,6 +252,42 @@ class FileStateStore(InMemoryStateStore):
             related_workitem_kinds=list(data.get("related_workitem_kinds", [])),
             execution_backend=data.get("execution_backend", "mock"),
             preferred_backend=data.get("preferred_backend", "local"),
+            instance_id=data.get("instance_id", ""),
+            scope=data.get("scope", ""),
+            dynamic=bool(data.get("dynamic", False)),
+            parallel_safe=bool(data.get("parallel_safe", True)),
+            write_scope=list(data.get("write_scope", [])),
+        )
+
+    def _agent_team_plan(self, data: dict[str, Any]) -> AgentTeamPlan:
+        return AgentTeamPlan(
+            id=data["id"],
+            project_id=data.get("project_id", ""),
+            stage=data.get("stage", ""),
+            trigger=data.get("trigger", ""),
+            complexity_level=data.get("complexity_level", "simple"),
+            reasons=list(data.get("reasons", [])),
+            agent_specs=[self._dynamic_agent_spec(item) for item in data.get("agent_specs", [])],
+        )
+
+    def _dynamic_agent_spec(self, data: dict[str, Any]) -> DynamicAgentSpec:
+        return DynamicAgentSpec(
+            role=data["role"],
+            agent_id=data["agent_id"],
+            instance_id=data.get("instance_id", ""),
+            stage=data.get("stage", ""),
+            mission=data.get("mission", ""),
+            reason=data.get("reason", ""),
+            scope=data.get("scope", ""),
+            collaboration_mode=data.get("collaboration_mode", ""),
+            parallel_safe=bool(data.get("parallel_safe", False)),
+            write_scope=list(data.get("write_scope", [])),
+            output_contract=list(data.get("output_contract", [])),
+            review_focus=list(data.get("review_focus", [])),
+            revision_rules=list(data.get("revision_rules", [])),
+            preferred_backend=data.get("preferred_backend", "local"),
+            allowed_collaboration_modes=list(data.get("allowed_collaboration_modes", [])),
+            workitem_kinds=list(data.get("workitem_kinds", [])),
         )
 
     def _tl_decision(self, data: dict[str, Any]) -> TLDecision:

@@ -6,6 +6,7 @@ from dataclasses import replace
 from uuid import uuid4
 
 from conductor.agents.registry import AgentRegistry
+from conductor.agents.team_planner import AgentTeamPlanner
 from conductor.collaboration.models import CollaborationStatus
 from conductor.collaboration.runner import CollaborationRunner
 from conductor.control.human import HumanControlService
@@ -14,6 +15,8 @@ from conductor.context.builder import ContextBuilder
 from conductor.domain.models import (
     AgentActivation,
     AgentCapabilityStats,
+    AgentTeamPlan,
+    DynamicAgentSpec,
     Execution,
     ExecutionStatus,
     Project,
@@ -62,6 +65,7 @@ class LeadController:
         self.context_builder = ContextBuilder()
         self.tl_agent = TechnicalLeadAgent()
         self.human_control = HumanControlService(state_store)
+        self.agent_team_planner = AgentTeamPlanner()
 
     def initialize_project(self, requirement: str, project_root: str | None = None) -> SharedProjectState:
         """Initialize a project and register its first-stage tasks."""
@@ -96,6 +100,7 @@ class LeadController:
                 *[f"创建 WorkItem {workitem.id} ({workitem.kind})" for workitem in initial_workitems],
             ],
         )
+        state = self._apply_agent_team_plan_to_state(state, trigger="project_initialize")
         self.state_store.save_state(state)
         return state
 
@@ -506,6 +511,7 @@ class LeadController:
                 *[f"创建 WorkItem {workitem.id} ({workitem.kind})" for workitem in new_workitems],
             ],
         )
+        latest_state = self._apply_agent_team_plan_to_state(latest_state, trigger="stage_start")
         self.state_store.save_state(latest_state)
         return latest_state
 
@@ -1075,6 +1081,60 @@ class LeadController:
                 )
             )
         return activations
+
+    def _apply_agent_team_plan_to_state(self, state: SharedProjectState, trigger: str) -> SharedProjectState:
+        """Generate and persist dynamic Agent instances for the current stage."""
+        if any(plan.stage == state.current_stage and plan.trigger == trigger for plan in state.agent_team_plans):
+            return state
+        plan = self.agent_team_planner.plan(state, trigger=trigger)
+        if not plan.agent_specs:
+            return state
+        activations = [self._activation_from_dynamic_spec(spec) for spec in plan.agent_specs]
+        for spec in plan.agent_specs:
+            self._register_dynamic_agent(spec)
+        roles = list(dict.fromkeys([*state.planned_roles, *[spec.role for spec in plan.agent_specs]]))
+        return replace(
+            state,
+            agent_team_plans=[*state.agent_team_plans, plan],
+            agent_activations=[*state.agent_activations, *activations],
+            planned_roles=roles,
+            recent_events=[
+                *state.recent_events,
+                self._agent_team_plan_event(plan),
+                *self._build_agent_activation_events(activations),
+            ],
+        )
+
+    def _register_dynamic_agent(self, spec: DynamicAgentSpec) -> None:
+        """Register a dynamic Agent instance in the runtime registry."""
+        base_profile = self.registry.get_profile_by_role(spec.role)
+        profile = self.agent_team_planner.profile_for_spec(base_profile, spec)
+        self.registry.register_dynamic_agent(profile, agent_id=spec.agent_id, base_role=spec.role)
+
+    def _activation_from_dynamic_spec(self, spec: DynamicAgentSpec) -> AgentActivation:
+        """Convert a dynamic Agent spec into a persistent activation record."""
+        return AgentActivation(
+            role=spec.role,
+            agent_id=spec.agent_id,
+            stage=spec.stage,
+            reason=spec.reason,
+            related_workitem_kinds=list(spec.workitem_kinds),
+            execution_backend="cli",
+            preferred_backend=spec.preferred_backend,
+            instance_id=spec.instance_id,
+            scope=spec.scope,
+            dynamic=True,
+            parallel_safe=spec.parallel_safe,
+            write_scope=list(spec.write_scope),
+        )
+
+    def _agent_team_plan_event(self, plan: AgentTeamPlan) -> str:
+        """Build a compact event for a generated Agent team plan."""
+        agent_ids = ", ".join(spec.agent_id for spec in plan.agent_specs)
+        return (
+            f"AgentTeamPlanner 生成团队计划 {plan.id}: "
+            f"stage={plan.stage}, level={plan.complexity_level}, agents={agent_ids}"
+        )
 
     def _build_agent_activation_events(self, activations: list[AgentActivation]) -> list[str]:
         """Build events explaining why Agents were created for the project."""

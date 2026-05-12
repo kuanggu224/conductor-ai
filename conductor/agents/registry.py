@@ -34,6 +34,38 @@ class AgentRegistry:
                 return agent
         raise KeyError(f"未找到角色对应的 Agent: {role}")
 
+    def get_agent_by_id(self, agent_id: str) -> Agent:
+        """Return an Agent by concrete runtime id."""
+        for agent in self.agents:
+            if agent.id == agent_id:
+                return agent
+        raise KeyError(f"Agent not found: {agent_id}")
+
+    def register_dynamic_agent(
+        self,
+        profile: AgentProfile,
+        *,
+        agent_id: str,
+        base_role: str | None = None,
+    ) -> Agent:
+        """Register or return a runtime-generated Agent instance."""
+        for agent in self.agents:
+            if agent.id == agent_id:
+                return agent
+        agent = Agent(
+            id=agent_id,
+            role=base_role or profile.role_name,
+            profile=profile,
+            capabilities=profile.capabilities,
+            backend="mock",
+            llm_backend=self.llm_backend,
+            execution_backend=profile.execution_backend,
+            preferred_llm_backend=profile.preferred_backend,
+        )
+        self.agents.append(agent)
+        self.profiles.append(profile)
+        return agent
+
     def list_roles(self) -> list[str]:
         """返回当前可用角色列表。"""
         return [agent.role for agent in self.agents]

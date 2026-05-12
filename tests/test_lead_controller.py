@@ -446,6 +446,26 @@ def test_testing_workitem_can_enter_multi_agent_collaboration(tmp_path) -> None:
     }
 
 
+def test_agent_team_planner_creates_dynamic_agents_on_development_stage() -> None:
+    controller = build_controller()
+    state = controller.initialize_project("Build an API and UI page with data storage and form validation.")
+
+    for _ in range(12):
+        if state.current_stage == "development":
+            break
+        state = controller.advance(state)
+
+    development_plan = next(plan for plan in state.agent_team_plans if plan.stage == "development")
+    dynamic_activations = [activation for activation in state.agent_activations if activation.dynamic]
+
+    assert development_plan.agent_specs
+    assert any(spec.role == "frontend_engineer" and spec.instance_id == "ui_layout" for spec in development_plan.agent_specs)
+    assert any(spec.role == "frontend_engineer" and spec.instance_id == "state_logic" for spec in development_plan.agent_specs)
+    assert any(spec.role == "backend_engineer" and spec.instance_id == "api_contracts" for spec in development_plan.agent_specs)
+    assert any(activation.agent_id == "agent-frontend-engineer-ui-layout" for activation in dynamic_activations)
+    assert all(activation.write_scope for activation in dynamic_activations if activation.parallel_safe)
+
+
 def test_advance_records_tl_decision(tmp_path) -> None:
     controller = build_controller()
     state = controller.initialize_project("Build a small static app", project_root=str(tmp_path / "project"))

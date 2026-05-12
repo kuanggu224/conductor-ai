@@ -2,7 +2,9 @@
 
 from dataclasses import replace
 
+from conductor.agents.team_planner import AgentTeamPlanner
 from conductor.controller.lead_controller import LeadController
+from conductor.domain.models import Project, ProjectStatus, SharedProjectState, WorkItem
 from conductor.execution.runner import Runner
 from conductor.state.file_store import FileStateStore
 from conductor.workflow.template import WorkflowTemplate
@@ -90,6 +92,32 @@ def test_file_state_store_persists_execution_token_usage(tmp_path) -> None:
         "completion_tokens": 8,
         "total_tokens": 20,
     }
+
+
+def test_file_state_store_persists_agent_team_plans(tmp_path) -> None:
+    state_dir = tmp_path / "state"
+    store = FileStateStore(state_dir)
+    state = SharedProjectState(
+        project=Project(id="project-team-plan", goal="Build UI with validation", current_stage="development"),
+        project_status=ProjectStatus.IN_PROGRESS,
+        current_stage="development",
+        workitems=[
+            WorkItem(
+                id="workitem-ui",
+                description="Implement UI validation",
+                stage="development",
+                kind="ui_implementation",
+            )
+        ],
+    )
+    plan = AgentTeamPlanner().plan(state)
+    store.save_state(replace(state, agent_team_plans=[plan]))
+
+    restored = FileStateStore(state_dir).get_state("project-team-plan")
+
+    assert restored.agent_team_plans[0].stage == "development"
+    assert restored.agent_team_plans[0].agent_specs[0].agent_id.startswith("agent-")
+    assert restored.agent_team_plans[0].agent_specs[0].write_scope
 
 
 def test_file_state_store_quarantines_corrupt_state_files(tmp_path) -> None:
