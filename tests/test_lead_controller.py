@@ -385,6 +385,67 @@ def test_development_workitem_can_enter_multi_agent_collaboration(tmp_path) -> N
     }
 
 
+def test_testing_workitem_can_enter_multi_agent_collaboration(tmp_path) -> None:
+    state_store = InMemoryStateStore()
+    registry = AgentRegistry()
+    artifact_store = ArtifactStore(tmp_path)
+    runner = Runner(state_store=state_store, artifact_store=artifact_store)
+    collaboration_runner = CollaborationRunner(
+        state_store=state_store,
+        registry=registry,
+        artifact_store=artifact_store,
+        policy=CollaborationPolicy(
+            max_rounds=2,
+            lead_role_by_stage={"testing": "tester"},
+            lead_role_by_kind={"acceptance_check": "tester"},
+            peer_reviewer_roles_by_stage={"testing": ["tester"]},
+            reviewer_roles_by_stage={"testing": ["backend_engineer", "frontend_engineer", "solution_designer"]},
+            enabled_kinds={"acceptance_check"},
+        ),
+        use_llm=False,
+    )
+    controller = LeadController(
+        workflow_template=WorkflowTemplate(),
+        state_store=state_store,
+        runner=runner,
+        registry=registry,
+        collaboration_runner=collaboration_runner,
+    )
+    state = controller.initialize_project("Validate a small UI", project_root=str(tmp_path))
+    testing_workitem = WorkItem(
+        id="workitem-test",
+        description="Validate acceptance readiness",
+        stage="testing",
+        kind="acceptance_check",
+    )
+    state.workitems = [testing_workitem]
+    state.current_stage = "testing"
+    state.project.current_stage = "testing"
+    state_store.save_state(state)
+
+    state = controller.advance(state)
+
+    completed = next(item for item in state.workitems if item.id == "workitem-test")
+    collaboration = state.collaborations[0]
+
+    assert completed.status == WorkItemStatus.DONE
+    assert completed.collaboration_session_id == collaboration.id
+    assert collaboration.lead_agent_id == "agent-tester"
+    assert "agent-tester" not in collaboration.reviewer_agent_ids
+    assert set(collaboration.reviewer_agent_ids) == {
+        "agent-backend",
+        "agent-frontend",
+        "agent-solution-designer",
+    }
+    assert collaboration.team_plan["lead_role"] == "tester"
+    assert {activation.role for activation in state.agent_activations} >= {
+        "tester",
+        "backend_engineer",
+        "frontend_engineer",
+        "solution_designer",
+    }
+
+
 def test_advance_records_tl_decision(tmp_path) -> None:
     controller = build_controller()
     state = controller.initialize_project("Build a small static app", project_root=str(tmp_path / "project"))
