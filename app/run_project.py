@@ -16,6 +16,7 @@ from conductor.config.llm import load_llm_runtime_config
 from conductor.config.system import SystemConfig
 from conductor.controller.engine import ConductorEngine
 from conductor.diagnostics import build_platform_diagnostics, build_requirement_llm_preflight_probe
+from conductor.execution_readiness import evaluate_execution_readiness
 from conductor.io.encoding import configure_utf8_stdio
 from conductor.io.requirements import load_requirement_text
 from conductor.preflight_gate import write_preflight_gate_payload
@@ -587,8 +588,17 @@ def _run_preflight_gate(
         llm_harness_backend=llm_harness_backend,
         runner_enabled=llm_runtime_config.usage.runner_enabled,
     )
+    execution_readiness = evaluate_execution_readiness(
+        diagnostics=diagnostics,
+        errors=errors,
+        recommendations=recommendations,
+        agent_cli=agent_cli,
+        llm_harness_backend=llm_harness_backend,
+        runner_enabled=llm_runtime_config.usage.runner_enabled,
+    )
     payload = {
         "ok": not errors,
+        "execution_readiness": execution_readiness.to_dict(),
         "preflight_gate": {
             "errors": errors,
             "recommendations": recommendations,

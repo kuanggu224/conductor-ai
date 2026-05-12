@@ -240,6 +240,15 @@ def test_board_service_exposes_preflight_gate_summary(tmp_path) -> None:
                     "recommendations": ["Check local server"],
                     "diagnostics_path": str(gate_path),
                 },
+                "execution_readiness": {
+                    "status": "blocked",
+                    "selected_agent_cli": "",
+                    "selected_llm_backend": "local",
+                    "runner_enabled": False,
+                    "blocking_reasons": ["local LLM preflight failed"],
+                    "warnings": [],
+                    "recommendations": ["Check local server"],
+                },
             },
             ensure_ascii=False,
             indent=2,
@@ -266,6 +275,7 @@ def test_board_service_exposes_preflight_gate_summary(tmp_path) -> None:
     assert snapshot.preflight_gate.path == str(gate_path)
     assert snapshot.preflight_gate.errors == ["local LLM preflight failed"]
     assert snapshot.preflight_gate.recommendations == ["Check local server"]
+    assert snapshot.preflight_gate.execution_readiness["status"] == "blocked"
 
 
 def test_board_service_project_summaries_include_preflight_gate_status(tmp_path) -> None:

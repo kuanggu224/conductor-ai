@@ -299,6 +299,7 @@ class BoardService:
             path=snapshot.path,
             errors=snapshot.errors,
             recommendations=snapshot.recommendations,
+            execution_readiness=snapshot.execution_readiness,
         )
 
     def build_project_summaries(self, states: list[SharedProjectState]) -> list[BoardProjectSummary]:

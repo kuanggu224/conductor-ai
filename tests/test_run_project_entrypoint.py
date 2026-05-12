@@ -601,6 +601,8 @@ def test_run_project_preflight_only_blocks_real_profile_without_backend(monkeypa
     payload = json.loads(capsys.readouterr().out)
     assert exit_code == 2
     assert payload["ok"] is False
+    assert payload["execution_readiness"]["status"] == "blocked"
+    assert payload["execution_readiness"]["blocking_reasons"]
     assert payload["project_root"] == str(tmp_path)
     assert payload["preflight_gate"]["run_profile"] == "design_cli_only"
     assert payload["preflight_gate"]["agent_cli"] is None
@@ -627,6 +629,7 @@ def test_preflight_gate_blocks_real_profile_without_backend(tmp_path) -> None:
     )
 
     assert payload["ok"] is False
+    assert payload["execution_readiness"]["status"] == "blocked"
     assert "requires real outputs" in payload["preflight_gate"]["errors"][0]
     assert payload["preflight_gate"]["recommendations"]
     diagnostics_path = tmp_path / ".conductor" / "diagnostics" / "run-preflight" / "preflight-gate.json"
@@ -677,6 +680,7 @@ def test_preflight_gate_allows_ready_llm_harness(monkeypatch, tmp_path) -> None:
     )
 
     assert payload["ok"] is True
+    assert payload["execution_readiness"]["status"] == "ready"
     assert (tmp_path / ".conductor" / "diagnostics" / "run-preflight" / "preflight-gate.json").exists()
 
 
@@ -737,6 +741,7 @@ def test_preflight_gate_blocks_failed_llm_harness(monkeypatch, tmp_path) -> None
     )
 
     assert payload["ok"] is False
+    assert payload["execution_readiness"]["status"] == "blocked"
     assert any("preflight failed" in error for error in payload["preflight_gate"]["errors"])
 
 

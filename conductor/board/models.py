@@ -172,6 +172,7 @@ class BoardPreflightGateView:
     path: str = ""
     errors: list[str] = field(default_factory=list)
     recommendations: list[str] = field(default_factory=list)
+    execution_readiness: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass(slots=True)

@@ -318,6 +318,14 @@ class ProjectLogStore:
             f"- Path: {snapshot.path}",
             f"- Status: {snapshot.status}",
         ]
+        if snapshot.execution_readiness:
+            lines.append(f"- Execution Readiness: {snapshot.execution_readiness.get('status', '-')}")
+            selected_agent_cli = snapshot.execution_readiness.get("selected_agent_cli", "")
+            selected_llm_backend = snapshot.execution_readiness.get("selected_llm_backend", "")
+            if selected_agent_cli or selected_llm_backend:
+                lines.append(
+                    f"- Selected Backend: cli={selected_agent_cli or '-'} | llm={selected_llm_backend or '-'}"
+                )
         if snapshot.errors:
             lines.extend(f"- Error: {error}" for error in snapshot.errors)
         else:

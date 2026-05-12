@@ -17,6 +17,7 @@ class PreflightGateSnapshot:
     ok: bool | None = None
     errors: list[str] = field(default_factory=list)
     recommendations: list[str] = field(default_factory=list)
+    execution_readiness: dict[str, object] = field(default_factory=dict)
     status: str = "not_recorded"
     status_label: str = "未记录"
 
@@ -71,10 +72,13 @@ def read_preflight_gate(project_root: str | Path | None) -> PreflightGateSnapsho
     gate_payload = payload.get("preflight_gate", {})
     errors = gate_payload.get("errors", []) if isinstance(gate_payload, dict) else []
     recommendations = gate_payload.get("recommendations", []) if isinstance(gate_payload, dict) else []
+    execution_readiness = payload.get("execution_readiness", {})
     if not isinstance(errors, list):
         errors = [str(errors)]
     if not isinstance(recommendations, list):
         recommendations = [str(recommendations)]
+    if not isinstance(execution_readiness, dict):
+        execution_readiness = {}
     ok = payload.get("ok")
     normalized_ok = ok if isinstance(ok, bool) else None
     snapshot_project_root = payload.get("project_root")
@@ -88,6 +92,7 @@ def read_preflight_gate(project_root: str | Path | None) -> PreflightGateSnapsho
         ok=normalized_ok,
         errors=[str(error) for error in errors],
         recommendations=[str(recommendation) for recommendation in recommendations],
+        execution_readiness=dict(execution_readiness),
         status=status,
         status_label=status_label,
     )

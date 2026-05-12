@@ -176,6 +176,7 @@ class RunManifestWriter:
                 "preflight_gate_ok": preflight_gate.ok,
                 "preflight_gate_errors": preflight_gate.errors,
                 "preflight_gate_recommendations": preflight_gate.recommendations,
+                "execution_readiness_status": str(preflight_gate.execution_readiness.get("status", "not_recorded")),
             },
             resume_cursor=resume_cursor,
             run_environment=self._run_environment_snapshot(),
