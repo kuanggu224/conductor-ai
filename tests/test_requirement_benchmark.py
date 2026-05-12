@@ -10,6 +10,7 @@ from conductor.requirement_benchmark import (
     default_requirement_benchmark_cases,
     evaluate_requirement_artifact_from_manifest,
     evaluate_requirement_document,
+    extract_requirement_document_from_manifest,
     build_requirement_case_from_text,
     run_direct_requirement_baseline,
     run_requirement_llm_preflight,
@@ -478,6 +479,58 @@ def test_requirement_evaluator_reads_manifest_artifact(tmp_path) -> None:
 
     assert evaluation.passed is True
     assert evaluation.checks["has_acceptance_criteria"] is True
+
+
+def test_requirement_manifest_extraction_prefers_clean_requirement_spec_over_collaboration_log(tmp_path) -> None:
+    requirement_path = tmp_path / "requirement.md"
+    collaboration_path = tmp_path / "collaboration.md"
+    requirement_path.write_text("clean requirement document", encoding="utf-8")
+    collaboration_path.write_text("collaboration history with reviewer noise", encoding="utf-8")
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "artifacts": [
+                    {"kind": "requirement_spec", "path": str(requirement_path)},
+                    {"kind": "collaboration_review", "path": str(collaboration_path)},
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    document = extract_requirement_document_from_manifest(manifest_path)
+
+    assert document == "clean requirement document"
+
+
+def test_requirement_evaluator_allows_explicit_edit_delete_non_goals_and_text_editor_mentions() -> None:
+    case = default_requirement_benchmark_cases()[0]
+    document = """
+    ## 目标
+    个人读书清单 Web 应用。
+    ## 范围边界
+    支持添加书名、作者、阅读状态、评分、备注，按状态筛选，导出 CSV，刷新后保留数据。
+    仅支持新增书籍记录，不支持编辑或删除已有记录。
+    ## 非目标
+    不支持登录、云同步、编辑、删除。
+    ## 验收标准
+    导出 CSV 文件包含所有字段，格式正确，可被 Excel 或文本编辑器正常打开。
+    ## 边界/异常场景
+    空列表、缺少必填字段、刷新后恢复数据均可验证。
+    ## 风险与假设
+    CSV 编码可能需要 UTF-8。
+    ## 待确认问题
+    是否后续需要搜索能力。
+    ## 下游交付约束
+    后续开发不得自行添加编辑、删除功能。
+    """
+
+    evaluation = evaluate_requirement_document(document, case)
+
+    assert evaluation.checks["no_scope_expansion"] is True
+    assert evaluation.passed is True
 
 
 def test_requirement_comparison_report_writes_json_and_markdown(tmp_path) -> None:

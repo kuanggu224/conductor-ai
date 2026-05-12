@@ -263,6 +263,8 @@ SCOPE_NEGATION_TERMS: tuple[str, ...] = (
     "\u4e0d\u9700\u8981",
     "\u65e0\u9700",
     "\u4e0d\u5305\u542b",
+    "\u4e0d\u652f\u6301",
+    "\u7981\u6b62",
     "\u6392\u9664",
     "\u4e0d\u5f97",
     "\u4e0d\u80fd",
@@ -601,7 +603,7 @@ def extract_requirement_document_from_manifest(manifest_path: str | Path) -> str
     path = Path(manifest_path)
     manifest: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
     artifacts = list(manifest.get("artifacts", []))
-    preferred_kinds = ["frozen_requirement_spec", "collaboration_review", "requirement_spec", "design_overview"]
+    preferred_kinds = ["frozen_requirement_spec", "requirement_spec", "design_overview", "collaboration_review"]
     for kind in preferred_kinds:
         for artifact in reversed(artifacts):
             if artifact.get("kind") != kind:
@@ -704,8 +706,8 @@ def _is_mock_or_placeholder_document(text: str) -> bool:
 
 def _scope_expansion_topics(requirement: str, document: str) -> list[str]:
     """Return likely feature topics introduced by the document but absent from the source requirement."""
-    requirement_text = requirement.lower()
-    document_text = document.lower()
+    requirement_text = _scope_detection_text(requirement)
+    document_text = _scope_detection_text(document)
     topics: list[str] = []
     for topic, terms in SCOPE_EXPANSION_TOPICS.items():
         if _contains_any(requirement_text, terms):
@@ -716,6 +718,14 @@ def _scope_expansion_topics(requirement: str, document: str) -> list[str]:
             continue
         topics.append(topic)
     return topics
+
+
+def _scope_detection_text(text: str) -> str:
+    """Normalize text before scope-expansion keyword matching."""
+    normalized = text.lower()
+    for benign_phrase in ("\u6587\u672c\u7f16\u8f91\u5668", "\u4ee3\u7801\u7f16\u8f91\u5668"):
+        normalized = normalized.replace(benign_phrase, "")
+    return normalized
 
 
 def _topic_only_appears_as_non_goal(text: str, terms: tuple[str, ...]) -> bool:
