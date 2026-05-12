@@ -1,15 +1,19 @@
 """Runner 与基础流程测试。"""
 
+import json
 from dataclasses import replace
 
 from conductor.agents.agent import Agent
+from conductor.agents.llm import MockCloudLLMBackend
 from conductor.config.cli import CLISelectionConfig
+from conductor.config.llm import LLMUsagePolicy
 from conductor.agents.profile import build_default_agent_profiles
 from conductor.controller.lead_controller import LeadController
 from conductor.domain.models import Artifact, Capability, ExecutionStatus, WorkItem, WorkItemStatus
 from conductor.harness.base import BaseHarness
 from conductor.harness.models import HarnessRequest, HarnessResult
 from conductor.execution.runner import Runner
+from conductor.manifest import RunManifestWriter
 from conductor.state.store import InMemoryStateStore
 from conductor.workflow.template import WorkflowTemplate
 
@@ -757,6 +761,54 @@ def test_runner_records_context_input_artifact_ids() -> None:
     execution = runner.run(state.project.id, workitem, agent)
 
     assert execution.input_artifact_ids == ["artifact-frozen"]
+
+
+def test_runner_records_actual_llm_model_in_execution_and_manifest(tmp_path) -> None:
+    state_store = InMemoryStateStore()
+    runner = Runner(
+        state_store,
+        llm_usage_policy=LLMUsagePolicy(runner_enabled=True, preferred_backend="cloud"),
+    )
+    controller = LeadController(
+        workflow_template=WorkflowTemplate(),
+        state_store=state_store,
+        runner=runner,
+    )
+    state = controller.initialize_project("Generate a design document")
+    state.project.project_root = str(tmp_path)
+    workitem = WorkItem(
+        id="workitem-design",
+        description="Create design overview",
+        stage="design",
+        kind="design_overview",
+    )
+    state.workitems = [workitem]
+    state_store.save_state(state)
+    agent = Agent(
+        id="agent-designer",
+        role="designer",
+        capabilities=[Capability.PLANNING],
+        backend="llm",
+        execution_backend="llm",
+        llm_backend=MockCloudLLMBackend(model_name="jiutian-lan-comv3"),
+    )
+
+    execution = runner.run(state.project.id, workitem, agent)
+    latest = replace(state_store.get_state(state.project.id), executions=[execution])
+    manifest_path = RunManifestWriter().write(
+        latest,
+        cli_config=CLISelectionConfig(),
+        run_profile="test",
+        report_path=tmp_path / "report.md",
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert execution.source_backend == "llm/cloud"
+    assert execution.model == "jiutian-lan-comv3"
+    assert latest.artifacts[0].source_backend == "llm/cloud"
+    assert latest.executions[0].model == "jiutian-lan-comv3"
+    assert manifest["executions"][0]["model"] == "jiutian-lan-comv3"
+    assert manifest["llm_runs"][0]["model"] == "jiutian-lan-comv3"
 
 
 def test_runner_blocks_code_mock_when_real_code_required() -> None:

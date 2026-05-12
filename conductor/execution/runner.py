@@ -13,7 +13,7 @@ from pathlib import Path
 
 from conductor.agents.agent import Agent
 from conductor.agents.cli_executor import AgentCLIExecution, AgentCLIExecutor
-from conductor.agents.llm import LLMHTTPConfig
+from conductor.agents.llm import LLMHTTPConfig, LLMRequest
 from conductor.artifacts.store import ArtifactStore
 from conductor.artifacts.scope_contract import evaluate_scope_contract
 from conductor.config.cli import CLISelectionConfig
@@ -407,16 +407,24 @@ class Runner:
             preferred_backend = self.llm_usage_policy.preferred_backend or agent.preferred_llm_backend
             self.state_store.add_event(project_id, f"WorkItem {workitem.id} 使用 LLM 执行，role={agent.role}, backend={preferred_backend}")
             try:
-                content = agent.think(
-                    prompt=self._build_document_prompt(workitem, agent),
-                    context_pack=self._build_context_pack(project_id, workitem),
-                    preferred_backend=preferred_backend,
+                response = agent.llm_backend.generate(
+                    LLMRequest(
+                        user_prompt=self._build_document_prompt(workitem, agent),
+                        context_pack=self._build_context_pack(project_id, workitem),
+                        preferred_backend=preferred_backend,
+                    )
                 )
+                content = response.content
                 if self._is_disabled_llm_response(content) and self._requires_real_design_output(workitem, agent):
                     return self._real_backend_required_result(workitem, agent, f"LLM backend `{preferred_backend}` 未启用")
+                self.state_store.add_event(
+                    project_id,
+                    f"WorkItem {workitem.id} LLM 响应完成，provider={response.provider.value}, model={response.model_name}",
+                )
                 return WorkItemRunResult(
                     content=content,
-                    source_backend=f"llm/{preferred_backend}",
+                    source_backend=f"llm/{response.provider.value}",
+                    model=response.model_name,
                 )
             except Exception as error:
                 self.state_store.add_event(project_id, f"WorkItem {workitem.id} LLM 执行失败，使用 mock fallback: {error}")
