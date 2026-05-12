@@ -17,7 +17,7 @@ class TechnicalLeadAgent:
         pending = [item for item in state.workitems if item.status == WorkItemStatus.PENDING]
         running = [item for item in state.workitems if item.status == WorkItemStatus.RUNNING]
         blockers = list(state.blockers)
-        human_action_required = bool(blockers) or state.project_status == ProjectStatus.BLOCKED
+        human_action_required = bool(blockers) or state.project_status == ProjectStatus.BLOCKED or action == "human_hold"
         risk_level = self._risk_level(state, failed, blockers)
         recommendations = self._recommendations(action, failed, blockers, pending, running)
         created_at = datetime.now(timezone.utc).isoformat()
@@ -46,6 +46,8 @@ class TechnicalLeadAgent:
         return "low"
 
     def _recommendations(self, action: str, failed: list, blockers: list[str], pending: list, running: list) -> list[str]:
+        if action == "human_hold":
+            return ["等待人类恢复、审批或覆盖当前控制动作后再继续推进。"]
         if blockers:
             return ["需要人类确认 blocker 后再继续推进。"]
         if failed:

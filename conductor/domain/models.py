@@ -36,6 +36,17 @@ class TaskAssignmentStatus(StrEnum):
     BLOCKED = "blocked"
 
 
+class HumanControlActionType(StrEnum):
+    """Human control-plane action lifecycle."""
+
+    PAUSE = "pause"
+    RESUME = "resume"
+    REQUEST_APPROVAL = "request_approval"
+    APPROVE = "approve"
+    REJECT = "reject"
+    OVERRIDE = "override"
+
+
 class ExecutionStatus(StrEnum):
     """Execution 执行结果状态。"""
 
@@ -193,6 +204,21 @@ class TLDecision:
 
 
 @dataclass(slots=True)
+class HumanControlAction:
+    """Human intervention record for project-level control."""
+
+    id: str
+    project_id: str
+    action: HumanControlActionType
+    actor: str
+    reason: str = ""
+    stage: str = ""
+    workitem_id: str | None = None
+    payload: dict[str, object] = field(default_factory=dict)
+    created_at: str = ""
+
+
+@dataclass(slots=True)
 class RouteDecision:
     """WorkItem 到 Agent 的路由结果。"""
 
@@ -241,6 +267,7 @@ class SharedProjectState:
     pending_test_scope: list[str] = field(default_factory=list)
     agent_capability_stats: list[AgentCapabilityStats] = field(default_factory=list)
     tl_decisions: list[TLDecision] = field(default_factory=list)
+    human_control_actions: list[HumanControlAction] = field(default_factory=list)
 
 
 # Sprint 1 兼容别名：部分文档会把 Execution 称为 ExecutionResult。
@@ -256,6 +283,8 @@ __all__ = [
     "Execution",
     "ExecutionResult",
     "ExecutionStatus",
+    "HumanControlAction",
+    "HumanControlActionType",
     "Project",
     "ProjectStatus",
     "RouteDecision",

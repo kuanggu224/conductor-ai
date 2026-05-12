@@ -19,6 +19,7 @@ def test_file_state_store_persists_and_reloads_project(tmp_path) -> None:
     )
     state = controller.initialize_project("实现一个 API 和 UI 页面")
     state = controller.advance(state)
+    state = controller.human_control.pause(state.project.id, actor="operator", reason="checkpoint")
     state = replace(
         state,
         workitems=[
@@ -53,6 +54,8 @@ def test_file_state_store_persists_and_reloads_project(tmp_path) -> None:
     assert restored.workitems[0].testing_checklist[0]["rule_id"] == "add_item"
     assert restored.agent_capability_stats[0].completed_count == 1
     assert restored.tl_decisions[0].action == "execute_workitem"
+    assert restored.human_control_actions[0].action.value == "pause"
+    assert restored.human_control_actions[0].reason == "checkpoint"
     assert [activation.role for activation in restored.agent_activations] == [
         activation.role for activation in state.agent_activations
     ]

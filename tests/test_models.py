@@ -6,6 +6,8 @@ from conductor.domain.models import (
     Execution,
     ExecutionStatus,
     Artifact,
+    HumanControlAction,
+    HumanControlActionType,
     Project,
     ProjectStatus,
     RouteDecision,
@@ -29,6 +31,13 @@ def test_core_models_can_be_created() -> None:
         input_artifact_ids=["artifact-0"],
     )
     route = RouteDecision(workitem_id=workitem.id, selected_agent="agent-1")
+    human_control_action = HumanControlAction(
+        id="human-1",
+        project_id=project.id,
+        action=HumanControlActionType.PAUSE,
+        actor="human",
+        reason="inspect output",
+    )
     tl_decision = TLDecision(
         id="tl-0001",
         project_id=project.id,
@@ -55,6 +64,7 @@ def test_core_models_can_be_created() -> None:
         workitems=[workitem],
         artifacts=[artifact],
         tl_decisions=[tl_decision],
+        human_control_actions=[human_control_action],
     )
     memory = GlobalMemory(project_memory=["需求已记录"])
     context = ContextPack(
@@ -69,6 +79,7 @@ def test_core_models_can_be_created() -> None:
     assert execution.status == ExecutionStatus.SUCCESS
     assert execution.input_artifact_ids == ["artifact-0"]
     assert route.selected_agent == "agent-1"
+    assert state.human_control_actions[0].action == HumanControlActionType.PAUSE
     assert state.tl_decisions[0].risk_level == "low"
     assert state.artifacts[0].title == "设计文档"
     assert state.artifacts[0].version == 1

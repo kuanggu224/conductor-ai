@@ -8,6 +8,7 @@ from uuid import uuid4
 from conductor.agents.registry import AgentRegistry
 from conductor.collaboration.models import CollaborationStatus
 from conductor.collaboration.runner import CollaborationRunner
+from conductor.control.human import HumanControlService
 from conductor.controller.tl_agent import TechnicalLeadAgent
 from conductor.context.builder import ContextBuilder
 from conductor.domain.models import (
@@ -60,6 +61,7 @@ class LeadController:
         self.collaboration_runner = collaboration_runner
         self.context_builder = ContextBuilder()
         self.tl_agent = TechnicalLeadAgent()
+        self.human_control = HumanControlService(state_store)
 
     def initialize_project(self, requirement: str, project_root: str | None = None) -> SharedProjectState:
         """Initialize a project and register its first-stage tasks."""
@@ -99,6 +101,8 @@ class LeadController:
 
     def decide_next_action(self, state: SharedProjectState) -> str:
         """Decide the next controller action from explicit project state."""
+        if self.human_control.controller_hold_reason(state):
+            return "human_hold"
         current_stage = state.current_stage
         stage_workitems = [item for item in state.workitems if item.stage == current_stage]
         pending_items = [item for item in stage_workitems if item.status == WorkItemStatus.PENDING]
@@ -160,6 +164,10 @@ class LeadController:
             return self._block_dependency(project_id)
         if action == "wait_for_dependencies":
             return self.state_store.add_event(project_id, "等待依赖 WorkItem 完成")
+        if action == "human_hold":
+            latest = self.state_store.get_state(project_id)
+            hold_reason = self.human_control.controller_hold_reason(latest) or "human control hold"
+            return self.state_store.add_event(project_id, f"HumanControl: controller hold - {hold_reason}")
         return self.state_store.get_state(project_id)
 
     def _execute_next_ready_workitem(self, state: SharedProjectState) -> SharedProjectState:

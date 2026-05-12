@@ -54,6 +54,7 @@ class RunManifest:
     llm_runs: list[dict[str, object]]
     collaboration_runs: list[dict[str, object]]
     tl_decisions: list[dict[str, object]]
+    human_control_actions: list[dict[str, object]]
     retry_history: list[dict[str, object]]
     requirement_evaluations: list[dict[str, object]]
     requirement_coverage_results: list[dict[str, object]]
@@ -156,6 +157,7 @@ class RunManifestWriter:
                 "llm_context_windows": llm_context_windows,
                 "collaboration_run_count": len(collaboration_runs),
                 "tl_decision_count": len(state.tl_decisions),
+                "human_control_action_count": len(state.human_control_actions),
                 "changed_file_count": len(self._changed_files(executions)),
                 "changed_files": self._changed_files(executions),
                 "artifact_file_count": len(artifact_files),
@@ -174,6 +176,9 @@ class RunManifestWriter:
             llm_runs=llm_runs,
             collaboration_runs=collaboration_runs,
             tl_decisions=[self._tl_decision_record(decision) for decision in state.tl_decisions],
+            human_control_actions=[
+                self._human_control_action_record(action) for action in state.human_control_actions
+            ],
             retry_history=retry_history,
             requirement_evaluations=requirement_evaluations,
             requirement_coverage_results=requirement_coverage_results,
@@ -530,6 +535,20 @@ class RunManifestWriter:
             "created_at": decision.created_at,
         }
 
+    def _human_control_action_record(self, action) -> dict[str, object]:
+        """Return a manifest-safe human control record."""
+        return {
+            "id": action.id,
+            "project_id": action.project_id,
+            "action": action.action.value,
+            "actor": action.actor,
+            "reason": action.reason,
+            "stage": action.stage,
+            "workitem_id": action.workitem_id or "",
+            "payload": dict(action.payload),
+            "created_at": action.created_at,
+        }
+
     def _retry_history(self, state: SharedProjectState) -> list[dict[str, object]]:
         """Return structured retry and exhausted-failure evidence per WorkItem."""
         history: list[dict[str, object]] = []
@@ -611,6 +630,7 @@ class RunManifestWriter:
 
     def _resume_cursor(self, state: SharedProjectState) -> dict[str, object]:
         """Return a compact cursor for resuming controller-driven execution."""
+        active_human_control = self._active_human_control_action(state)
         current_stage = state.current_stage or ""
         stage_workitems = [item for item in state.workitems if item.stage == current_stage] if current_stage else []
         pending = [item for item in stage_workitems if item.status.value == "pending"]
@@ -625,7 +645,9 @@ class RunManifestWriter:
             for item in stage_workitems
             if item.status.value == "failed" and (not item.retryable or item.retry_count >= item.max_retries)
         ]
-        if state.project_status.value == "completed":
+        if active_human_control:
+            next_action = "human_hold"
+        elif state.project_status.value == "completed":
             next_action = "complete"
         elif state.project_status.value == "blocked" or state.blockers or terminal_failed:
             next_action = "blocked"
@@ -652,7 +674,19 @@ class RunManifestWriter:
             "completed_workitem_ids": [item.id for item in state.workitems if item.status.value == "done"],
             "last_execution_workitem_id": state.executions[-1].workitem_id if state.executions else "",
             "last_event": state.recent_events[-1] if state.recent_events else "",
+            "active_human_control_action": active_human_control,
         }
+
+    def _active_human_control_action(self, state: SharedProjectState) -> dict[str, object]:
+        """Return the active human hold action for resume tooling."""
+        active = None
+        for action in state.human_control_actions:
+            if action.action.value in {"pause", "request_approval", "reject"}:
+                active = action
+                continue
+            if action.action.value in {"resume", "approve"}:
+                active = None
+        return self._human_control_action_record(active) if active else {}
 
     def _normalize_token_usage(self, usage: object) -> dict[str, int]:
         """Return token usage with only integer values."""

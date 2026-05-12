@@ -314,6 +314,25 @@ def test_advance_records_tl_decision(tmp_path) -> None:
     assert any("TLAgent 决策" in event for event in state.recent_events)
 
 
+def test_human_pause_holds_and_resume_allows_controller_to_continue() -> None:
+    controller = build_controller()
+    state = controller.initialize_project("Build a small static app")
+    state = controller.human_control.pause(state.project.id, actor="operator", reason="inspect requirement")
+
+    held = controller.advance(state)
+
+    assert held.executions == []
+    assert held.tl_decisions[-1].action == "human_hold"
+    assert held.tl_decisions[-1].human_action_required is True
+    assert any("HumanControl: controller hold" in event for event in held.recent_events)
+
+    resumed = controller.human_control.resume(held.project.id, actor="operator", reason="approved")
+    advanced = controller.advance(resumed)
+
+    assert len(advanced.executions) == 1
+    assert advanced.executions[0].workitem_id == "workitem-001"
+
+
 def test_next_stage_workitems_depend_on_previous_stage() -> None:
     controller = build_controller()
     state = controller.initialize_project("实现 API 和 UI 页面")

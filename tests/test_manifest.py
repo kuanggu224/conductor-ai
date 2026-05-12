@@ -27,7 +27,7 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     manifest_path = engine.write_run_manifest(state.project.id, report_path)
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-    assert payload["schema_version"] == "1.31"
+    assert payload["schema_version"] == "1.32"
     assert payload["run_id"].startswith(state.project.id)
     assert payload["project_id"] == state.project.id
     assert payload["run_profile"] == "mock"
@@ -41,6 +41,7 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     assert "llm_runs" in payload
     assert "collaboration_runs" in payload
     assert "tl_decisions" in payload
+    assert "human_control_actions" in payload
     assert "retry_history" in payload
     assert "team_plan" in payload["collaboration_runs"][0]
     assert "requirement_evaluations" in payload
@@ -126,6 +127,7 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     assert isinstance(payload["summary"]["llm_context_windows"], list)
     assert payload["summary"]["collaboration_run_count"] == len(payload["collaboration_runs"])
     assert payload["summary"]["tl_decision_count"] == len(payload["tl_decisions"])
+    assert payload["summary"]["human_control_action_count"] == len(payload["human_control_actions"])
     assert isinstance(payload["summary"]["changed_files"], list)
     assert payload["summary"]["changed_file_count"] == len(payload["summary"]["changed_files"])
     assert payload["summary"]["artifact_file_count"] == len(payload["artifact_files"])
@@ -143,6 +145,7 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     assert "next_action" in payload["resume_cursor"]
     assert isinstance(payload["resume_cursor"]["next_pending_workitem_ids"], list)
     assert isinstance(payload["resume_cursor"]["last_execution_workitem_id"], str)
+    assert "active_human_control_action" in payload["resume_cursor"]
     assert payload["run_environment"]["python_executable"]
     assert payload["run_environment"]["python_version"]
     assert payload["run_environment"]["process_cwd"]

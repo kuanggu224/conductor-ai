@@ -24,6 +24,8 @@ from conductor.domain.models import (
     Artifact,
     Execution,
     ExecutionStatus,
+    HumanControlAction,
+    HumanControlActionType,
     Project,
     ProjectStatus,
     RouteDecision,
@@ -150,6 +152,9 @@ class FileStateStore(InMemoryStateStore):
                 self._agent_capability_stats(item) for item in data.get("agent_capability_stats", [])
             ],
             tl_decisions=[self._tl_decision(item) for item in data.get("tl_decisions", [])],
+            human_control_actions=[
+                self._human_control_action(item) for item in data.get("human_control_actions", [])
+            ],
         )
 
     def _project(self, data: dict[str, Any]) -> Project:
@@ -256,6 +261,19 @@ class FileStateStore(InMemoryStateStore):
             summary=data.get("summary", ""),
             recommendations=list(data.get("recommendations", [])),
             human_action_required=bool(data.get("human_action_required", False)),
+            created_at=data.get("created_at", ""),
+        )
+
+    def _human_control_action(self, data: dict[str, Any]) -> HumanControlAction:
+        return HumanControlAction(
+            id=data["id"],
+            project_id=data.get("project_id", ""),
+            action=HumanControlActionType(data.get("action", HumanControlActionType.PAUSE)),
+            actor=data.get("actor", ""),
+            reason=data.get("reason", ""),
+            stage=data.get("stage", ""),
+            workitem_id=data.get("workitem_id"),
+            payload=dict(data.get("payload") or {}),
             created_at=data.get("created_at", ""),
         )
 
