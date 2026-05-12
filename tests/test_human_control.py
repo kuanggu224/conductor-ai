@@ -24,12 +24,22 @@ def test_human_control_pause_resume_and_approval_hold() -> None:
 
     assert service.controller_hold_reason(resumed) is None
 
-    approval = service.request_approval("project-human", reason="high risk stage")
+    approval = service.request_approval(
+        "project-human",
+        reason="high risk stage",
+        payload={"controller_action": "escalate_project", "stage": "development"},
+    )
 
     assert approval.human_control_actions[-1].action == HumanControlActionType.REQUEST_APPROVAL
     assert service.controller_hold_reason(approval) == "human_approval_required: high risk stage"
+    assert service.has_clearance(approval, "escalate_project", "development") is False
 
-    approved = service.approve("project-human", actor="operator", reason="accepted")
+    approved = service.approve(
+        "project-human",
+        actor="operator",
+        reason="accepted",
+        payload={"controller_action": "escalate_project", "stage": "development"},
+    )
 
     assert service.controller_hold_reason(approved) is None
-
+    assert service.has_clearance(approved, "escalate_project", "development") is True

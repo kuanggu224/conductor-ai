@@ -254,6 +254,18 @@ def test_failed_workitem_escalates_when_retry_exhausted() -> None:
     state = controller.advance(state)
     state = controller.advance(state)
 
+    assert state.project_status == ProjectStatus.INITIALIZED
+    assert state.human_control_actions[-1].action.value == "request_approval"
+    assert state.human_control_actions[-1].payload == {"controller_action": "escalate_project", "stage": "design"}
+
+    state = controller.human_control.approve(
+        state.project.id,
+        actor="operator",
+        reason="confirm block",
+        payload={"controller_action": "escalate_project", "stage": "design"},
+    )
+    state = controller.advance(state)
+
     assert state.project_status == ProjectStatus.BLOCKED
     assert state.blockers
     assert state.gate_history[-1] == "design:escalate"
@@ -278,6 +290,17 @@ def test_non_retryable_failed_workitem_blocks_without_retry() -> None:
     state.project.current_stage = "design"
     controller.state_store.save_state(state)
 
+    state = controller.advance(state)
+
+    assert state.project_status == ProjectStatus.INITIALIZED
+    assert state.human_control_actions[-1].action.value == "request_approval"
+
+    state = controller.human_control.approve(
+        state.project.id,
+        actor="operator",
+        reason="confirm non-retryable block",
+        payload={"controller_action": "escalate_project", "stage": "design"},
+    )
     state = controller.advance(state)
 
     assert state.project_status == ProjectStatus.BLOCKED
@@ -574,6 +597,17 @@ def test_testing_feedback_rework_has_project_level_limit() -> None:
     state.project_status = ProjectStatus.IN_PROGRESS
     controller.state_store.save_state(state)
 
+    state = controller.advance(state)
+
+    assert state.project_status == ProjectStatus.IN_PROGRESS
+    assert state.human_control_actions[-1].action.value == "request_approval"
+
+    state = controller.human_control.approve(
+        state.project.id,
+        actor="operator",
+        reason="confirm testing block",
+        payload={"controller_action": "escalate_project", "stage": "testing"},
+    )
     state = controller.advance(state)
 
     assert state.project_status == ProjectStatus.BLOCKED

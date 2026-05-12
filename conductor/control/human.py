@@ -31,6 +31,7 @@ class HumanControlService:
         actor: str = "tl_agent",
         reason: str = "",
         workitem_id: str | None = None,
+        payload: dict[str, object] | None = None,
     ) -> SharedProjectState:
         """Hold the project until a human approves or rejects the pending decision."""
         return self._append(
@@ -39,11 +40,24 @@ class HumanControlService:
             actor=actor,
             reason=reason,
             workitem_id=workitem_id,
+            payload=payload or {},
         )
 
-    def approve(self, project_id: str, actor: str = "human", reason: str = "") -> SharedProjectState:
+    def approve(
+        self,
+        project_id: str,
+        actor: str = "human",
+        reason: str = "",
+        payload: dict[str, object] | None = None,
+    ) -> SharedProjectState:
         """Approve a pending human gate and allow the controller to continue."""
-        return self._append(project_id, HumanControlActionType.APPROVE, actor=actor, reason=reason)
+        return self._append(
+            project_id,
+            HumanControlActionType.APPROVE,
+            actor=actor,
+            reason=reason,
+            payload=payload or {},
+        )
 
     def reject(self, project_id: str, actor: str = "human", reason: str = "") -> SharedProjectState:
         """Reject a pending human gate and keep the project on hold."""
@@ -78,6 +92,19 @@ class HumanControlService:
             return f"human_rejected: {active.reason}".strip()
         return None
 
+    def has_clearance(self, state: SharedProjectState, controller_action: str, stage: str) -> bool:
+        """Return whether a human approved or overrode the latest matching TL gate."""
+        expected = {"controller_action": controller_action, "stage": stage}
+        for action in reversed(state.human_control_actions):
+            payload = dict(action.payload)
+            if not all(payload.get(key) == value for key, value in expected.items()):
+                continue
+            if action.action in {HumanControlActionType.APPROVE, HumanControlActionType.OVERRIDE}:
+                return True
+            if action.action == HumanControlActionType.REQUEST_APPROVAL:
+                return False
+        return False
+
     def active_action(self, state: SharedProjectState) -> HumanControlAction | None:
         """Return the latest active hold action, or None if control is released."""
         active: HumanControlAction | None = None
@@ -89,7 +116,11 @@ class HumanControlService:
             }:
                 active = action
                 continue
-            if action.action in {HumanControlActionType.RESUME, HumanControlActionType.APPROVE}:
+            if action.action in {
+                HumanControlActionType.RESUME,
+                HumanControlActionType.APPROVE,
+                HumanControlActionType.OVERRIDE,
+            }:
                 active = None
         return active
 
@@ -122,4 +153,3 @@ class HumanControlService:
 
 
 __all__ = ["HumanControlService"]
-

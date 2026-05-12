@@ -148,6 +148,15 @@ class LeadController:
         self.state_store.add_event(project_id, f"TLAgent 决策: {latest.tl_decisions[-1].summary}")
         self.state_store.add_event(project_id, f"GateDecision: {state.current_stage} -> {gate_decision.value}")
 
+        latest = self.state_store.get_state(project_id)
+        if self._tl_requires_human_gate(latest, action):
+            return self.human_control.request_approval(
+                project_id,
+                actor="tl_agent",
+                reason=f"TL requires human approval before controller action `{action}`.",
+                payload={"controller_action": action, "stage": latest.current_stage or ""},
+            )
+
         if action == "execute_workitem":
             return self._execute_next_ready_workitem(state)
         if action == "retry_workitem":
@@ -169,6 +178,13 @@ class LeadController:
             hold_reason = self.human_control.controller_hold_reason(latest) or "human control hold"
             return self.state_store.add_event(project_id, f"HumanControl: controller hold - {hold_reason}")
         return self.state_store.get_state(project_id)
+
+    def _tl_requires_human_gate(self, state: SharedProjectState, action: str) -> bool:
+        """Return whether TL must pause before a high-risk automatic action."""
+        gated_actions = {"escalate_project"}
+        if action not in gated_actions:
+            return False
+        return not self.human_control.has_clearance(state, action, state.current_stage or "")
 
     def _execute_next_ready_workitem(self, state: SharedProjectState) -> SharedProjectState:
         project_id = state.project.id
