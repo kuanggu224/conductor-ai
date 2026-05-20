@@ -589,8 +589,12 @@ def test_task_center_cli_context_exposes_eligible_dynamic_agents(tmp_path, capsy
     assert payload["eligible_agent_activations"][0]["write_scope"] == ["frontend layout files", "component markup"]
     assert payload["eligible_agent_activations"][0]["claimable_for_agent"] is True
     assert payload["eligible_agent_activations"][0]["write_scope_conflict_assignment_ids"] == []
+    assert payload["handoff_safety"]["ready_for_handoff"] is True
+    assert payload["handoff_safety"]["status"] == "ready"
+    assert payload["handoff_safety"]["write_scope_conflict_assignment_ids"] == []
     assert non_matching_activation.agent_id not in json.dumps(payload, ensure_ascii=False)
     assert "Eligible Dynamic Agents" in payload["execution_brief"]
+    assert "Handoff Safety" in payload["execution_brief"]
 
     code = main(["context", assignment.id, "--project-root", str(project_root), "--format", "markdown"])
     markdown = capsys.readouterr().out
@@ -598,6 +602,9 @@ def test_task_center_cli_context_exposes_eligible_dynamic_agents(tmp_path, capsy
     assert code == 0
     assert "### Eligible Dynamic Agents" in markdown
     assert matching_activation.agent_id in markdown
+    assert "## Handoff Safety" in markdown
+    assert "- Status: ready" in markdown
+    assert "- Ready For Handoff: True" in markdown
     assert "parallel_safe=True" in markdown
     assert "claimable_for_agent=True" in markdown
     assert "write_scope_conflicts=None" in markdown
@@ -742,12 +749,22 @@ def test_task_center_cli_context_exposes_write_scope_conflicts_for_dynamic_agent
     assert activation["agent_id"] == queued_activation.agent_id
     assert activation["claimable_for_agent"] is False
     assert activation["write_scope_conflict_assignment_ids"] == [claimed_assignment.id]
+    assert payload["handoff_safety"]["ready_for_handoff"] is False
+    assert payload["handoff_safety"]["status"] == "blocked"
+    assert payload["handoff_safety"]["assignment_claimable"] is False
+    assert payload["handoff_safety"]["blocked_agent_count"] == 1
+    assert payload["handoff_safety"]["write_scope_conflict_assignment_ids"] == [claimed_assignment.id]
+    assert "write scope conflicts with claimed assignments" in payload["handoff_safety"]["warnings"]
     assert claimed_assignment.id in payload["execution_brief"]
 
     code = main(["context", queued_assignment.id, "--project-root", str(project_root), "--format", "markdown"])
     markdown = capsys.readouterr().out
 
     assert code == 0
+    assert "## Handoff Safety" in markdown
+    assert "- Status: blocked" in markdown
+    assert "- Ready For Handoff: False" in markdown
+    assert f"- Write Scope Conflicts: {claimed_assignment.id}" in markdown
     assert "claimable_for_agent=False" in markdown
     assert f"write_scope_conflicts={claimed_assignment.id}" in markdown
 

@@ -546,6 +546,8 @@ TL Agent 会在阶段开始、运行时失败、反馈返工等节点生成 `age
 
 Task Center context 会把每个 eligible dynamic Agent 的 `claimable_for_agent` 和 `write_scope_conflict_assignment_ids` 写入 JSON 与 Markdown prompt。外部 CLI Agent 在 prompt 里看到 `claimable_for_agent=false` 时，应先等待或释放冲突 assignment，而不是直接开始修改文件。
 
+Context 顶层还会输出 `handoff_safety`，汇总 `ready_for_handoff`、依赖阻塞、写入范围冲突、warnings 和 guidance；Markdown prompt 同步渲染 `## Handoff Safety`，让外部 worker 在领取和开工前就能判断当前任务是否安全。
+
 ## 13. Human Control
 
 Human Control 是人类接管与审批入口。它不替代 Controller，而是在 Controller 推进前插入显式 hold、approval 或 override 记录。

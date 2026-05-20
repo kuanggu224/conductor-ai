@@ -95,6 +95,11 @@ Eligible dynamic Agent entries in context payloads and Markdown prompts include
 agents should treat `claimable_for_agent=false` as a hard handoff warning and
 avoid starting work until the conflicting claimed assignments are returned or
 released.
+Context payloads also include a top-level `handoff_safety` object with
+`ready_for_handoff`, `status`, `assignment_claimable`, unmet dependencies,
+write-scope conflicts, warnings, and guidance. Markdown prompts render the same
+summary under `## Handoff Safety`, so external workers can make a claim/no-claim
+decision from the prompt without separately querying Task Center.
 
 ## Board API
 

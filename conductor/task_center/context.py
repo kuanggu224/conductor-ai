@@ -55,6 +55,7 @@ class TaskContextBuilder:
         frozen_requirement_baseline = self._frozen_requirement_baseline(input_artifacts)
         frozen_design_baseline = self._frozen_design_baseline(input_artifacts)
         eligible_agent_activations = self._eligible_agent_activations(state, assignment, workitem, task_center)
+        handoff_safety = self._handoff_safety(task_center, state, assignment, eligible_agent_activations)
         rework_context = self._rework_context(state, workitem, input_artifacts)
         delivery_contract = self._delivery_contract(workitem, assignment, input_artifacts, rework_context)
         output_artifacts = [
@@ -74,12 +75,14 @@ class TaskContextBuilder:
                 frozen_requirement_baseline,
                 frozen_design_baseline,
                 eligible_agent_activations,
+                handoff_safety,
                 rework_context,
                 delivery_contract,
             ),
             "frozen_requirement_baseline": frozen_requirement_baseline,
             "frozen_design_baseline": frozen_design_baseline,
             "eligible_agent_activations": eligible_agent_activations,
+            "handoff_safety": handoff_safety,
             "rework_context": rework_context,
             "delivery_contract": delivery_contract,
             "assignment": {
@@ -103,6 +106,7 @@ class TaskContextBuilder:
         frozen_requirement_baseline = _dict_payload(payload.get("frozen_requirement_baseline"))
         frozen_design_baseline = _dict_payload(payload.get("frozen_design_baseline"))
         eligible_agent_activations = _list_payload(payload.get("eligible_agent_activations"))
+        handoff_safety = _dict_payload(payload.get("handoff_safety"))
         rework_context = _dict_payload(payload.get("rework_context"))
         delivery_contract = _dict_payload(payload.get("delivery_contract"))
         acceptance_criteria = _list_payload(workitem.get("acceptance_criteria"))
@@ -132,6 +136,9 @@ class TaskContextBuilder:
             "",
             "### Eligible Dynamic Agents",
             *self._eligible_agent_markdown(eligible_agent_activations),
+            "",
+            "## Handoff Safety",
+            *self._handoff_safety_markdown(handoff_safety),
             "",
             "## WorkItem",
             f"- WorkItem ID: {workitem.get('id', '')}",
@@ -275,6 +282,56 @@ class TaskContextBuilder:
                 }
             )
         return matches
+
+    def _handoff_safety(
+        self,
+        task_center: TaskCenterService,
+        state: SharedProjectState,
+        assignment: TaskAssignment,
+        eligible_agent_activations: list[dict[str, object]],
+    ) -> dict[str, object]:
+        """Return a compact safety summary for external Agent handoff."""
+        unmet_dependency_ids = task_center.unmet_dependency_ids(state, assignment)
+        assignment_conflicts = task_center.write_scope_conflicts(state, assignment)
+        activation_conflicts = [
+            str(conflict_id)
+            for activation in eligible_agent_activations
+            for conflict_id in _list_payload(activation.get("write_scope_conflict_assignment_ids"))
+        ]
+        write_scope_conflicts = list(dict.fromkeys([*assignment_conflicts, *activation_conflicts]))
+        blocked_agent_count = len(
+            [activation for activation in eligible_agent_activations if not activation.get("claimable_for_agent", False)]
+        )
+        assignment_claimable = task_center.claimable(state, assignment)
+        has_claimable_dynamic_agent = any(
+            bool(activation.get("claimable_for_agent", False)) for activation in eligible_agent_activations
+        )
+        ready_for_handoff = assignment_claimable and (
+            not eligible_agent_activations or has_claimable_dynamic_agent
+        )
+        warnings: list[str] = []
+        if unmet_dependency_ids:
+            warnings.append("assignment dependencies are not satisfied")
+        if write_scope_conflicts:
+            warnings.append("write scope conflicts with claimed assignments")
+        if eligible_agent_activations and not has_claimable_dynamic_agent:
+            warnings.append("no eligible dynamic agent can safely claim this assignment now")
+        return {
+            "ready_for_handoff": ready_for_handoff,
+            "status": "ready" if ready_for_handoff else "blocked",
+            "assignment_claimable": assignment_claimable,
+            "eligible_agent_count": len(eligible_agent_activations),
+            "blocked_agent_count": blocked_agent_count,
+            "unmet_dependency_ids": unmet_dependency_ids,
+            "write_scope_conflict_assignment_ids": write_scope_conflicts,
+            "warnings": warnings,
+            "guidance": self._handoff_guidance(
+                ready_for_handoff=ready_for_handoff,
+                unmet_dependency_ids=unmet_dependency_ids,
+                write_scope_conflicts=write_scope_conflicts,
+                eligible_agent_activations=eligible_agent_activations,
+            ),
+        }
 
     def _rework_context(
         self,
@@ -466,6 +523,40 @@ class TaskContextBuilder:
             )
         return lines
 
+    def _handoff_safety_markdown(self, safety: dict[str, object]) -> list[str]:
+        """Render external worker handoff readiness."""
+        return [
+            f"- Status: {safety.get('status', 'unknown')}",
+            f"- Ready For Handoff: {safety.get('ready_for_handoff', False)}",
+            f"- Assignment Claimable: {safety.get('assignment_claimable', False)}",
+            f"- Eligible Dynamic Agents: {safety.get('eligible_agent_count', 0)}",
+            f"- Blocked Dynamic Agents: {safety.get('blocked_agent_count', 0)}",
+            f"- Unmet Dependencies: {_join_or_none(_list_payload(safety.get('unmet_dependency_ids')))}",
+            (
+                "- Write Scope Conflicts: "
+                f"{_join_or_none(_list_payload(safety.get('write_scope_conflict_assignment_ids')))}"
+            ),
+            f"- Guidance: {safety.get('guidance', '')}",
+        ]
+
+    def _handoff_guidance(
+        self,
+        *,
+        ready_for_handoff: bool,
+        unmet_dependency_ids: list[str],
+        write_scope_conflicts: list[str],
+        eligible_agent_activations: list[dict[str, object]],
+    ) -> str:
+        if ready_for_handoff:
+            return "Assignment is safe to claim with the matching role or a claimable dynamic Agent."
+        if unmet_dependency_ids:
+            return "Wait for unmet dependencies to complete before claiming this assignment."
+        if write_scope_conflicts:
+            return "Wait for conflicting claimed assignments to return or release before modifying files."
+        if eligible_agent_activations:
+            return "No listed dynamic Agent can safely claim this assignment right now."
+        return "Assignment is not currently claimable."
+
     def _rework_markdown(self, context: dict[str, object]) -> list[str]:
         """Render feedback-loop guidance when the task is a rework item."""
         if not context.get("is_rework"):
@@ -548,6 +639,7 @@ class TaskContextBuilder:
         frozen_requirement_baseline: dict[str, object],
         frozen_design_baseline: dict[str, object],
         eligible_agent_activations: list[dict[str, object]],
+        handoff_safety: dict[str, object],
         rework_context: dict[str, object],
         delivery_contract: dict[str, object],
     ) -> str:
@@ -556,6 +648,7 @@ class TaskContextBuilder:
         frozen_requirement = self._frozen_requirement_brief(frozen_requirement_baseline)
         frozen_design = self._frozen_design_brief(frozen_design_baseline)
         eligible_agents = "\n".join(self._eligible_agent_markdown(eligible_agent_activations))
+        handoff_brief = "\n".join(self._handoff_safety_markdown(handoff_safety))
         rework_brief = "\n".join(self._rework_markdown(rework_context))
         contract_brief = "\n".join(render_delivery_contract_markdown(delivery_contract))
         return (
@@ -565,6 +658,8 @@ class TaskContextBuilder:
             f"Role: {assignment.role}\n\n"
             "Eligible Dynamic Agents:\n"
             f"{eligible_agents}\n\n"
+            "Handoff Safety:\n"
+            f"{handoff_brief}\n\n"
             "Delivery Contract:\n"
             f"{contract_brief}\n\n"
             "Frozen Requirement Baseline:\n"
