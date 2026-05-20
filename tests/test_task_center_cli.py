@@ -587,6 +587,8 @@ def test_task_center_cli_context_exposes_eligible_dynamic_agents(tmp_path, capsy
     assert payload["eligible_agent_activations"][0]["agent_id"] == matching_activation.agent_id
     assert payload["eligible_agent_activations"][0]["instance_id"] == "ui_layout"
     assert payload["eligible_agent_activations"][0]["write_scope"] == ["frontend layout files", "component markup"]
+    assert payload["eligible_agent_activations"][0]["claimable_for_agent"] is True
+    assert payload["eligible_agent_activations"][0]["write_scope_conflict_assignment_ids"] == []
     assert non_matching_activation.agent_id not in json.dumps(payload, ensure_ascii=False)
     assert "Eligible Dynamic Agents" in payload["execution_brief"]
 
@@ -597,6 +599,8 @@ def test_task_center_cli_context_exposes_eligible_dynamic_agents(tmp_path, capsy
     assert "### Eligible Dynamic Agents" in markdown
     assert matching_activation.agent_id in markdown
     assert "parallel_safe=True" in markdown
+    assert "claimable_for_agent=True" in markdown
+    assert "write_scope_conflicts=None" in markdown
 
     code = main(["agents-for", assignment.id, "--project-root", str(project_root)])
     agents_payload = json.loads(capsys.readouterr().out)
@@ -663,6 +667,89 @@ def test_task_center_cli_context_exposes_eligible_dynamic_agents(tmp_path, capsy
     reloaded = FileStateStore(project_root / ".conductor" / "state").get_state(state.project.id)
     reloaded_assignment = next(item for item in reloaded.task_assignments if item.id == assignment.id)
     assert reloaded_assignment.prompt_file == str(prompt_path)
+
+
+def test_task_center_cli_context_exposes_write_scope_conflicts_for_dynamic_agents(tmp_path, capsys) -> None:
+    project_root = tmp_path / "project"
+    state_store = FileStateStore(project_root / ".conductor" / "state")
+    engine = ConductorEngine(
+        log_dir=project_root / ".conductor" / "logs",
+        artifact_dir=project_root / ".conductor" / "artifacts",
+        state_store=state_store,
+    )
+    state = engine.create_project(requirement="Build a local reading list UI", project_root=str(project_root))
+    claimed_workitem = WorkItem(
+        id="workitem-layout-a",
+        description="Implement first layout slice",
+        stage="development",
+        kind="ui_layout_slice",
+        status=WorkItemStatus.RUNNING,
+    )
+    queued_workitem = WorkItem(
+        id="workitem-layout-b",
+        description="Implement second layout slice",
+        stage="development",
+        kind="ui_implementation",
+    )
+    claimed_assignment = TaskAssignment(
+        id="assignment-layout-a",
+        workitem_id=claimed_workitem.id,
+        role="frontend_engineer",
+        status=TaskAssignmentStatus.CLAIMED,
+        assigned_agent_id="agent-frontend-engineer-layout-a",
+    )
+    queued_assignment = TaskAssignment(
+        id="assignment-layout-b",
+        workitem_id=queued_workitem.id,
+        role="frontend_engineer",
+    )
+    claimed_activation = AgentActivation(
+        role="frontend_engineer",
+        agent_id="agent-frontend-engineer-layout-a",
+        stage="development",
+        reason="First layout slice.",
+        related_workitem_kinds=["ui_layout_slice"],
+        instance_id="layout_a",
+        dynamic=True,
+        parallel_safe=True,
+        write_scope=["index.html"],
+    )
+    queued_activation = AgentActivation(
+        role="frontend_engineer",
+        agent_id="agent-frontend-engineer-layout-b",
+        stage="development",
+        reason="Second layout slice.",
+        related_workitem_kinds=["ui_implementation"],
+        instance_id="layout_b",
+        dynamic=True,
+        parallel_safe=True,
+        write_scope=["index.html"],
+    )
+    state = replace(
+        state,
+        current_stage="development",
+        workitems=[*state.workitems, claimed_workitem, queued_workitem],
+        task_assignments=[*state.task_assignments, claimed_assignment, queued_assignment],
+        agent_activations=[*state.agent_activations, claimed_activation, queued_activation],
+    )
+    state_store.save_state(state)
+
+    code = main(["context", queued_assignment.id, "--project-root", str(project_root)])
+    payload = json.loads(capsys.readouterr().out)
+    activation = payload["eligible_agent_activations"][0]
+
+    assert code == 0
+    assert activation["agent_id"] == queued_activation.agent_id
+    assert activation["claimable_for_agent"] is False
+    assert activation["write_scope_conflict_assignment_ids"] == [claimed_assignment.id]
+    assert claimed_assignment.id in payload["execution_brief"]
+
+    code = main(["context", queued_assignment.id, "--project-root", str(project_root), "--format", "markdown"])
+    markdown = capsys.readouterr().out
+
+    assert code == 0
+    assert "claimable_for_agent=False" in markdown
+    assert f"write_scope_conflicts={claimed_assignment.id}" in markdown
 
 
 def test_task_center_cli_context_marks_rework_feedback_inputs(tmp_path, capsys) -> None:

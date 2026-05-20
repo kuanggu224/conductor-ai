@@ -544,6 +544,8 @@ TL Agent 会在阶段开始、运行时失败、反馈返工等节点生成 `age
 
 并行开发席位必须声明 `write_scope`。Run Manifest Verifier 会拒绝同一个 `agent_team_plan` 内重叠的 `parallel_development` 写入范围，作为外部 CLI Agent 并行领取任务前后的冲突审计边界。
 
+Task Center context 会把每个 eligible dynamic Agent 的 `claimable_for_agent` 和 `write_scope_conflict_assignment_ids` 写入 JSON 与 Markdown prompt。外部 CLI Agent 在 prompt 里看到 `claimable_for_agent=false` 时，应先等待或释放冲突 assignment，而不是直接开始修改文件。
+
 ## 13. Human Control
 
 Human Control 是人类接管与审批入口。它不替代 Controller，而是在 Controller 推进前插入显式 hold、approval 或 override 记录。

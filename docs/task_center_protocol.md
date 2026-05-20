@@ -90,6 +90,11 @@ handoff, or direct CLI consumption. Relative paths are resolved under
 Markdown prompts include copyable `complete`, `fail`, and `release` commands
 with the current `assignment_id` and `project_root`, so external agents can
 return task status without reconstructing the protocol manually.
+Eligible dynamic Agent entries in context payloads and Markdown prompts include
+`claimable_for_agent` and `write_scope_conflict_assignment_ids`. External CLI
+agents should treat `claimable_for_agent=false` as a hard handoff warning and
+avoid starting work until the conflicting claimed assignments are returned or
+released.
 
 ## Board API
 

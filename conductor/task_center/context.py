@@ -54,7 +54,7 @@ class TaskContextBuilder:
         )
         frozen_requirement_baseline = self._frozen_requirement_baseline(input_artifacts)
         frozen_design_baseline = self._frozen_design_baseline(input_artifacts)
-        eligible_agent_activations = self._eligible_agent_activations(state, assignment, workitem)
+        eligible_agent_activations = self._eligible_agent_activations(state, assignment, workitem, task_center)
         rework_context = self._rework_context(state, workitem, input_artifacts)
         delivery_contract = self._delivery_contract(workitem, assignment, input_artifacts, rework_context)
         output_artifacts = [
@@ -236,6 +236,7 @@ class TaskContextBuilder:
         state: SharedProjectState,
         assignment: TaskAssignment,
         workitem: object,
+        task_center: TaskCenterService,
     ) -> list[dict[str, object]]:
         """Return dynamic Agent instances that are suitable for this assignment."""
         workitem_payload = asdict(workitem)
@@ -249,6 +250,11 @@ class TaskContextBuilder:
                 continue
             if activation.related_workitem_kinds and workitem_kind not in activation.related_workitem_kinds:
                 continue
+            write_scope_conflicts = task_center.write_scope_conflicts(
+                state,
+                assignment,
+                agent_id=activation.agent_id,
+            )
             matches.append(
                 {
                     "agent_id": activation.agent_id,
@@ -260,6 +266,12 @@ class TaskContextBuilder:
                     "write_scope": list(activation.write_scope),
                     "preferred_backend": activation.preferred_backend,
                     "execution_backend": activation.execution_backend,
+                    "claimable_for_agent": task_center.claimable(
+                        state,
+                        assignment,
+                        agent_id=activation.agent_id,
+                    ),
+                    "write_scope_conflict_assignment_ids": write_scope_conflicts,
                 }
             )
         return matches
@@ -444,10 +456,13 @@ class TaskContextBuilder:
         for item in activations:
             activation = _dict_payload(item)
             write_scope = _join_or_none(_list_payload(activation.get("write_scope")))
+            conflict_ids = _join_or_none(_list_payload(activation.get("write_scope_conflict_assignment_ids")))
             lines.append(
                 f"- {activation.get('agent_id', '')} ({activation.get('instance_id', '')}) | "
                 f"parallel_safe={activation.get('parallel_safe', False)} | "
-                f"scope={activation.get('scope', '')} | write_scope={write_scope}"
+                f"claimable_for_agent={activation.get('claimable_for_agent', False)} | "
+                f"scope={activation.get('scope', '')} | write_scope={write_scope} | "
+                f"write_scope_conflicts={conflict_ids}"
             )
         return lines
 
