@@ -532,6 +532,16 @@ Board 当前适合展示：
 
 后续如果要重做前端，建议前端只依赖后端接口和 Board snapshot，不要把流程逻辑写进页面。
 
+## 12.1 TL 动态团队规划
+
+TL Agent 会在阶段开始、运行时失败、反馈返工等节点生成 `agent_team_plans`，并把动态 Agent 激活记录持久化到 state、Manifest 和 Board snapshot。当前策略已经覆盖：
+
+- UI/API/data 等需求特征触发的前端、后端、测试和设计席位拆分。
+- 运行时失败或 retry 触发的 `failure_triage` / `release_risk` 复核席位。
+- 历史角色失败率触发的独立质量复核。
+- 缺失 testing checklist evidence 的返工触发 `rework_acceptance_guard`。
+- 前后端并行实现触发 `integration_contract_guard`，由 solution designer 复核 API/UI/data 契约和交接边界。
+
 ## 13. Human Control
 
 Human Control 是人类接管与审批入口。它不替代 Controller，而是在 Controller 推进前插入显式 hold、approval 或 override 记录。

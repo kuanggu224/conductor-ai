@@ -145,6 +145,45 @@ def test_tl_agent_owns_dynamic_team_plan_decision() -> None:
     assert any(spec.role == "backend_engineer" for spec in plan.agent_specs)
 
 
+def test_tl_agent_adds_integration_contract_guard_for_parallel_frontend_backend_work() -> None:
+    planner = AgentTeamPlanner()
+    tl_agent = TechnicalLeadAgent()
+    state = SharedProjectState(
+        project=Project(
+            id="project-tl-integration",
+            goal="Build a UI, API, data storage, validation, and shared contract.",
+            current_stage="development",
+        ),
+        project_status=ProjectStatus.IN_PROGRESS,
+        current_stage="development",
+        workitems=[
+            WorkItem(
+                id="workitem-ui",
+                description="Implement frontend UI with validation and API data flow.",
+                stage="development",
+                kind="ui_implementation",
+            ),
+            WorkItem(
+                id="workitem-api",
+                description="Implement backend API, schema, storage, and validation contract.",
+                stage="development",
+                kind="api_implementation",
+            ),
+        ],
+    )
+
+    plan = tl_agent.plan_agent_team(state, planner)
+
+    assert plan.decision_source == "tl_agent"
+    assert "integration_risk=1" in plan.decision_summary
+    guard = next(spec for spec in plan.agent_specs if spec.instance_id == "integration_contract_guard")
+    assert guard.role == "solution_designer"
+    assert guard.collaboration_mode == "sequential_review"
+    assert guard.workitem_kinds == ["ui_implementation", "api_implementation"]
+    assert "API contracts" in guard.scope
+    assert any("integration contract guard" in reason for reason in plan.reasons)
+
+
 def test_tl_agent_adds_runtime_failure_triage_agent() -> None:
     planner = AgentTeamPlanner()
     tl_agent = TechnicalLeadAgent()

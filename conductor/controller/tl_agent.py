@@ -55,6 +55,7 @@ class TechnicalLeadAgent:
         blockers = list(state.blockers)
         history_risks = self._history_risk_roles(state)
         rework_evidence_items = self._rework_evidence_items(stage_workitems)
+        integration_risk = self._integration_risk_detected(stage, candidate.agent_specs, stage_workitems)
         specs = list(candidate.agent_specs)
         reasons = ["TL reviewed current stage, work scope, risk, and retry state.", *candidate.reasons]
         summary_parts = [
@@ -64,6 +65,7 @@ class TechnicalLeadAgent:
             f"blockers={len(blockers)}",
             f"history_risks={len(history_risks)}",
             f"rework_evidence_items={len(rework_evidence_items)}",
+            f"integration_risk={int(integration_risk)}",
         ]
 
         if blockers or state.project_status == ProjectStatus.BLOCKED:
@@ -79,6 +81,7 @@ class TechnicalLeadAgent:
         specs.extend(self._recovery_specs(planner, stage, failed, retried))
         specs.extend(self._history_risk_specs(planner, stage, history_risks))
         specs.extend(self._rework_evidence_specs(planner, stage, rework_evidence_items))
+        specs.extend(self._integration_risk_specs(planner, stage, stage_workitems, integration_risk))
         specs = self._dedupe_specs(specs)
         return replace(
             candidate,
@@ -89,6 +92,7 @@ class TechnicalLeadAgent:
                     *self._runtime_reasons(failed, retried),
                     *self._history_risk_reasons(history_risks),
                     *self._rework_evidence_reasons(rework_evidence_items),
+                    *self._integration_risk_reasons(integration_risk),
                 ]
             ),
             agent_specs=specs,
@@ -224,6 +228,62 @@ class TechnicalLeadAgent:
             )
         ]
 
+    def _integration_risk_detected(
+        self,
+        stage: str,
+        candidate_specs: list[DynamicAgentSpec],
+        workitems: list,
+    ) -> bool:
+        """Return whether parallel implementation needs an explicit integration boundary owner."""
+        if stage != "development":
+            return False
+        roles = {spec.role for spec in candidate_specs if spec.parallel_safe}
+        if not {"frontend_engineer", "backend_engineer"} <= roles:
+            return False
+        text = " ".join([item.kind for item in workitems] + [item.description for item in workitems]).lower()
+        integration_terms = (
+            "api",
+            "backend",
+            "frontend",
+            "ui",
+            "data",
+            "storage",
+            "validation",
+            "contract",
+            "schema",
+            "接口",
+            "前端",
+            "后端",
+            "数据",
+            "存储",
+            "校验",
+            "契约",
+        )
+        return any(term in text for term in integration_terms)
+
+    def _integration_risk_specs(
+        self,
+        planner: AgentTeamPlanner,
+        stage: str,
+        workitems: list,
+        integration_risk: bool,
+    ) -> list[DynamicAgentSpec]:
+        """Add a solution-design guard when parallel frontend/backend work may diverge."""
+        if not integration_risk:
+            return []
+        return [
+            planner.build_spec(
+                role="solution_designer",
+                instance_id="integration_contract_guard",
+                stage=stage,
+                mission="Review API/UI/data integration boundaries before parallel implementation diverges.",
+                reason="TL detected parallel frontend/backend implementation with integration contract risk.",
+                scope="API contracts, UI data flow, validation boundaries, shared ownership handoff",
+                mode="sequential_review",
+                workitem_kinds=list(dict.fromkeys(item.kind for item in workitems)),
+            )
+        ]
+
     def _tl_complexity_level(
         self,
         candidate_level: str,
@@ -257,6 +317,11 @@ class TechnicalLeadAgent:
             return []
         ids = ", ".join(item.id for item in rework_items)
         return [f"TL detected development rework with missing checklist evidence targets: {ids}."]
+
+    def _integration_risk_reasons(self, integration_risk: bool) -> list[str]:
+        if not integration_risk:
+            return []
+        return ["TL detected frontend/backend parallel implementation requiring an integration contract guard."]
 
     def _risk_level(self, state: SharedProjectState, failed: list, blockers: list[str]) -> str:
         if state.project_status == ProjectStatus.BLOCKED or blockers:

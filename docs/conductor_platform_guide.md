@@ -202,7 +202,7 @@ Conductor 的多 Agent 不是多人闲聊，而是结构化职责协作。
 - 多 Agent 并行开发的冲突控制和归并协议。
 - 人类随时接管与审批工作流。
 
-当前 TL 动态规划已经能识别运行时失败、历史角色失败率，以及带有缺失 testing checklist evidence 的开发返工任务。对于这类返工，TL 会追加 `rework_acceptance_guard` tester 席位，专门检查返工是否补齐缺失验收证据和回归风险。
+当前 TL 动态规划已经能识别运行时失败、历史角色失败率，以及带有缺失 testing checklist evidence 的开发返工任务。对于这类返工，TL 会追加 `rework_acceptance_guard` tester 席位，专门检查返工是否补齐缺失验收证据和回归风险。对于同时拆出前端和后端并行开发的复杂实现，TL 会追加 `integration_contract_guard` solution_designer 席位，提前复核 API/UI/data 契约、校验边界和交接风险，避免并行 agent 各自实现后在集成阶段才暴露冲突。
 
 ## 6. 执行后端
 
