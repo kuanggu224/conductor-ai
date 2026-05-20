@@ -268,7 +268,8 @@ class AgentTeamPlanner:
         write_scope: list[str] | None = None,
         workitem_kinds: list[str] | None = None,
     ) -> DynamicAgentSpec:
-        agent_id = f"agent-{role.replace('_', '-')}-{instance_id.replace('_', '-')}"
+        stage_part = f"{stage.replace('_', '-')}-" if stage in {"requirement", "design"} else ""
+        agent_id = f"agent-{role.replace('_', '-')}-{stage_part}{instance_id.replace('_', '-')}"
         return DynamicAgentSpec(
             role=role,
             agent_id=agent_id,

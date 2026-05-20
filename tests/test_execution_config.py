@@ -61,11 +61,15 @@ def test_execution_scope_config_round_trip(tmp_path) -> None:
 
 def test_resolve_run_profiles() -> None:
     mock = resolve_run_profile("mock")
+    static_web = resolve_run_profile("static_web")
     design = resolve_run_profile("design_cli_only")
     code = resolve_run_profile("code_cli")
     full = resolve_run_profile("full_cli")
 
     assert mock.cli_roles == []
+    assert static_web.cli_roles == []
+    assert static_web.enable_static_web_delivery is True
+    assert static_web.require_real_code_outputs is False
     assert design.cli_roles == ["designer", "requirement_designer", "solution_designer"]
     assert design.require_real_design_outputs is True
     assert code.cli_roles == ["backend_engineer", "frontend_engineer"]

@@ -11,6 +11,7 @@ from typing import Any
 from conductor.artifacts.scope_contract import evaluate_scope_contract
 from conductor.artifacts.store import ArtifactStore
 from conductor.domain.models import SharedProjectState
+from conductor.control.human import HumanControlService
 from conductor.execution.failure_policy import remediation_suggestions
 from conductor.delivery_contract import build_acceptance_trace
 from conductor.delivery_readiness import evaluate_delivery_readiness, render_delivery_readiness_markdown
@@ -143,6 +144,11 @@ class ProjectLogStore:
         lines.extend(self._preflight_gate_lines(state))
         lines.extend([
             "",
+            "## Human Control",
+        ])
+        lines.extend(self._human_control_lines(state))
+        lines.extend([
+            "",
             "## Activated Agents",
         ])
         if state.agent_activations:
@@ -264,6 +270,9 @@ class ProjectLogStore:
                 f"output_artifacts={self._join_or_dash(assignment.output_artifact_ids)} | "
                 f"claimed_at={assignment.claimed_at or '-'} | returned_at={assignment.returned_at or '-'} | "
                 f"claimed_age_seconds={claimed_age_text} | "
+                f"lease_seconds={assignment.lease_seconds} | "
+                f"lease_expires_at={assignment.lease_expires_at or '-'} | "
+                f"lease_expired={str(task_center.lease_expired(assignment)).lower()} | "
                 f"stale_claimed={str(task_center.stale_claimed(assignment)).lower()} | "
                 f"prompt_file={assignment.prompt_file or '-'}"
             )
@@ -332,6 +341,27 @@ class ProjectLogStore:
             lines.append("- Errors: none")
         if snapshot.recommendations:
             lines.extend(f"- Recommendation: {recommendation}" for recommendation in snapshot.recommendations)
+        return lines
+
+    def _human_control_lines(self, state: SharedProjectState) -> list[str]:
+        """Render human takeover and approval actions for project reports."""
+        service = HumanControlService(_ReportStateStore(state))
+        active = service.active_action(state)
+        lines = [
+            f"- Active: {str(active is not None).lower()}",
+            f"- Hold Reason: {service.controller_hold_reason(state) or '-'}",
+            f"- Action Count: {len(state.human_control_actions)}",
+        ]
+        if not state.human_control_actions:
+            lines.append("- Actions: none")
+            return lines
+        lines.append("- Actions:")
+        for action in state.human_control_actions:
+            lines.append(
+                f"  - {action.id} | action={action.action.value} | actor={action.actor or '-'} | "
+                f"stage={action.stage or '-'} | workitem={action.workitem_id or '-'} | "
+                f"reason={action.reason or '-'} | payload={json.dumps(action.payload, ensure_ascii=False, sort_keys=True)}"
+            )
         return lines
 
     def _join_or_dash(self, values: list[str]) -> str:

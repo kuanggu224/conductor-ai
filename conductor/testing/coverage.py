@@ -143,6 +143,37 @@ COVERAGE_RULES: tuple[CoverageRule, ...] = (
         ),
         evidence_terms=("browser delete interaction removed visible item",),
     ),
+    CoverageRule(
+        rule_id="file_import",
+        label="file import/upload",
+        requirement_terms=(
+            "\u5bfc\u5165",
+            "\u4e0a\u4f20",
+            "\u8bfb\u53d6\u6587\u4ef6",
+            "\u89e3\u6790\u6587\u4ef6",
+            "\u6587\u4ef6\u5904\u7406",
+            "import",
+            "upload",
+            "file import",
+            "file upload",
+            "parse csv",
+            "csv import",
+        ),
+        evidence_terms=("browser file import processed sample file",),
+    ),
+    CoverageRule(
+        rule_id="api_behavior",
+        label="API endpoint behavior",
+        requirement_terms=(
+            "\u63a5\u53e3",
+            "\u540e\u7aef",
+            "\u670d\u52a1",
+            "api",
+            "restful",
+            "http",
+        ),
+        evidence_terms=("api validation exercised endpoint behavior",),
+    ),
 )
 
 
@@ -203,9 +234,71 @@ def build_testing_checklist(requirement_text: str) -> list[dict[str, object]]:
 
 def _rule_is_required(rule: CoverageRule, normalized_requirement: str) -> bool:
     """Return whether a coverage rule is truly required by the requirement."""
+    if rule.rule_id == "add_item" and _has_api_behavior_requirement(normalized_requirement) and not _has_ui_context(normalized_requirement):
+        return False
+    if rule.rule_id == "export_csv":
+        return _has_export_interaction_requirement(normalized_requirement)
+    if rule.rule_id == "api_behavior":
+        return _has_api_behavior_requirement(normalized_requirement)
     if rule.rule_id != "filter":
         return any(term.lower() in normalized_requirement for term in rule.requirement_terms)
     return _has_filter_interaction_requirement(normalized_requirement)
+
+
+def _has_export_interaction_requirement(normalized_requirement: str) -> bool:
+    """Avoid treating CSV import or parsing requirements as export/download needs."""
+    return any(
+        term in normalized_requirement
+        for term in ("\u5bfc\u51fa", "\u4e0b\u8f7d", "export", "download")
+    )
+
+
+def _has_api_behavior_requirement(normalized_requirement: str) -> bool:
+    """Return whether the requirement asks for backend/API behavior."""
+    api_terms = ("\u63a5\u53e3", "\u540e\u7aef", "\u670d\u52a1", "api", "restful", "http")
+    negation_terms = (
+        "\u4e0d\u63a5 api",
+        "\u4e0d\u63a5api",
+        "\u65e0 api",
+        "\u65e0api",
+        "\u65e0\u540e\u7aef",
+        "\u4e0d\u9700\u8981\u540e\u7aef",
+        "\u4e0d\u63a5\u540e\u7aef",
+        "no api",
+        "without api",
+        "no backend",
+        "without backend",
+        "browser api",
+        "localstorage api",
+    )
+    for raw_line in normalized_requirement.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        line = " ".join(raw_line.strip().split())
+        if not line or not any(term in line for term in api_terms):
+            continue
+        if any(term in line for term in negation_terms):
+            continue
+        return True
+    return False
+
+
+def _has_ui_context(normalized_requirement: str) -> bool:
+    """Return whether the requirement asks for browser/UI interaction."""
+    return any(
+        term in normalized_requirement
+        for term in (
+            "\u9875\u9762",
+            "\u754c\u9762",
+            "\u524d\u7aef",
+            "\u8868\u5355",
+            "\u6309\u94ae",
+            "ui",
+            "web",
+            "frontend",
+            "browser",
+            "form",
+            "button",
+        )
+    )
 
 
 def _has_filter_interaction_requirement(normalized_requirement: str) -> bool:

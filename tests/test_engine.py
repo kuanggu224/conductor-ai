@@ -75,6 +75,7 @@ def test_engine_can_run_project_to_terminal_state(tmp_path) -> None:
         logs[-1].message
         in {"Project 已完成", "升级处理: 阶段 design 存在超过重试次数的失败 WorkItem: workitem-fail"}
         or logs[-1].message.startswith("需求门禁返工上限触发")
+        or logs[-1].message.startswith("设计门禁返工上限触发")
     )
 
 

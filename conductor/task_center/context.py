@@ -45,7 +45,16 @@ class TaskContextBuilder:
             include_content=include_content,
             max_content_chars=max_content_chars,
         )
+        self._ensure_frozen_design_input(
+            state,
+            workitem.stage,
+            input_artifacts,
+            include_content=include_content,
+            max_content_chars=max_content_chars,
+        )
         frozen_requirement_baseline = self._frozen_requirement_baseline(input_artifacts)
+        frozen_design_baseline = self._frozen_design_baseline(input_artifacts)
+        eligible_agent_activations = self._eligible_agent_activations(state, assignment, workitem)
         rework_context = self._rework_context(state, workitem, input_artifacts)
         delivery_contract = self._delivery_contract(workitem, assignment, input_artifacts, rework_context)
         output_artifacts = [
@@ -63,10 +72,14 @@ class TaskContextBuilder:
                 assignment,
                 input_artifacts,
                 frozen_requirement_baseline,
+                frozen_design_baseline,
+                eligible_agent_activations,
                 rework_context,
                 delivery_contract,
             ),
             "frozen_requirement_baseline": frozen_requirement_baseline,
+            "frozen_design_baseline": frozen_design_baseline,
+            "eligible_agent_activations": eligible_agent_activations,
             "rework_context": rework_context,
             "delivery_contract": delivery_contract,
             "assignment": {
@@ -74,6 +87,7 @@ class TaskContextBuilder:
                 "status": assignment.status.value,
                 "claimable": task_center.claimable(state, assignment),
                 "unmet_dependency_ids": task_center.unmet_dependency_ids(state, assignment),
+                "lease_expired": task_center.lease_expired(assignment),
             },
             "workitem": asdict(workitem),
             "input_artifacts": input_artifacts,
@@ -87,6 +101,8 @@ class TaskContextBuilder:
         input_artifacts = _list_payload(payload.get("input_artifacts"))
         output_artifacts = _list_payload(payload.get("output_artifacts"))
         frozen_requirement_baseline = _dict_payload(payload.get("frozen_requirement_baseline"))
+        frozen_design_baseline = _dict_payload(payload.get("frozen_design_baseline"))
+        eligible_agent_activations = _list_payload(payload.get("eligible_agent_activations"))
         rework_context = _dict_payload(payload.get("rework_context"))
         delivery_contract = _dict_payload(payload.get("delivery_contract"))
         acceptance_criteria = _list_payload(workitem.get("acceptance_criteria"))
@@ -106,10 +122,16 @@ class TaskContextBuilder:
             f"- Role: {assignment.get('role', '')}",
             f"- Assigned Agent: {assignment.get('assigned_agent_id', '') or 'unassigned'}",
             f"- Claim Token: {assignment.get('claim_token', '') or 'not claimed'}",
+            f"- Lease Seconds: {assignment.get('lease_seconds', 0) or 0}",
+            f"- Lease Expires At: {assignment.get('lease_expires_at', '') or 'not set'}",
+            f"- Lease Expired: {assignment.get('lease_expired', False)}",
             f"- Claimable: {assignment.get('claimable', '')}",
             f"- Dependencies: {_join_or_none(_list_payload(assignment.get('dependencies')))}",
             f"- Unmet Dependencies: {_join_or_none(_list_payload(assignment.get('unmet_dependency_ids')))}",
             f"- Prompt File: {assignment.get('prompt_file', '') or 'not recorded'}",
+            "",
+            "### Eligible Dynamic Agents",
+            *self._eligible_agent_markdown(eligible_agent_activations),
             "",
             "## WorkItem",
             f"- WorkItem ID: {workitem.get('id', '')}",
@@ -131,6 +153,9 @@ class TaskContextBuilder:
             "",
             "## Frozen Requirement Baseline",
             *self._frozen_requirement_markdown(frozen_requirement_baseline),
+            "",
+            "## Frozen Design Baseline",
+            *self._frozen_design_markdown(frozen_design_baseline),
             "",
             "## Rework Context",
             *self._rework_markdown(rework_context),
@@ -198,6 +223,46 @@ class TaskContextBuilder:
             if artifact.get("kind") == "frozen_requirement_spec":
                 return artifact
         return {}
+
+    def _frozen_design_baseline(self, input_artifacts: list[dict[str, object]]) -> dict[str, object]:
+        """Return the frozen design artifact that controls implementation and testing."""
+        for artifact in input_artifacts:
+            if artifact.get("kind") == "frozen_design_spec":
+                return artifact
+        return {}
+
+    def _eligible_agent_activations(
+        self,
+        state: SharedProjectState,
+        assignment: TaskAssignment,
+        workitem: object,
+    ) -> list[dict[str, object]]:
+        """Return dynamic Agent instances that are suitable for this assignment."""
+        workitem_payload = asdict(workitem)
+        workitem_kind = str(workitem_payload.get("kind") or "")
+        workitem_stage = str(workitem_payload.get("stage") or "")
+        matches: list[dict[str, object]] = []
+        for activation in state.agent_activations:
+            if activation.role != assignment.role:
+                continue
+            if activation.stage and activation.stage != workitem_stage:
+                continue
+            if activation.related_workitem_kinds and workitem_kind not in activation.related_workitem_kinds:
+                continue
+            matches.append(
+                {
+                    "agent_id": activation.agent_id,
+                    "role": activation.role,
+                    "instance_id": activation.instance_id,
+                    "reason": activation.reason,
+                    "scope": activation.scope,
+                    "parallel_safe": activation.parallel_safe,
+                    "write_scope": list(activation.write_scope),
+                    "preferred_backend": activation.preferred_backend,
+                    "execution_backend": activation.execution_backend,
+                }
+            )
+        return matches
 
     def _rework_context(
         self,
@@ -315,6 +380,36 @@ class TaskContextBuilder:
                 ),
             )
 
+    def _ensure_frozen_design_input(
+        self,
+        state: SharedProjectState,
+        stage: str,
+        input_artifacts: list[dict[str, object]],
+        *,
+        include_content: bool,
+        max_content_chars: int,
+    ) -> None:
+        """Development and testing task contexts must carry the latest frozen design."""
+        if stage not in {"development", "testing"}:
+            return
+        if any(artifact.get("kind") == "frozen_design_spec" for artifact in input_artifacts):
+            return
+        frozen_design = next(
+            (artifact for artifact in reversed(state.artifacts) if artifact.kind == "frozen_design_spec"),
+            None,
+        )
+        if frozen_design is None:
+            return
+        insert_at = 1 if input_artifacts and input_artifacts[0].get("kind") == "frozen_requirement_spec" else 0
+        input_artifacts.insert(
+            insert_at,
+            self._artifact_payload(
+                frozen_design,
+                include_content=include_content,
+                max_content_chars=max_content_chars,
+            ),
+        )
+
     def _frozen_requirement_markdown(self, baseline: dict[str, object]) -> list[str]:
         """Render the controlling requirement contract section."""
         if not baseline:
@@ -327,6 +422,34 @@ class TaskContextBuilder:
             f"- Path: {baseline.get('path', '')}",
             "- Full content is included again under `Input Artifacts`.",
         ]
+
+    def _frozen_design_markdown(self, baseline: dict[str, object]) -> list[str]:
+        """Render the controlling design baseline section."""
+        if not baseline:
+            return ["- None"]
+        return [
+            "- Treat this frozen design as the controlling implementation and testing baseline.",
+            "- Do not change architecture, API shape, or UI behavior unless the task explicitly asks for design rework.",
+            f"- Artifact ID: {baseline.get('id', '')}",
+            f"- Title: {baseline.get('title', '')}",
+            f"- Path: {baseline.get('path', '')}",
+            "- Full content is included again under `Input Artifacts`.",
+        ]
+
+    def _eligible_agent_markdown(self, activations: list[object]) -> list[str]:
+        """Render dynamic Agent candidates for this assignment."""
+        if not activations:
+            return ["- None"]
+        lines: list[str] = []
+        for item in activations:
+            activation = _dict_payload(item)
+            write_scope = _join_or_none(_list_payload(activation.get("write_scope")))
+            lines.append(
+                f"- {activation.get('agent_id', '')} ({activation.get('instance_id', '')}) | "
+                f"parallel_safe={activation.get('parallel_safe', False)} | "
+                f"scope={activation.get('scope', '')} | write_scope={write_scope}"
+            )
+        return lines
 
     def _rework_markdown(self, context: dict[str, object]) -> list[str]:
         """Render feedback-loop guidance when the task is a rework item."""
@@ -367,7 +490,7 @@ class TaskContextBuilder:
             missing_coverage = _join_or_none(_list_payload(payload.get("missing_coverage")))
             missing_checklist = _join_or_none(
                 [
-                    item.get("rule_id", "")
+                    self._missing_checklist_brief(item)
                     for item in _list_payload(payload.get("missing_checklist_items"))
                     if isinstance(item, dict)
                 ]
@@ -389,18 +512,35 @@ class TaskContextBuilder:
             )
         return lines
 
+    def _missing_checklist_brief(self, item: dict[str, object]) -> str:
+        """Render a missing checklist item with required evidence for rework prompts."""
+        rule_id = str(item.get("rule_id", "")).strip()
+        label = str(item.get("label", "")).strip()
+        evidence_terms = [
+            str(value).strip()
+            for value in _list_payload(item.get("required_evidence_terms"))
+            if str(value).strip()
+        ]
+        identity = " ".join(value for value in (rule_id, label) if value) or "-"
+        evidence = ", ".join(evidence_terms) if evidence_terms else "-"
+        return f"{identity} -> {evidence}"
+
     def _execution_brief(
         self,
         state: SharedProjectState,
         assignment: TaskAssignment,
         input_artifacts: list[dict[str, object]],
         frozen_requirement_baseline: dict[str, object],
+        frozen_design_baseline: dict[str, object],
+        eligible_agent_activations: list[dict[str, object]],
         rework_context: dict[str, object],
         delivery_contract: dict[str, object],
     ) -> str:
         criteria = "\n".join(f"- {item}" for item in self._workitem_criteria(state, assignment)) or "- Not specified"
         inputs = "\n".join(f"- {item['id']} ({item['kind']}): {item['title']}" for item in input_artifacts) or "- None"
         frozen_requirement = self._frozen_requirement_brief(frozen_requirement_baseline)
+        frozen_design = self._frozen_design_brief(frozen_design_baseline)
+        eligible_agents = "\n".join(self._eligible_agent_markdown(eligible_agent_activations))
         rework_brief = "\n".join(self._rework_markdown(rework_context))
         contract_brief = "\n".join(render_delivery_contract_markdown(delivery_contract))
         return (
@@ -408,10 +548,14 @@ class TaskContextBuilder:
             f"TaskAssignment: {assignment.id}\n"
             f"WorkItem: {assignment.workitem_id}\n"
             f"Role: {assignment.role}\n\n"
+            "Eligible Dynamic Agents:\n"
+            f"{eligible_agents}\n\n"
             "Delivery Contract:\n"
             f"{contract_brief}\n\n"
             "Frozen Requirement Baseline:\n"
             f"{frozen_requirement}\n\n"
+            "Frozen Design Baseline:\n"
+            f"{frozen_design}\n\n"
             "Rework Context:\n"
             f"{rework_brief}\n\n"
             "Acceptance Criteria:\n"
@@ -432,6 +576,16 @@ class TaskContextBuilder:
             f"- {baseline.get('id', '')} ({baseline.get('title', '')})\n"
             "- This is the controlling contract for design, implementation, and testing.\n"
             "- Do not expand non-goals or introduce unrelated features."
+        )
+
+    def _frozen_design_brief(self, baseline: dict[str, object]) -> str:
+        """Return a compact design baseline instruction for the execution brief."""
+        if not baseline:
+            return "- None"
+        return (
+            f"- {baseline.get('id', '')} ({baseline.get('title', '')})\n"
+            "- This is the controlling baseline for implementation and testing.\n"
+            "- Preserve agreed architecture, API shape, UI behavior, and validation boundaries."
         )
 
     def _workitem_criteria(self, state: SharedProjectState, assignment: TaskAssignment) -> list[str]:
@@ -501,11 +655,14 @@ def _fenced(content: str) -> str:
 def _return_command_lines(payload: dict[str, object], assignment: dict[str, object]) -> list[str]:
     project_root = str(payload.get("project_root", "") or ".")
     assignment_id = str(assignment.get("id", "") or "<assignment-id>")
+    agent_id = str(assignment.get("assigned_agent_id", "") or "<agent-id>")
     claim_token = str(assignment.get("claim_token", "") or "<claim-token>")
+    lease_seconds = int(assignment.get("lease_seconds", 0) or 0)
+    lease_arg = f" --lease-seconds {lease_seconds}" if lease_seconds > 0 else ""
     complete_command = (
         f'python -m app.task_center complete "{assignment_id}" '
         f'--project-root "{project_root}" '
-        '--agent-id "<agent-id>" '
+        f'--agent-id "{agent_id}" '
         f'--claim-token "{claim_token}" '
         '--result-summary "completed" '
         '--output-file result.md'
@@ -513,7 +670,7 @@ def _return_command_lines(payload: dict[str, object], assignment: dict[str, obje
     fail_command = (
         f'python -m app.task_center fail "{assignment_id}" '
         f'--project-root "{project_root}" '
-        '--agent-id "<agent-id>" '
+        f'--agent-id "{agent_id}" '
         f'--claim-token "{claim_token}" '
         '--result-summary "failed" '
         '--blocked-reason "explain blocker"'
@@ -521,13 +678,14 @@ def _return_command_lines(payload: dict[str, object], assignment: dict[str, obje
     heartbeat_command = (
         f'python -m app.task_center heartbeat "{assignment_id}" '
         f'--project-root "{project_root}" '
-        '--agent-id "<agent-id>" '
+        f'--agent-id "{agent_id}" '
         f'--claim-token "{claim_token}"'
+        f"{lease_arg}"
     )
     release_command = (
         f'python -m app.task_center release "{assignment_id}" '
         f'--project-root "{project_root}" '
-        '--agent-id "<agent-id>" '
+        f'--agent-id "{agent_id}" '
         f'--claim-token "{claim_token}" '
         '--release-reason "worker interrupted"'
     )

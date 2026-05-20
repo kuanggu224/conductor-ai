@@ -6,6 +6,7 @@ import argparse
 import json
 import sys
 from dataclasses import asdict, replace
+from datetime import datetime, timezone
 from pathlib import Path
 
 from conductor.artifacts.store import ArtifactStore
@@ -16,7 +17,12 @@ from conductor.task_center.context import TaskContextBuilder
 from conductor.task_center.prompts import resolve_task_prompt_path, write_task_prompt_file
 from conductor.state.file_store import FileStateStore
 from conductor.state.store import InMemoryStateStore
-from conductor.task_center.service import DEFAULT_STALE_CLAIMED_AFTER_SECONDS, TaskCenterError, TaskCenterService
+from conductor.task_center.service import (
+    DEFAULT_MAX_BULK_CLAIM_LIMIT,
+    DEFAULT_STALE_CLAIMED_AFTER_SECONDS,
+    TaskCenterError,
+    TaskCenterService,
+)
 
 configure_utf8_stdio()
 
@@ -39,6 +45,22 @@ def build_parser() -> argparse.ArgumentParser:
     summary_parser = subparsers.add_parser("summary", parents=[common], help="Print task-center summary counts.")
     summary_parser.add_argument("--stale-after-seconds", type=int, default=DEFAULT_STALE_CLAIMED_AFTER_SECONDS)
 
+    audit_parser = subparsers.add_parser("audit", parents=[common], help="Audit Task Center lifecycle integrity.")
+    audit_parser.add_argument("--stale-after-seconds", type=int, default=DEFAULT_STALE_CLAIMED_AFTER_SECONDS)
+    audit_parser.add_argument("--fail-on-findings", action="store_true", help="Exit with code 3 when findings exist.")
+
+    audit_all_parser = subparsers.add_parser(
+        "audit-all",
+        parents=[common],
+        help="Audit Task Center lifecycle integrity across every project in the state directory.",
+    )
+    audit_all_parser.add_argument("--stale-after-seconds", type=int, default=DEFAULT_STALE_CLAIMED_AFTER_SECONDS)
+    audit_all_parser.add_argument("--fail-on-findings", action="store_true", help="Exit with code 3 when findings exist.")
+    audit_all_parser.add_argument(
+        "--output",
+        help="Write the audit-all JSON maintenance report to a file. Relative paths use --project-root.",
+    )
+
     context_parser = subparsers.add_parser("context", parents=[common], help="Print one assignment with input artifact content.")
     context_parser.add_argument("assignment_id")
     context_parser.add_argument("--no-content", action="store_true", help="Only print artifact metadata.")
@@ -46,10 +68,40 @@ def build_parser() -> argparse.ArgumentParser:
     context_parser.add_argument("--format", choices=["json", "markdown"], default="json")
     context_parser.add_argument("--prompt-file", help="Write Markdown context to a file. Relative paths use project root.")
 
+    agents_for_parser = subparsers.add_parser(
+        "agents-for",
+        parents=[common],
+        help="List dynamic Agent activations eligible for one assignment.",
+    )
+    agents_for_parser.add_argument("assignment_id")
+
+    tasks_for_agent_parser = subparsers.add_parser(
+        "tasks-for-agent",
+        parents=[common],
+        help="List assignments that match one dynamic Agent activation.",
+    )
+    tasks_for_agent_parser.add_argument("agent_id")
+    tasks_for_agent_parser.add_argument("--claimable-only", action="store_true", help="Only return currently claimable tasks.")
+
+    claim_for_agent_parser = subparsers.add_parser(
+        "claim-for-agent",
+        parents=[common],
+        help="Claim the next assignment that matches one dynamic Agent activation.",
+    )
+    claim_for_agent_parser.add_argument("agent_id")
+    claim_for_agent_parser.add_argument("--claim-reason", default="")
+    claim_for_agent_parser.add_argument("--lease-seconds", type=int, default=0, help="Optional explicit claim lease duration.")
+    claim_for_agent_parser.add_argument("--with-context", action="store_true", help="Include input artifact context in the claim response.")
+    claim_for_agent_parser.add_argument("--no-content", action="store_true", help="Only print artifact metadata with --with-context.")
+    claim_for_agent_parser.add_argument("--max-content-chars", type=int, default=12000)
+    claim_for_agent_parser.add_argument("--context-format", choices=["json", "markdown"], default="json")
+    claim_for_agent_parser.add_argument("--prompt-file", help="Write Markdown context to a file. Relative paths use project root.")
+
     claim_parser = subparsers.add_parser("claim", parents=[common], help="Claim one queued assignment.")
     claim_parser.add_argument("assignment_id")
     claim_parser.add_argument("--agent-id", required=True)
     claim_parser.add_argument("--claim-reason", default="")
+    claim_parser.add_argument("--lease-seconds", type=int, default=0, help="Optional explicit claim lease duration.")
     claim_parser.add_argument("--with-context", action="store_true", help="Include input artifact context in the claim response.")
     claim_parser.add_argument("--no-content", action="store_true", help="Only print artifact metadata with --with-context.")
     claim_parser.add_argument("--max-content-chars", type=int, default=12000)
@@ -60,11 +112,20 @@ def build_parser() -> argparse.ArgumentParser:
     claim_next_parser.add_argument("--agent-id", required=True)
     claim_next_parser.add_argument("--role", help="Only claim assignments for this role.")
     claim_next_parser.add_argument("--claim-reason", default="")
+    claim_next_parser.add_argument("--lease-seconds", type=int, default=0, help="Optional explicit claim lease duration.")
     claim_next_parser.add_argument("--with-context", action="store_true", help="Include input artifact context in the claim response.")
     claim_next_parser.add_argument("--no-content", action="store_true", help="Only print artifact metadata with --with-context.")
     claim_next_parser.add_argument("--max-content-chars", type=int, default=12000)
     claim_next_parser.add_argument("--context-format", choices=["json", "markdown"], default="json")
     claim_next_parser.add_argument("--prompt-file", help="Write Markdown context to a file. Relative paths use project root.")
+
+    claim_batch_parser = subparsers.add_parser("claim-batch", parents=[common], help="Claim a limited batch of queued assignments.")
+    claim_batch_parser.add_argument("--agent-id", required=True)
+    claim_batch_parser.add_argument("--role", help="Only claim assignments for this role.")
+    claim_batch_parser.add_argument("--claim-reason", default="")
+    claim_batch_parser.add_argument("--limit", type=int, default=1)
+    claim_batch_parser.add_argument("--max-limit", type=int, default=DEFAULT_MAX_BULK_CLAIM_LIMIT)
+    claim_batch_parser.add_argument("--lease-seconds", type=int, default=0, help="Optional explicit claim lease duration.")
 
     complete_parser = subparsers.add_parser("complete", parents=[common], help="Return one claimed assignment as completed.")
     complete_parser.add_argument("assignment_id")
@@ -91,6 +152,7 @@ def build_parser() -> argparse.ArgumentParser:
     heartbeat_parser.add_argument("assignment_id")
     heartbeat_parser.add_argument("--agent-id", default="", help="Optional agent id guard for the current claimant.")
     heartbeat_parser.add_argument("--claim-token", default="", help="Optional claim token guard from the claim response.")
+    heartbeat_parser.add_argument("--lease-seconds", type=int, help="Override the existing lease duration while heartbeating.")
 
     release_parser = subparsers.add_parser("release", parents=[common], help="Release a claimed/failed assignment back to queued.")
     release_parser.add_argument("assignment_id")
@@ -101,6 +163,75 @@ def build_parser() -> argparse.ArgumentParser:
     release_stale_parser = subparsers.add_parser("release-stale", parents=[common], help="Release stale claimed assignments back to queued.")
     release_stale_parser.add_argument("--stale-after-seconds", type=int, default=DEFAULT_STALE_CLAIMED_AFTER_SECONDS)
     release_stale_parser.add_argument("--release-reason", default="stale claimed assignment")
+
+    release_expired_parser = subparsers.add_parser(
+        "release-expired-leases",
+        parents=[common],
+        help="Release assignments whose explicit claim lease expired.",
+    )
+    release_expired_parser.add_argument("--release-reason", default="expired task lease")
+
+    sweep_parser = subparsers.add_parser(
+        "sweep",
+        parents=[common],
+        help="Run Task Center maintenance: release expired leases and stale claims.",
+    )
+    sweep_parser.add_argument("--stale-after-seconds", type=int, default=DEFAULT_STALE_CLAIMED_AFTER_SECONDS)
+    sweep_parser.add_argument("--expired-lease-release-reason", default="expired task lease")
+    sweep_parser.add_argument("--stale-release-reason", default="stale claimed assignment")
+
+    sweep_all_parser = subparsers.add_parser(
+        "sweep-all",
+        parents=[common],
+        help="Run Task Center maintenance across every project in the state directory.",
+    )
+    sweep_all_parser.add_argument("--stale-after-seconds", type=int, default=DEFAULT_STALE_CLAIMED_AFTER_SECONDS)
+    sweep_all_parser.add_argument("--expired-lease-release-reason", default="expired task lease")
+    sweep_all_parser.add_argument("--stale-release-reason", default="stale claimed assignment")
+    sweep_all_parser.add_argument(
+        "--output",
+        help="Write the sweep-all JSON maintenance report to a file. Relative paths use --project-root.",
+    )
+
+    maintenance_parser = subparsers.add_parser(
+        "maintenance",
+        parents=[common],
+        help="Run sweep-all followed by audit-all and emit one maintenance report.",
+    )
+    maintenance_parser.add_argument("--stale-after-seconds", type=int, default=DEFAULT_STALE_CLAIMED_AFTER_SECONDS)
+    maintenance_parser.add_argument("--expired-lease-release-reason", default="expired task lease")
+    maintenance_parser.add_argument("--stale-release-reason", default="stale claimed assignment")
+    maintenance_parser.add_argument("--fail-on-findings", action="store_true", help="Exit with code 3 when audit findings exist.")
+    maintenance_parser.add_argument(
+        "--output",
+        help="Write the combined JSON maintenance report to a file. Relative paths use --project-root.",
+    )
+    maintenance_parser.add_argument(
+        "--latest-output",
+        help="Write a compact latest-maintenance pointer JSON. Relative paths use --project-root.",
+    )
+
+    maintenance_status_parser = subparsers.add_parser(
+        "maintenance-status",
+        parents=[common],
+        help="Read the latest maintenance pointer and return a health summary.",
+    )
+    maintenance_status_parser.add_argument(
+        "--latest",
+        default=".conductor/maintenance/latest.json",
+        help="Latest-maintenance pointer JSON path. Relative paths use --project-root.",
+    )
+    maintenance_status_parser.add_argument(
+        "--max-age-seconds",
+        type=int,
+        default=0,
+        help="Optional maximum acceptable age for the latest pointer. Zero disables age checks.",
+    )
+    maintenance_status_parser.add_argument(
+        "--fail-on-findings",
+        action="store_true",
+        help="Exit with code 3 when latest maintenance status is unhealthy or stale.",
+    )
     return parser
 
 
@@ -108,12 +239,68 @@ def main(argv: list[str] | None = None) -> int:
     """Run the task-center command and print a JSON payload."""
     args = build_parser().parse_args(argv)
     store = FileStateStore(_resolve_state_dir(args))
-    state = _resolve_state(store, args.project_id)
-    service = TaskCenterService(store, event_prefix="TaskCenterCLI", require_claim_guard=True)
+    multi_project_commands = {"audit-all", "maintenance", "maintenance-status", "sweep-all"}
+    state = None if args.command in multi_project_commands else _resolve_state(store, args.project_id)
+    max_bulk_claim_limit = getattr(args, "max_limit", DEFAULT_MAX_BULK_CLAIM_LIMIT)
+    service = TaskCenterService(
+        store,
+        event_prefix="TaskCenterCLI",
+        require_claim_guard=True,
+        max_bulk_claim_limit=max_bulk_claim_limit,
+    )
 
+    exit_code = 0
     try:
-        _validate_prompt_file_before_mutation(args, state)
-        if args.command == "list":
+        if args.command == "sweep-all":
+            payload = _sweep_all_payload(
+                store,
+                service,
+                stale_after_seconds=args.stale_after_seconds,
+                expired_lease_release_reason=args.expired_lease_release_reason,
+                stale_release_reason=args.stale_release_reason,
+            )
+            if args.output:
+                output_path = _write_json_output(args.output, args.project_root, payload)
+                payload["output_path"] = str(output_path)
+        elif args.command == "audit-all":
+            payload = _audit_all_payload(store, service, stale_after_seconds=args.stale_after_seconds)
+            if args.fail_on_findings and payload["finding_count"]:
+                exit_code = 3
+            if args.output:
+                output_path = _write_json_output(args.output, args.project_root, payload)
+                payload["output_path"] = str(output_path)
+        elif args.command == "maintenance":
+            payload = _maintenance_payload(
+                store,
+                service,
+                stale_after_seconds=args.stale_after_seconds,
+                expired_lease_release_reason=args.expired_lease_release_reason,
+                stale_release_reason=args.stale_release_reason,
+            )
+            if args.fail_on_findings and payload["audit"]["finding_count"]:
+                exit_code = 3
+            if args.output:
+                output_path = _write_json_output(args.output, args.project_root, payload)
+                payload["output_path"] = str(output_path)
+            if args.latest_output:
+                latest_path = _write_latest_maintenance_output(args.latest_output, args.project_root, payload)
+                payload["latest_output_path"] = str(latest_path)
+        elif args.command == "maintenance-status":
+            payload = _maintenance_status_payload(
+                args.latest,
+                args.project_root,
+                max_age_seconds=args.max_age_seconds,
+            )
+            if not payload["exists"]:
+                exit_code = 2
+            elif args.fail_on_findings and not payload["healthy"]:
+                exit_code = 3
+        else:
+            assert state is not None
+            _validate_prompt_file_before_mutation(args, state)
+        if args.command in multi_project_commands:
+            pass
+        elif args.command == "list":
             payload = _list_payload(
                 state,
                 service.list_assignments(state.project.id, status=args.status),
@@ -124,6 +311,11 @@ def main(argv: list[str] | None = None) -> int:
             )
         elif args.command == "summary":
             payload = _summary_payload(state, service, stale_after_seconds=args.stale_after_seconds)
+        elif args.command == "audit":
+            findings = service.audit(state, stale_after_seconds=args.stale_after_seconds)
+            payload = _audit_payload(state, findings, service, stale_after_seconds=args.stale_after_seconds)
+            if args.fail_on_findings and findings:
+                exit_code = 3
         elif args.command == "context":
             context_builder = TaskContextBuilder()
             payload = context_builder.build(
@@ -143,12 +335,65 @@ def main(argv: list[str] | None = None) -> int:
                 payload["assignment"]["prompt_file"] = str(prompt_file)
             if args.format == "markdown":
                 payload = prompt_markdown
+        elif args.command == "agents-for":
+            context_builder = TaskContextBuilder()
+            context_payload = context_builder.build(
+                state,
+                args.assignment_id,
+                service=service,
+                include_content=False,
+                max_content_chars=0,
+            )
+            assignment = context_payload["assignment"]
+            workitem = context_payload["workitem"]
+            agents = context_payload["eligible_agent_activations"]
+            payload = {
+                "ok": True,
+                "project_id": context_payload["project_id"],
+                "assignment_id": args.assignment_id,
+                "workitem_id": workitem["id"],
+                "stage": workitem["stage"],
+                "kind": workitem["kind"],
+                "role": assignment["role"],
+                "eligible_count": len(agents),
+                "agents": agents,
+            }
+        elif args.command == "tasks-for-agent":
+            payload = _tasks_for_agent_payload(
+                state,
+                service,
+                agent_id=args.agent_id,
+                claimable_only=args.claimable_only,
+            )
+        elif args.command == "claim-for-agent":
+            tasks_payload = _tasks_for_agent_payload(state, service, agent_id=args.agent_id, claimable_only=True)
+            tasks = tasks_payload["tasks"]
+            if not tasks:
+                raise TaskCenterError(f"No claimable task assignment available for agent {args.agent_id}", status_code=404)
+            assignment_id = tasks[0]["assignment_id"]
+            result = service.claim(
+                state.project.id,
+                assignment_id=assignment_id,
+                agent_id=args.agent_id,
+                claim_reason=args.claim_reason,
+                lease_seconds=args.lease_seconds,
+            )
+            payload = _assignment_payload(result.state, result.assignment, service)
+            payload["matched_agent"] = {
+                "agent_id": args.agent_id,
+                "instance_id": tasks[0].get("instance_id", ""),
+                "scope": tasks[0].get("scope", ""),
+                "parallel_safe": tasks[0].get("parallel_safe", False),
+                "write_scope": tasks[0].get("write_scope", []),
+            }
+            payload = _attach_context_if_requested(payload, args, result.state, result.assignment, service)
         elif args.command == "claim":
             result = service.claim(
                 state.project.id,
                 assignment_id=args.assignment_id,
                 agent_id=args.agent_id,
                 claim_reason=args.claim_reason,
+                lease_seconds=args.lease_seconds,
             )
             payload = _assignment_payload(result.state, result.assignment, service)
             payload = _attach_context_if_requested(payload, args, result.state, result.assignment, service)
@@ -158,9 +403,20 @@ def main(argv: list[str] | None = None) -> int:
                 agent_id=args.agent_id,
                 role=args.role,
                 claim_reason=args.claim_reason,
+                lease_seconds=args.lease_seconds,
             )
             payload = _assignment_payload(result.state, result.assignment, service)
             payload = _attach_context_if_requested(payload, args, result.state, result.assignment, service)
+        elif args.command == "claim-batch":
+            result = service.claim_batch(
+                state.project.id,
+                agent_id=args.agent_id,
+                role=args.role,
+                claim_reason=args.claim_reason,
+                limit=args.limit,
+                lease_seconds=args.lease_seconds,
+            )
+            payload = _bulk_claim_payload(result.state, result.assignments, service, args.limit)
         elif args.command == "complete":
             output_artifact_ids = _return_output_artifact_ids(args, store, state, service)
             result = service.complete(
@@ -190,6 +446,7 @@ def main(argv: list[str] | None = None) -> int:
                 assignment_id=args.assignment_id,
                 agent_id=args.agent_id,
                 claim_token=args.claim_token,
+                lease_seconds=args.lease_seconds,
             )
             payload = _assignment_payload(result.state, result.assignment, service)
         elif args.command == "release":
@@ -208,6 +465,20 @@ def main(argv: list[str] | None = None) -> int:
                 release_reason=args.release_reason,
             )
             payload = _bulk_release_payload(result.state, result.assignments, service, args.stale_after_seconds)
+        elif args.command == "release-expired-leases":
+            result = service.release_expired_leases(
+                state.project.id,
+                release_reason=args.release_reason,
+            )
+            payload = _bulk_expired_lease_release_payload(result.state, result.assignments, service)
+        elif args.command == "sweep":
+            result = service.sweep(
+                state.project.id,
+                stale_after_seconds=args.stale_after_seconds,
+                expired_lease_release_reason=args.expired_lease_release_reason,
+                stale_release_reason=args.stale_release_reason,
+            )
+            payload = _sweep_payload(result.state, result, service, args.stale_after_seconds)
         else:
             raise AssertionError(f"Unsupported command: {args.command}")
     except TaskCenterError as error:
@@ -221,7 +492,7 @@ def main(argv: list[str] | None = None) -> int:
         print(payload, end="")
     else:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
-    return 0
+    return exit_code
 
 
 def _resolve_state_dir(args) -> Path:
@@ -293,6 +564,166 @@ def _summary_payload(
     }
 
 
+def _audit_payload(
+    state: SharedProjectState,
+    findings,
+    service: TaskCenterService,
+    stale_after_seconds: int,
+) -> dict[str, object]:
+    error_count = sum(1 for finding in findings if finding.severity == "error")
+    warning_count = sum(1 for finding in findings if finding.severity == "warning")
+    return {
+        "ok": True,
+        "project_id": state.project.id,
+        "passed": not findings,
+        "finding_count": len(findings),
+        "error_count": error_count,
+        "warning_count": warning_count,
+        "stale_after_seconds": stale_after_seconds,
+        "summary": service.summary(state, stale_after_seconds=stale_after_seconds),
+        "findings": [asdict(finding) for finding in findings],
+    }
+
+
+def _tasks_for_agent_payload(
+    state: SharedProjectState,
+    service: TaskCenterService,
+    *,
+    agent_id: str,
+    claimable_only: bool,
+) -> dict[str, object]:
+    activations = [activation for activation in state.agent_activations if activation.agent_id == agent_id]
+    if not activations:
+        raise TaskCenterError(f"Agent activation not found: {agent_id}", status_code=404)
+    workitems_by_id = {workitem.id: workitem for workitem in state.workitems}
+    tasks: list[dict[str, object]] = []
+    seen_assignment_ids: set[str] = set()
+    for activation in activations:
+        for assignment in state.task_assignments:
+            if assignment.id in seen_assignment_ids or assignment.role != activation.role:
+                continue
+            workitem = workitems_by_id.get(assignment.workitem_id)
+            if workitem is None:
+                continue
+            if activation.stage and activation.stage != workitem.stage:
+                continue
+            if activation.related_workitem_kinds and workitem.kind not in activation.related_workitem_kinds:
+                continue
+            claimable = service.claimable(state, assignment, agent_id=agent_id)
+            if claimable_only and not claimable:
+                continue
+            write_scope_conflicts = service.write_scope_conflicts(state, assignment, agent_id=agent_id)
+            seen_assignment_ids.add(assignment.id)
+            tasks.append(
+                {
+                    "assignment_id": assignment.id,
+                    "workitem_id": workitem.id,
+                    "stage": workitem.stage,
+                    "kind": workitem.kind,
+                    "role": assignment.role,
+                    "assignment_status": assignment.status.value,
+                    "workitem_status": workitem.status.value,
+                    "claimable": claimable,
+                    "unmet_dependency_ids": service.unmet_dependency_ids(state, assignment),
+                    "write_scope_conflict_assignment_ids": write_scope_conflicts,
+                    "instance_id": activation.instance_id,
+                    "scope": activation.scope,
+                    "parallel_safe": activation.parallel_safe,
+                    "write_scope": list(activation.write_scope),
+                }
+            )
+    return {
+        "ok": True,
+        "project_id": state.project.id,
+        "agent_id": agent_id,
+        "activation_count": len(activations),
+        "claimable_only": claimable_only,
+        "task_count": len(tasks),
+        "activations": [
+            {
+                "agent_id": activation.agent_id,
+                "role": activation.role,
+                "instance_id": activation.instance_id,
+                "stage": activation.stage,
+                "related_workitem_kinds": list(activation.related_workitem_kinds),
+                "scope": activation.scope,
+                "parallel_safe": activation.parallel_safe,
+                "write_scope": list(activation.write_scope),
+            }
+            for activation in activations
+        ],
+        "tasks": tasks,
+    }
+
+
+def _audit_all_payload(
+    store: FileStateStore,
+    service: TaskCenterService,
+    stale_after_seconds: int,
+) -> dict[str, object]:
+    project_results: list[dict[str, object]] = []
+    total_errors = 0
+    total_warnings = 0
+    for state in store.list_states():
+        findings = service.audit(state, stale_after_seconds=stale_after_seconds)
+        error_count = sum(1 for finding in findings if finding.severity == "error")
+        warning_count = sum(1 for finding in findings if finding.severity == "warning")
+        total_errors += error_count
+        total_warnings += warning_count
+        project_results.append(
+            {
+                "project_id": state.project.id,
+                "passed": not findings,
+                "finding_count": len(findings),
+                "error_count": error_count,
+                "warning_count": warning_count,
+                "summary": service.summary(state, stale_after_seconds=stale_after_seconds),
+                "findings": [asdict(finding) for finding in findings],
+            }
+        )
+    rollup = _audit_project_rollup(project_results)
+    return {
+        "ok": True,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "passed": total_errors + total_warnings == 0,
+        "project_count": len(project_results),
+        "finding_count": total_errors + total_warnings,
+        "error_count": total_errors,
+        "warning_count": total_warnings,
+        "stale_after_seconds": stale_after_seconds,
+        **rollup,
+        "projects": project_results,
+    }
+
+
+def _audit_project_rollup(project_results: list[dict[str, object]]) -> dict[str, object]:
+    """Return operator-focused rollups for multi-project audit reports."""
+    attention_project_ids: list[str] = []
+    finding_code_counts: dict[str, int] = {}
+    recommendations: list[str] = []
+    for project in project_results:
+        findings = project.get("findings", [])
+        if not isinstance(findings, list) or not findings:
+            continue
+        project_id = str(project.get("project_id", ""))
+        if project_id:
+            attention_project_ids.append(project_id)
+        for finding in findings:
+            if not isinstance(finding, dict):
+                continue
+            code = str(finding.get("code", ""))
+            if code:
+                finding_code_counts[code] = finding_code_counts.get(code, 0) + 1
+            recommendation = str(finding.get("recommendation", ""))
+            if recommendation and recommendation not in recommendations:
+                recommendations.append(recommendation)
+    return {
+        "attention_project_ids": attention_project_ids,
+        "finding_code_counts": finding_code_counts,
+        "recommendations": recommendations,
+    }
+
+
 def _bulk_release_payload(
     state: SharedProjectState,
     assignments: list[TaskAssignment],
@@ -310,6 +741,288 @@ def _bulk_release_payload(
             for assignment in assignments
         ],
     }
+
+
+def _bulk_claim_payload(
+    state: SharedProjectState,
+    assignments: list[TaskAssignment],
+    service: TaskCenterService,
+    requested_limit: int,
+) -> dict[str, object]:
+    return {
+        "ok": True,
+        "project_id": state.project.id,
+        "requested_limit": requested_limit,
+        "claimed_count": len(assignments),
+        "summary": service.summary(state),
+        "tasks": [
+            _assignment_payload(state, assignment, service)["task"]
+            for assignment in assignments
+        ],
+    }
+
+
+def _bulk_expired_lease_release_payload(
+    state: SharedProjectState,
+    assignments: list[TaskAssignment],
+    service: TaskCenterService,
+) -> dict[str, object]:
+    return {
+        "ok": True,
+        "project_id": state.project.id,
+        "released_count": len(assignments),
+        "summary": service.summary(state),
+        "tasks": [
+            _assignment_payload(state, assignment, service)["task"]
+            for assignment in assignments
+        ],
+    }
+
+
+def _sweep_payload(
+    state: SharedProjectState,
+    result,
+    service: TaskCenterService,
+    stale_after_seconds: int,
+) -> dict[str, object]:
+    released = [*result.expired_lease_assignments, *result.stale_assignments]
+    return {
+        "ok": True,
+        "project_id": state.project.id,
+        "released_count": len(released),
+        "expired_lease_released_count": len(result.expired_lease_assignments),
+        "stale_released_count": len(result.stale_assignments),
+        "stale_after_seconds": stale_after_seconds,
+        "summary": service.summary(state, stale_after_seconds=stale_after_seconds),
+        "expired_lease_tasks": [
+            _assignment_payload(state, assignment, service, stale_after_seconds=stale_after_seconds)["task"]
+            for assignment in result.expired_lease_assignments
+        ],
+        "stale_tasks": [
+            _assignment_payload(state, assignment, service, stale_after_seconds=stale_after_seconds)["task"]
+            for assignment in result.stale_assignments
+        ],
+    }
+
+
+def _sweep_all_payload(
+    store: FileStateStore,
+    service: TaskCenterService,
+    *,
+    stale_after_seconds: int,
+    expired_lease_release_reason: str,
+    stale_release_reason: str,
+) -> dict[str, object]:
+    project_results: list[dict[str, object]] = []
+    total_expired = 0
+    total_stale = 0
+    for state in store.list_states():
+        result = service.sweep(
+            state.project.id,
+            stale_after_seconds=stale_after_seconds,
+            expired_lease_release_reason=expired_lease_release_reason,
+            stale_release_reason=stale_release_reason,
+        )
+        expired_count = len(result.expired_lease_assignments)
+        stale_count = len(result.stale_assignments)
+        total_expired += expired_count
+        total_stale += stale_count
+        project_results.append(
+            {
+                "project_id": state.project.id,
+                "released_count": expired_count + stale_count,
+                "expired_lease_released_count": expired_count,
+                "stale_released_count": stale_count,
+                "summary": service.summary(result.state, stale_after_seconds=stale_after_seconds),
+            }
+        )
+    return {
+        "ok": True,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "project_count": len(project_results),
+        "released_count": total_expired + total_stale,
+        "expired_lease_released_count": total_expired,
+        "stale_released_count": total_stale,
+        "stale_after_seconds": stale_after_seconds,
+        "projects": project_results,
+    }
+
+
+def _maintenance_payload(
+    store: FileStateStore,
+    service: TaskCenterService,
+    *,
+    stale_after_seconds: int,
+    expired_lease_release_reason: str,
+    stale_release_reason: str,
+) -> dict[str, object]:
+    sweep_payload = _sweep_all_payload(
+        store,
+        service,
+        stale_after_seconds=stale_after_seconds,
+        expired_lease_release_reason=expired_lease_release_reason,
+        stale_release_reason=stale_release_reason,
+    )
+    audit_payload = _audit_all_payload(store, service, stale_after_seconds=stale_after_seconds)
+    return {
+        "ok": True,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "status": "clean" if audit_payload["passed"] else "needs_attention",
+        "project_count": audit_payload["project_count"],
+        "released_count": sweep_payload["released_count"],
+        "expired_lease_released_count": sweep_payload["expired_lease_released_count"],
+        "stale_released_count": sweep_payload["stale_released_count"],
+        "finding_count": audit_payload["finding_count"],
+        "error_count": audit_payload["error_count"],
+        "warning_count": audit_payload["warning_count"],
+        "stale_after_seconds": stale_after_seconds,
+        "attention_project_ids": audit_payload.get("attention_project_ids", []),
+        "finding_code_counts": audit_payload.get("finding_code_counts", {}),
+        "recommendations": audit_payload.get("recommendations", []),
+        "sweep": sweep_payload,
+        "audit": audit_payload,
+    }
+
+
+def _write_json_output(path_arg: str, project_root: str, payload: dict[str, object]) -> Path:
+    output_path = _resolve_project_output_path(path_arg, project_root)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return output_path
+
+
+def _resolve_project_output_path(path_arg: str, project_root: str) -> Path:
+    path = Path(path_arg).expanduser()
+    if path.is_absolute():
+        return path.resolve()
+    return (Path(project_root).expanduser().resolve() / path).resolve()
+
+
+def _write_latest_maintenance_output(path_arg: str, project_root: str, payload: dict[str, object]) -> Path:
+    latest = {
+        "ok": bool(payload.get("ok", False)),
+        "generated_at": str(payload.get("generated_at", "")),
+        "status": str(payload.get("status", "")),
+        "project_count": int(payload.get("project_count", 0)),
+        "released_count": int(payload.get("released_count", 0)),
+        "finding_count": int(payload.get("finding_count", 0)),
+        "error_count": int(payload.get("error_count", 0)),
+        "warning_count": int(payload.get("warning_count", 0)),
+        "attention_project_ids": _json_list_payload(payload.get("attention_project_ids")),
+        "finding_code_counts": _json_dict_payload(payload.get("finding_code_counts")),
+        "recommendations": _json_list_payload(payload.get("recommendations")),
+        "report_path": str(payload.get("output_path", "")),
+    }
+    return _write_json_output(path_arg, project_root, latest)
+
+
+def _maintenance_status_payload(
+    latest_arg: str,
+    project_root: str,
+    *,
+    max_age_seconds: int,
+) -> dict[str, object]:
+    latest_path = _resolve_project_output_path(latest_arg, project_root)
+    if not latest_path.exists():
+        return {
+            "ok": False,
+            "exists": False,
+            "healthy": False,
+            "latest_path": str(latest_path),
+            "error": "latest maintenance file not found",
+        }
+    try:
+        latest = json.loads(latest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        return {
+            "ok": False,
+            "exists": True,
+            "healthy": False,
+            "latest_path": str(latest_path),
+            "error": f"latest maintenance file is not readable JSON: {error}",
+        }
+    if not isinstance(latest, dict):
+        return {
+            "ok": False,
+            "exists": True,
+            "healthy": False,
+            "latest_path": str(latest_path),
+            "error": "latest maintenance file must contain a JSON object",
+        }
+    age_seconds = _maintenance_latest_age_seconds(str(latest.get("generated_at", "")))
+    stale = max_age_seconds > 0 and (age_seconds is None or age_seconds > max_age_seconds)
+    finding_count = int(latest.get("finding_count", 0))
+    error_count = int(latest.get("error_count", 0))
+    warning_count = int(latest.get("warning_count", 0))
+    status = str(latest.get("status", ""))
+    reason = _maintenance_health_reason(
+        status=status,
+        stale=stale,
+        age_seconds=age_seconds,
+        finding_count=finding_count,
+        error_count=error_count,
+        warning_count=warning_count,
+    )
+    healthy = status == "clean" and finding_count == 0 and error_count == 0 and warning_count == 0 and not stale
+    return {
+        "ok": True,
+        "exists": True,
+        "healthy": healthy,
+        "reason": reason,
+        "stale": stale,
+        "latest_path": str(latest_path),
+        "max_age_seconds": max_age_seconds,
+        "age_seconds": age_seconds,
+        "status": status,
+        "project_count": int(latest.get("project_count", 0)),
+        "released_count": int(latest.get("released_count", 0)),
+        "finding_count": finding_count,
+        "error_count": error_count,
+        "warning_count": warning_count,
+        "attention_project_ids": _json_list_payload(latest.get("attention_project_ids")),
+        "finding_code_counts": _json_dict_payload(latest.get("finding_code_counts")),
+        "recommendations": _json_list_payload(latest.get("recommendations")),
+        "report_path": str(latest.get("report_path", "")),
+        "latest": latest,
+    }
+
+
+def _maintenance_health_reason(
+    *,
+    status: str,
+    stale: bool,
+    age_seconds: int | None,
+    finding_count: int,
+    error_count: int,
+    warning_count: int,
+) -> str:
+    if stale:
+        return "invalid_generated_at" if age_seconds is None else "stale"
+    if finding_count > 0 or error_count > 0 or warning_count > 0:
+        return "findings"
+    if status != "clean":
+        return "status_not_clean"
+    return "clean"
+
+
+def _maintenance_latest_age_seconds(generated_at: str) -> int | None:
+    if not generated_at:
+        return None
+    try:
+        parsed = datetime.fromisoformat(generated_at.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return max(0, int((datetime.now(timezone.utc) - parsed.astimezone(timezone.utc)).total_seconds()))
+
+
+def _json_list_payload(value: object) -> list[object]:
+    return value if isinstance(value, list) else []
+
+
+def _json_dict_payload(value: object) -> dict[str, object]:
+    return value if isinstance(value, dict) else {}
 
 
 def _return_output_artifact_ids(
@@ -406,6 +1119,9 @@ def _assignment_payload(
             "claimed_age_seconds": claimed_age_seconds,
             "heartbeat_age_seconds": heartbeat_age_seconds,
             "stale_claimed": service.stale_claimed(assignment, stale_after_seconds=stale_after_seconds),
+            "lease_seconds": assignment.lease_seconds,
+            "lease_expires_at": assignment.lease_expires_at,
+            "lease_expired": service.lease_expired(assignment),
             "workitem": asdict(workitem) if workitem else {},
         },
     }

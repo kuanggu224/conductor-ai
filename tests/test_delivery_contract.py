@@ -31,6 +31,20 @@ def test_delivery_contract_dedupes_inputs_and_marks_rework_focus() -> None:
     assert "Guardrails" in markdown
 
 
+def test_delivery_contract_marks_frozen_design_as_downstream_baseline() -> None:
+    contract = build_delivery_contract(
+        stage="development",
+        kind="ui_implementation",
+        role="frontend_engineer",
+        required_input_artifact_ids=["artifact-frozen-req", "artifact-frozen-design"],
+        required_input_kinds=["frozen_requirement_spec", "frozen_design_spec"],
+    )
+
+    assert "frozen_design_spec" in contract["required_input_kinds"]
+    assert "Treat the frozen design as the controlling implementation and testing baseline." in contract["guardrails"]
+    assert "Frozen design coverage" in contract["verification_focus"]
+
+
 def test_acceptance_trace_records_validation_and_changed_file_evidence() -> None:
     trace = build_acceptance_trace(
         ["UI can add a book", "Data persists after refresh"],

@@ -53,6 +53,8 @@ class TechnicalLeadAgent:
         failed = [item for item in stage_workitems if item.status == WorkItemStatus.FAILED]
         retried = [item for item in stage_workitems if item.retry_count > 0]
         blockers = list(state.blockers)
+        history_risks = self._history_risk_roles(state)
+        rework_evidence_items = self._rework_evidence_items(stage_workitems)
         specs = list(candidate.agent_specs)
         reasons = ["TL reviewed current stage, work scope, risk, and retry state.", *candidate.reasons]
         summary_parts = [
@@ -60,6 +62,8 @@ class TechnicalLeadAgent:
             f"failed={len(failed)}",
             f"retried={len(retried)}",
             f"blockers={len(blockers)}",
+            f"history_risks={len(history_risks)}",
+            f"rework_evidence_items={len(rework_evidence_items)}",
         ]
 
         if blockers or state.project_status == ProjectStatus.BLOCKED:
@@ -73,11 +77,20 @@ class TechnicalLeadAgent:
             )
 
         specs.extend(self._recovery_specs(planner, stage, failed, retried))
+        specs.extend(self._history_risk_specs(planner, stage, history_risks))
+        specs.extend(self._rework_evidence_specs(planner, stage, rework_evidence_items))
         specs = self._dedupe_specs(specs)
         return replace(
             candidate,
-            complexity_level=self._tl_complexity_level(candidate.complexity_level, failed, retried, specs),
-            reasons=self._dedupe([*reasons, *self._runtime_reasons(failed, retried)]),
+            complexity_level=self._tl_complexity_level(candidate.complexity_level, failed, retried, specs, rework_evidence_items),
+            reasons=self._dedupe(
+                [
+                    *reasons,
+                    *self._runtime_reasons(failed, retried),
+                    *self._history_risk_reasons(history_risks),
+                    *self._rework_evidence_reasons(rework_evidence_items),
+                ]
+            ),
             agent_specs=specs,
             decision_source="tl_agent",
             decided_by="tl_agent",
@@ -124,16 +137,104 @@ class TechnicalLeadAgent:
             ]
         return []
 
+    def _history_risk_roles(self, state: SharedProjectState) -> list[tuple[str, int, int]]:
+        """Return roles whose recent aggregate execution history needs extra review."""
+        totals: dict[str, tuple[int, int]] = {}
+        for stats in state.agent_capability_stats:
+            if not stats.role or stats.role == "unknown":
+                continue
+            completed, failed = totals.get(stats.role, (0, 0))
+            totals[stats.role] = (completed + stats.completed_count, failed + stats.failed_count)
+        risky: list[tuple[str, int, int]] = []
+        for role, (completed, failed) in totals.items():
+            total = completed + failed
+            if failed >= 2 and total >= 3 and failed >= completed:
+                risky.append((role, completed, failed))
+        return sorted(risky, key=lambda item: (-item[2], item[0]))
+
+    def _history_risk_specs(
+        self,
+        planner: AgentTeamPlanner,
+        stage: str,
+        history_risks: list[tuple[str, int, int]],
+    ) -> list[DynamicAgentSpec]:
+        """Add independent reviewers when TL sees weak historical role performance."""
+        specs: list[DynamicAgentSpec] = []
+        risky_roles = {role for role, _completed, _failed in history_risks}
+        if stage == "development" and risky_roles & {"frontend_engineer", "backend_engineer"}:
+            specs.append(
+                planner.build_spec(
+                    role="tester",
+                    instance_id="history_quality_review",
+                    stage=stage,
+                    mission="Review implementation plans against prior role failure patterns before more work is assigned.",
+                    reason="TL detected elevated historical implementation failure rate and added independent quality review.",
+                    scope="historical failure patterns, implementation checklist, regression risk, validation evidence",
+                    mode="sequential_review",
+                    workitem_kinds=["ui_implementation", "api_implementation", "data_implementation", "generic_implementation"],
+                )
+            )
+        if stage == "testing" and "tester" in risky_roles:
+            specs.append(
+                planner.build_spec(
+                    role="solution_designer",
+                    instance_id="test_strategy_review",
+                    stage=stage,
+                    mission="Review testing strategy because tester history shows repeated validation misses.",
+                    reason="TL detected elevated historical tester failure rate and added strategy review.",
+                    scope="test strategy, coverage gaps, release risk, acceptance traceability",
+                    mode="sequential_review",
+                    workitem_kinds=["acceptance_check", "automated_test", "api_validation", "ui_validation"],
+                )
+            )
+        return specs
+
+    def _rework_evidence_items(self, workitems: list) -> list:
+        """Return current-stage rework WorkItems that carry explicit missing evidence targets."""
+        return [
+            item
+            for item in workitems
+            if (item.feedback_from or item.rework_of)
+            and any(
+                "Address missing testing checklist" in criterion
+                or "produce evidence" in criterion
+                for criterion in item.acceptance_criteria
+            )
+        ]
+
+    def _rework_evidence_specs(
+        self,
+        planner: AgentTeamPlanner,
+        stage: str,
+        rework_items: list,
+    ) -> list[DynamicAgentSpec]:
+        """Add an independent verification seat for development rework with missing evidence targets."""
+        if stage != "development" or not rework_items:
+            return []
+        return [
+            planner.build_spec(
+                role="tester",
+                instance_id="rework_acceptance_guard",
+                stage=stage,
+                mission="Verify that development rework directly satisfies missing testing checklist evidence.",
+                reason="TL detected feedback rework with explicit missing evidence acceptance criteria.",
+                scope="missing checklist evidence, rework acceptance criteria, regression risk, retest readiness",
+                mode="sequential_review",
+                workitem_kinds=list(dict.fromkeys(item.kind for item in rework_items)),
+            )
+        ]
+
     def _tl_complexity_level(
         self,
         candidate_level: str,
         failed: list,
         retried: list,
         specs: list[DynamicAgentSpec],
+        rework_evidence_items: list | None = None,
     ) -> str:
         if failed or len(retried) >= 2 or len(specs) >= 5:
             return "complex"
-        if retried or len(specs) >= 3:
+        if rework_evidence_items or retried or len(specs) >= 3:
             return "standard"
         return candidate_level
 
@@ -144,6 +245,18 @@ class TechnicalLeadAgent:
         if retried:
             reasons.append("TL detected retry history in the current stage.")
         return reasons
+
+    def _history_risk_reasons(self, history_risks: list[tuple[str, int, int]]) -> list[str]:
+        return [
+            f"TL detected weak historical performance for {role}: completed={completed}, failed={failed}."
+            for role, completed, failed in history_risks
+        ]
+
+    def _rework_evidence_reasons(self, rework_items: list) -> list[str]:
+        if not rework_items:
+            return []
+        ids = ", ".join(item.id for item in rework_items)
+        return [f"TL detected development rework with missing checklist evidence targets: {ids}."]
 
     def _risk_level(self, state: SharedProjectState, failed: list, blockers: list[str]) -> str:
         if state.project_status == ProjectStatus.BLOCKED or blockers:

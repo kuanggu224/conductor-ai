@@ -143,6 +143,224 @@ def test_manifest_verifier_accepts_consistent_manifest(tmp_path) -> None:
     assert result.schema_version == "1.28"
 
 
+def test_manifest_verifier_checks_pre_run_maintenance_report(tmp_path) -> None:
+    project_root = tmp_path / "project"
+    report_path = project_root / ".conductor" / "maintenance" / "pre-run.json"
+    latest_path = project_root / ".conductor" / "maintenance" / "latest.json"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(
+        json.dumps(
+            {
+                "project_id": "project-1",
+                "status": "clean",
+                "released_count": 1,
+                "expired_lease_released_count": 1,
+                "stale_released_count": 0,
+                "audit": {"finding_count": 0, "error_count": 0, "warning_count": 0},
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    latest_path.write_text(
+        json.dumps(
+            {
+                "project_id": "project-1",
+                "status": "clean",
+                "released_count": 1,
+                "finding_count": 0,
+                "error_count": 0,
+                "warning_count": 0,
+                "report_path": str(report_path),
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "pre_run_maintenance": {
+                "project_id": "project-1",
+                "status": "clean",
+                "released_count": 1,
+                "expired_lease_released_count": 1,
+                "stale_released_count": 0,
+                "report_path": str(report_path),
+                "latest_path": str(latest_path),
+                "audit": {"finding_count": 0, "error_count": 0, "warning_count": 0},
+            }
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert not any("pre_run_maintenance.report_path" in warning for warning in result.warnings)
+    assert not any("pre_run_maintenance.latest_path" in warning for warning in result.warnings)
+
+
+def test_manifest_verifier_warns_for_missing_pre_run_maintenance_report(tmp_path) -> None:
+    missing_path = tmp_path / "project" / ".conductor" / "maintenance" / "missing.json"
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "pre_run_maintenance": {
+                "project_id": "project-1",
+                "status": "clean",
+                "report_path": str(missing_path),
+            }
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert f"pre_run_maintenance.report_path does not exist: {missing_path}" in result.warnings
+
+
+def test_manifest_verifier_warns_for_missing_pre_run_maintenance_latest(tmp_path) -> None:
+    project_root = tmp_path / "project"
+    report_path = project_root / ".conductor" / "maintenance" / "pre-run.json"
+    latest_path = project_root / ".conductor" / "maintenance" / "latest-missing.json"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(
+        json.dumps(
+            {
+                "project_id": "project-1",
+                "status": "clean",
+                "released_count": 0,
+                "expired_lease_released_count": 0,
+                "stale_released_count": 0,
+                "audit": {"finding_count": 0, "error_count": 0, "warning_count": 0},
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "pre_run_maintenance": {
+                "project_id": "project-1",
+                "status": "clean",
+                "released_count": 0,
+                "report_path": str(report_path),
+                "latest_path": str(latest_path),
+                "audit": {"finding_count": 0, "error_count": 0, "warning_count": 0},
+            }
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert f"pre_run_maintenance.latest_path does not exist: {latest_path}" in result.warnings
+
+
+def test_manifest_verifier_rejects_pre_run_maintenance_latest_mismatch(tmp_path) -> None:
+    project_root = tmp_path / "project"
+    report_path = project_root / ".conductor" / "maintenance" / "pre-run.json"
+    latest_path = project_root / ".conductor" / "maintenance" / "latest.json"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(
+        json.dumps(
+            {
+                "project_id": "project-1",
+                "status": "clean",
+                "released_count": 1,
+                "expired_lease_released_count": 1,
+                "stale_released_count": 0,
+                "audit": {"finding_count": 0, "error_count": 0, "warning_count": 0},
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    latest_path.write_text(
+        json.dumps(
+            {
+                "project_id": "project-other",
+                "status": "needs_attention",
+                "released_count": 0,
+                "finding_count": 2,
+                "error_count": 1,
+                "warning_count": 1,
+                "report_path": "wrong.json",
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "pre_run_maintenance": {
+                "project_id": "project-1",
+                "status": "clean",
+                "released_count": 1,
+                "report_path": str(report_path),
+                "latest_path": str(latest_path),
+                "audit": {"finding_count": 0, "error_count": 0, "warning_count": 0},
+            }
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert "pre_run_maintenance.latest.project_id='project-other' does not match manifest project_id='project-1'" in result.errors
+    assert "pre_run_maintenance.latest.status='needs_attention' does not match manifest status='clean'" in result.errors
+    assert "pre_run_maintenance.latest.finding_count=2 does not match report audit finding_count=0" in result.errors
+
+
+def test_manifest_verifier_rejects_pre_run_maintenance_report_mismatch(tmp_path) -> None:
+    project_root = tmp_path / "project"
+    report_path = project_root / ".conductor" / "maintenance" / "pre-run.json"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(
+        json.dumps(
+            {
+                "project_id": "project-1",
+                "status": "needs_attention",
+                "released_count": 0,
+                "expired_lease_released_count": 0,
+                "stale_released_count": 0,
+                "audit": {"finding_count": 2, "error_count": 1, "warning_count": 1},
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "pre_run_maintenance": {
+                "project_id": "project-1",
+                "status": "clean",
+                "released_count": 1,
+                "expired_lease_released_count": 1,
+                "stale_released_count": 0,
+                "report_path": str(report_path),
+                "audit": {"finding_count": 0, "error_count": 0, "warning_count": 0},
+            }
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert "pre_run_maintenance.status='clean' does not match report status='needs_attention'" in result.errors
+    assert "pre_run_maintenance.released_count=1 does not match report released_count=0" in result.errors
+    assert "pre_run_maintenance.audit.finding_count=0 does not match report audit finding_count=2" in result.errors
+
+
 def test_manifest_verifier_accepts_engine_generated_manifest(tmp_path) -> None:
     project_root = tmp_path / "project"
     engine = ConductorEngine(
@@ -316,6 +534,333 @@ def test_manifest_verifier_rejects_bad_summary_agent_count(tmp_path) -> None:
 
     assert result.passed is False
     assert "summary.agent_count=2 does not match len(agents)=1" in result.errors
+
+
+def test_manifest_verifier_rejects_bad_control_plane_summary_counts(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "summary": {
+                "final_status": "completed",
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "agent_team_plan_count": 2,
+                "tl_decision_count": 0,
+                "human_control_action_count": 0,
+                "task_center_audit_finding_count": 3,
+                "task_center_audit_error_count": 0,
+                "task_center_audit_warning_count": 2,
+                "changed_file_count": 0,
+                "changed_files": [],
+            },
+            "agent_team_plans": [
+                {
+                    "id": "team-plan-1",
+                    "project_id": "project-1",
+                    "stage": "development",
+                }
+            ],
+            "tl_decisions": [
+                {
+                    "id": "tl-decision-1",
+                    "project_id": "project-1",
+                    "stage": "testing",
+                    "action": "request_human_approval",
+                }
+            ],
+            "human_control_actions": [
+                {
+                    "id": "human-action-1",
+                    "project_id": "project-1",
+                    "action": "request_approval",
+                    "actor": "tl_agent",
+                    "reason": "high risk",
+                    "stage": "testing",
+                }
+            ],
+            "task_center_audit": [
+                {
+                    "code": "write_scope_conflict",
+                    "severity": "error",
+                    "assignment_id": "assignment-1",
+                    "workitem_id": "workitem-1",
+                }
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert "summary.agent_team_plan_count=2 does not match len(agent_team_plans)=1" in result.errors
+    assert "summary.tl_decision_count=0 does not match len(tl_decisions)=1" in result.errors
+    assert "summary.human_control_action_count=0 does not match len(human_control_actions)=1" in result.errors
+    assert "summary.task_center_audit_finding_count=3 does not match len(task_center_audit)=1" in result.errors
+    assert "summary.task_center_audit_error_count=0 does not match task_center_audit=1" in result.errors
+    assert "summary.task_center_audit_warning_count=2 does not match task_center_audit=0" in result.errors
+
+
+def test_manifest_verifier_rejects_bad_task_center_audit_links(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "summary": {
+                "final_status": "completed",
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "task_center_audit_finding_count": 3,
+                "task_center_audit_error_count": 2,
+                "task_center_audit_warning_count": 1,
+                "changed_file_count": 0,
+                "changed_files": [],
+            },
+            "task_center_audit": [
+                {
+                    "code": "stale_claimed",
+                    "severity": "warning",
+                    "assignment_id": "missing-assignment",
+                    "workitem_id": "workitem-1",
+                },
+                {
+                    "code": "lease_expired",
+                    "severity": "error",
+                    "assignment_id": "assignment-1",
+                    "workitem_id": "missing-workitem",
+                },
+                {
+                    "code": "claimed_missing_token",
+                    "severity": "fatal",
+                    "assignment_id": "assignment-1",
+                    "workitem_id": "workitem-other",
+                    "related_assignment_ids": ["missing-related-assignment"],
+                },
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert "task_center_audit[0] references unknown TaskAssignment: missing-assignment" in result.errors
+    assert "task_center_audit[1] references unknown WorkItem: missing-workitem" in result.errors
+    assert (
+        "task_center_audit[1] workitem_id=missing-workitem does not match "
+        "TaskAssignment assignment-1 workitem_id=workitem-1"
+    ) in result.errors
+    assert "task_center_audit[2].severity must be error or warning" in result.errors
+    assert (
+        "task_center_audit[2].related_assignment_ids references unknown TaskAssignment: "
+        "missing-related-assignment"
+    ) in result.errors
+
+
+def test_manifest_verifier_rejects_bad_control_plane_links(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "agent_team_plans": [
+                {
+                    "id": "team-plan-foreign",
+                    "project_id": "project-other",
+                    "stage": "development",
+                    "reasons": [],
+                    "agent_specs": [],
+                }
+            ],
+            "tl_decisions": [
+                {
+                    "id": "tl-decision-foreign",
+                    "project_id": "project-other",
+                    "stage": "testing",
+                    "action": "request_human_approval",
+                    "recommendations": [],
+                }
+            ],
+            "human_control_actions": [
+                {
+                    "id": "human-action-foreign",
+                    "project_id": "project-other",
+                    "action": "request_approval",
+                    "actor": "tl_agent",
+                    "reason": "high risk",
+                    "stage": "testing",
+                    "workitem_id": "missing-workitem",
+                    "payload": {"controller_action": "advance_stage"},
+                }
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert "agent_team_plans[0].project_id does not match manifest.project_id: team-plan-foreign" in result.errors
+    assert "tl_decisions[0].project_id does not match manifest.project_id: tl-decision-foreign" in result.errors
+    assert "human_control_actions[0].project_id does not match manifest.project_id: human-action-foreign" in result.errors
+    assert "human_control_actions[0] references unknown WorkItem: missing-workitem" in result.errors
+
+
+def test_manifest_verifier_rejects_inconsistent_agent_team_plan_specs(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "agents": [
+                {"agent_id": "agent-frontend-a"},
+                {"agent_id": "agent-frontend-b"},
+            ],
+            "agent_team_plans": [
+                {
+                    "id": "team-plan-1",
+                    "project_id": "project-1",
+                    "stage": "development",
+                    "reasons": [],
+                    "agent_specs": [
+                        {
+                            "role": "frontend_engineer",
+                            "agent_id": "agent-frontend-a",
+                            "instance_id": "layout",
+                            "stage": "development",
+                            "collaboration_mode": "parallel_development",
+                            "parallel_safe": True,
+                            "write_scope": [],
+                        },
+                        {
+                            "role": "frontend_engineer",
+                            "agent_id": "agent-frontend-a",
+                            "instance_id": "state",
+                            "stage": "testing",
+                            "collaboration_mode": "parallel_development",
+                            "parallel_safe": True,
+                            "write_scope": ["src/state.ts"],
+                        },
+                        {
+                            "role": "frontend_engineer",
+                            "agent_id": "",
+                            "instance_id": "empty",
+                            "stage": "development",
+                            "collaboration_mode": "sequential_review",
+                            "parallel_safe": False,
+                            "write_scope": [],
+                        },
+                    ],
+                }
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert "agent_team_plans[0].agent_specs[0] parallel_development requires write_scope" in result.errors
+    assert "agent_team_plans[0] contains duplicate agent_spec agent_id: agent-frontend-a" in result.errors
+    assert "agent_team_plans[0].agent_specs[1].stage=testing does not match plan stage=development" in result.errors
+    assert "agent_team_plans[0].agent_specs[2].agent_id must be non-empty" in result.errors
+
+
+def test_manifest_verifier_warns_for_unpaired_tl_human_gate(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "tl_decisions": [
+                {
+                    "id": "tl-needs-human",
+                    "project_id": "project-1",
+                    "stage": "testing",
+                    "action": "escalate_project",
+                    "risk_level": "high",
+                    "summary": "TL requires human approval",
+                    "recommendations": ["Inspect blocker"],
+                    "human_action_required": True,
+                }
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert (
+        "tl_decisions[0] human_action_required has no matching human_control_actions gate: "
+        "action=escalate_project, stage=testing"
+    ) in result.warnings
+
+
+def test_manifest_verifier_warns_for_human_gate_without_tl_decision(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "human_control_actions": [
+                {
+                    "id": "human-gate",
+                    "project_id": "project-1",
+                    "action": "request_approval",
+                    "actor": "tl_agent",
+                    "reason": "needs approval",
+                    "stage": "testing",
+                    "payload": {"controller_action": "escalate_project", "stage": "testing"},
+                }
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert (
+        "human_control_actions[0] controller gate has no matching tl_decisions entry: "
+        "action=escalate_project, stage=testing"
+    ) in result.warnings
+
+
+def test_manifest_verifier_accepts_matched_tl_human_gate(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "tl_decisions": [
+                {
+                    "id": "tl-needs-human",
+                    "project_id": "project-1",
+                    "stage": "testing",
+                    "action": "escalate_project",
+                    "risk_level": "high",
+                    "summary": "TL requires human approval",
+                    "recommendations": ["Inspect blocker"],
+                    "human_action_required": True,
+                }
+            ],
+            "human_control_actions": [
+                {
+                    "id": "human-gate",
+                    "project_id": "project-1",
+                    "action": "request_approval",
+                    "actor": "tl_agent",
+                    "reason": "needs approval",
+                    "stage": "testing",
+                    "payload": {"controller_action": "escalate_project", "stage": "testing"},
+                }
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert not any("human_action_required has no matching" in warning for warning in result.warnings)
+    assert not any("controller gate has no matching" in warning for warning in result.warnings)
 
 
 def test_manifest_verifier_rejects_bad_summary_failed_workitem_ids(tmp_path) -> None:
@@ -544,6 +1089,207 @@ def test_manifest_verifier_rejects_bad_task_center_summary_stale_and_blocked_cou
     assert "summary.task_center_summary.stale_claimed=0 does not match task_assignments=1" in result.errors
 
 
+def test_manifest_verifier_rejects_bad_task_center_lease_and_write_scope_counts(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "status": "in_progress",
+            "final_status": "in_progress",
+            "summary": {
+                "final_status": "in_progress",
+                "workitem_count": 2,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+                "task_center_summary": {
+                    "blocked_by_write_scope": 0,
+                    "lease_expired": 0,
+                    "queued": 1,
+                    "claimed": 1,
+                },
+            },
+            "workitems": [
+                {
+                    "id": "workitem-1",
+                    "stage": "development",
+                    "kind": "ui_implementation",
+                    "status": "pending",
+                },
+                {
+                    "id": "workitem-2",
+                    "stage": "development",
+                    "kind": "ui_implementation",
+                    "status": "running",
+                },
+            ],
+            "resume_cursor": {
+                "project_id": "project-1",
+                "project_status": "in_progress",
+                "current_stage": "development",
+                "next_action": "inspect_running",
+                "terminal": False,
+                "blocked": False,
+                "next_pending_workitem_ids": ["workitem-1"],
+                "running_workitem_ids": ["workitem-2"],
+                "completed_workitem_ids": [],
+                "last_execution_workitem_id": "workitem-1",
+            },
+            "task_assignments": [
+                {
+                    "id": "assignment-1",
+                    "workitem_id": "workitem-1",
+                    "role": "frontend_engineer",
+                    "status": "queued",
+                    "claimable": False,
+                    "unmet_dependency_ids": [],
+                    "write_scope_conflict_assignment_ids": ["assignment-2"],
+                    "stale_claimed": False,
+                    "lease_expired": False,
+                },
+                {
+                    "id": "assignment-2",
+                    "workitem_id": "workitem-2",
+                    "role": "frontend_engineer",
+                    "status": "claimed",
+                    "assigned_agent_id": "agent-layout",
+                    "claimable": False,
+                    "unmet_dependency_ids": [],
+                    "write_scope_conflict_assignment_ids": [],
+                    "stale_claimed": False,
+                    "lease_expired": True,
+                },
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert "summary.task_center_summary.blocked_by_write_scope=0 does not match task_assignments=1" in result.errors
+    assert "summary.task_center_summary.lease_expired=0 does not match task_assignments=1" in result.errors
+
+
+def test_manifest_verifier_rejects_unknown_write_scope_conflict_assignment(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "status": "in_progress",
+            "final_status": "in_progress",
+            "summary": {
+                "final_status": "in_progress",
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+            },
+            "task_assignments": [
+                {
+                    "id": "assignment-1",
+                    "workitem_id": "workitem-1",
+                    "role": "frontend_engineer",
+                    "status": "queued",
+                    "claimable": False,
+                    "unmet_dependency_ids": [],
+                    "write_scope_conflict_assignment_ids": ["missing-assignment"],
+                    "stale_claimed": False,
+                    "lease_expired": False,
+                }
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert (
+        "task assignment assignment-1 write_scope_conflict_assignment_ids references unknown TaskAssignment: "
+        "missing-assignment"
+    ) in result.errors
+
+
+def test_manifest_verifier_rejects_inconsistent_task_assignment_transition_history(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "task_assignments": [
+                {
+                    "id": "assignment-1",
+                    "workitem_id": "workitem-1",
+                    "role": "tester",
+                    "status": "completed",
+                    "returned_at": "2026-01-01T00:10:00+00:00",
+                    "transition_history": [
+                        {
+                            "at": "2026-01-01T00:00:00+00:00",
+                            "action": "claim",
+                            "status": "claimed",
+                            "agent_id": "agent-1",
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert "task assignment assignment-1 status completed has no return transition" in result.errors
+    assert (
+        "task assignment assignment-1 status completed has incompatible latest transition: claim"
+    ) in result.errors
+
+
+def test_manifest_verifier_rejects_bad_return_transition_timestamp(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "task_assignments": [
+                {
+                    "id": "assignment-1",
+                    "workitem_id": "workitem-1",
+                    "role": "tester",
+                    "status": "completed",
+                    "returned_at": "2026-01-01T00:10:00+00:00",
+                    "transition_history": [
+                        {
+                            "at": "2026-01-01T00:00:00+00:00",
+                            "action": "claim",
+                            "status": "claimed",
+                            "agent_id": "agent-1",
+                        },
+                        {
+                            "at": "2026-01-01T00:09:00+00:00",
+                            "action": "return",
+                            "status": "completed",
+                            "agent_id": "agent-1",
+                        },
+                    ],
+                }
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert "task assignment assignment-1 returned_at does not match latest return transition" in result.errors
+
+
 def test_manifest_verifier_rejects_bad_summary_blocked_count(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,
@@ -732,6 +1478,41 @@ def test_manifest_verifier_accepts_requirement_quality_score_without_evaluations
     result = verify_manifest(manifest_path)
 
     assert result.passed is True
+
+
+def test_manifest_verifier_rejects_bad_design_quality_score(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "summary": {
+                "final_status": "completed",
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+                "design_quality_score": 20,
+            },
+            "design_evaluations": [
+                {
+                    "artifact_id": "artifact-design",
+                    "kind": "frozen_design_spec",
+                    "score": 84,
+                }
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert "summary.design_quality_score=20 does not match max(design_evaluations.score)=84" in result.errors
 
 
 def test_manifest_verifier_rejects_bad_requirement_coverage_status(tmp_path) -> None:
@@ -1175,6 +1956,76 @@ def test_manifest_verifier_rejects_blocked_status_without_blocked_cursor(tmp_pat
     assert "blocked manifest must have resume_cursor.blocked=true" in result.errors
 
 
+def test_manifest_verifier_rejects_bad_active_human_control_cursor(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "status": "in_progress",
+            "final_status": "in_progress",
+            "current_stage": "testing",
+            "summary": {
+                "final_status": "in_progress",
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+                "human_control_action_count": 1,
+            },
+            "human_control_actions": [
+                {
+                    "id": "human-request",
+                    "project_id": "project-1",
+                    "action": "request_approval",
+                    "actor": "tl_agent",
+                    "reason": "high risk",
+                    "stage": "testing",
+                    "workitem_id": "workitem-1",
+                    "payload": {"controller_action": "advance_stage", "stage": "testing"},
+                }
+            ],
+            "resume_cursor": {
+                "project_id": "project-1",
+                "project_status": "in_progress",
+                "current_stage": "testing",
+                "next_action": "execute_pending",
+                "terminal": False,
+                "blocked": False,
+                "completed_workitem_ids": ["workitem-1"],
+                "last_execution_workitem_id": "workitem-1",
+                "active_human_control_action": {
+                    "id": "human-stale",
+                    "project_id": "project-other",
+                    "action": "pause",
+                    "actor": "operator",
+                    "reason": "stale hold",
+                    "stage": "testing",
+                    "workitem_id": "missing-workitem",
+                    "payload": {},
+                },
+            },
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert (
+        "resume_cursor.active_human_control_action does not match human_control_actions active hold"
+    ) in result.errors
+    assert "resume_cursor.next_action must be human_hold when active_human_control_action is set" in result.errors
+    assert "resume_cursor.active_human_control_action.project_id does not match manifest.project_id" in result.errors
+    assert (
+        "resume_cursor.active_human_control_action references unknown WorkItem: missing-workitem"
+    ) in result.errors
+
+
 def test_manifest_verifier_rejects_non_blocked_status_with_blocked_cursor(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,
@@ -1196,6 +2047,91 @@ def test_manifest_verifier_rejects_non_blocked_status_with_blocked_cursor(tmp_pa
 
     assert result.passed is False
     assert "non-blocked manifest cannot have resume_cursor.blocked=true" in result.errors
+
+
+def test_manifest_verifier_allows_in_progress_human_hold_with_blocked_resume_cursor(tmp_path) -> None:
+    human_action = {
+        "id": "human-request",
+        "project_id": "project-1",
+        "action": "request_approval",
+        "actor": "tl_agent",
+        "reason": "terminal test failure needs operator decision",
+        "stage": "testing",
+        "workitem_id": "workitem-1",
+        "payload": {"controller_action": "escalate_project", "stage": "testing"},
+    }
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "status": "in_progress",
+            "final_status": "in_progress",
+            "current_stage": "testing",
+            "summary": {
+                "final_status": "in_progress",
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+                "human_control_action_count": 1,
+            },
+            "human_control_actions": [human_action],
+            "workitems": [
+                {
+                    "id": "workitem-1",
+                    "stage": "testing",
+                    "kind": "acceptance_check",
+                    "status": "failed",
+                    "blocked_reason": "retry limit reached",
+                }
+            ],
+            "task_assignments": [
+                {
+                    "id": "assignment-1",
+                    "workitem_id": "workitem-1",
+                    "role": "tester",
+                    "status": "failed",
+                    "blocked_reason": "retry limit reached",
+                }
+            ],
+            "executions": [
+                {
+                    "workitem_id": "workitem-1",
+                    "agent_id": "agent-1",
+                    "status": "failed",
+                    "artifact_ids": ["artifact-1"],
+                    "artifact_files": [str(tmp_path / "project" / ".conductor" / "artifacts" / "artifact-1.md")],
+                }
+            ],
+            "resume_cursor": {
+                "project_id": "project-1",
+                "project_status": "in_progress",
+                "current_stage": "testing",
+                "next_action": "human_hold",
+                "terminal": False,
+                "blocked": True,
+                "blockers": [],
+                "next_pending_workitem_ids": [],
+                "running_workitem_ids": [],
+                "retryable_failed_workitem_ids": [],
+                "terminal_failed_workitem_ids": ["workitem-1"],
+                "completed_workitem_ids": [],
+                "last_execution_workitem_id": "workitem-1",
+                "active_human_control_action": human_action,
+            },
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert "non-blocked manifest cannot have resume_cursor.blocked=true" not in result.errors
 
 
 def test_manifest_verifier_rejects_completed_cursor_with_pending_work(tmp_path) -> None:
@@ -3373,7 +4309,7 @@ def test_manifest_verifier_warns_for_non_current_schema_version(tmp_path) -> Non
     result = verify_manifest(manifest_path)
 
     assert result.passed is True
-    assert "manifest schema_version 1.0 differs from current 1.35" in result.warnings
+    assert "manifest schema_version 1.0 differs from current 1.36" in result.warnings
 
 
 def test_manifest_verifier_rejects_api_key_fields(tmp_path) -> None:

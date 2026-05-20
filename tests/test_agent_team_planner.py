@@ -3,7 +3,7 @@
 from conductor.agents.registry import AgentRegistry
 from conductor.agents.team_planner import AgentTeamPlanner
 from conductor.controller.tl_agent import TechnicalLeadAgent
-from conductor.domain.models import Project, ProjectStatus, SharedProjectState, WorkItem, WorkItemStatus
+from conductor.domain.models import AgentCapabilityStats, Project, ProjectStatus, SharedProjectState, WorkItem, WorkItemStatus
 
 
 def test_agent_team_planner_generates_same_role_frontend_instances() -> None:
@@ -54,6 +54,31 @@ def test_agent_team_planner_generates_testing_peer_instances() -> None:
     tester_specs = [spec for spec in plan.agent_specs if spec.role == "tester"]
     assert {spec.instance_id for spec in tester_specs} == {"acceptance", "edge_cases"}
     assert all(spec.collaboration_mode == "parallel_review" for spec in tester_specs)
+
+
+def test_agent_team_planner_stage_scopes_planning_agent_ids() -> None:
+    planner = AgentTeamPlanner()
+    requirement_state = SharedProjectState(
+        project=Project(id="project-req-team", goal="Build a UI form with CSV export", current_stage="requirement"),
+        project_status=ProjectStatus.IN_PROGRESS,
+        current_stage="requirement",
+        workitems=[WorkItem(id="workitem-req", description="UI form with CSV export", stage="requirement", kind="requirement_spec")],
+    )
+    design_state = SharedProjectState(
+        project=Project(id="project-design-team", goal="Build a UI form with CSV export", current_stage="design"),
+        project_status=ProjectStatus.IN_PROGRESS,
+        current_stage="design",
+        workitems=[WorkItem(id="workitem-design", description="UI form with CSV export", stage="design", kind="design_overview")],
+    )
+
+    requirement_ids = {spec.agent_id for spec in planner.plan(requirement_state).agent_specs}
+    design_ids = {spec.agent_id for spec in planner.plan(design_state).agent_specs}
+
+    assert requirement_ids
+    assert design_ids
+    assert requirement_ids.isdisjoint(design_ids)
+    assert all("-requirement-" in agent_id for agent_id in requirement_ids)
+    assert all("-design-" in agent_id for agent_id in design_ids)
 
 
 def test_agent_team_planner_keeps_simple_acceptance_check_linear() -> None:
@@ -144,3 +169,78 @@ def test_tl_agent_adds_runtime_failure_triage_agent() -> None:
     assert plan.decision_source == "tl_agent"
     assert plan.complexity_level == "complex"
     assert any(spec.role == "tester" and spec.instance_id == "failure_triage" for spec in plan.agent_specs)
+
+
+def test_tl_agent_uses_agent_history_to_add_quality_review() -> None:
+    planner = AgentTeamPlanner()
+    tl_agent = TechnicalLeadAgent()
+    state = SharedProjectState(
+        project=Project(id="project-tl-history", goal="Build UI and API implementation.", current_stage="development"),
+        project_status=ProjectStatus.IN_PROGRESS,
+        current_stage="development",
+        workitems=[
+            WorkItem(
+                id="workitem-ui",
+                description="Implement UI page.",
+                stage="development",
+                kind="ui_implementation",
+            )
+        ],
+        agent_capability_stats=[
+            AgentCapabilityStats(
+                agent_id="agent-frontend",
+                role="frontend_engineer",
+                completed_count=1,
+                failed_count=3,
+                workitem_kinds=["ui_implementation"],
+                last_workitem_id="workitem-prior",
+                last_status="failed",
+            )
+        ],
+    )
+
+    plan = tl_agent.plan_agent_team(state, planner)
+
+    assert plan.decision_source == "tl_agent"
+    assert "history_risks=1" in plan.decision_summary
+    assert plan.complexity_level == "complex"
+    assert any(spec.role == "tester" and spec.instance_id == "history_quality_review" for spec in plan.agent_specs)
+    assert any("weak historical performance for frontend_engineer" in reason for reason in plan.reasons)
+
+
+def test_tl_agent_adds_rework_acceptance_guard_for_missing_checklist_evidence() -> None:
+    planner = AgentTeamPlanner()
+    tl_agent = TechnicalLeadAgent()
+    state = SharedProjectState(
+        project=Project(id="project-tl-rework", goal="Fix reading list UI rework.", current_stage="development"),
+        project_status=ProjectStatus.IN_PROGRESS,
+        current_stage="development",
+        workitems=[
+            WorkItem(
+                id="workitem-rework",
+                description="Fix UI rework from failed validation.",
+                stage="development",
+                kind="ui_implementation",
+                feedback_from=["workitem-ui-test"],
+                rework_of="workitem-ui",
+                acceptance_criteria=[
+                    "修复测试反馈 workitem-ui-test",
+                    (
+                        "Address missing testing checklist `add_item` add item interaction: "
+                        "produce evidence browser form interaction updated visible state"
+                    ),
+                ],
+            )
+        ],
+    )
+
+    plan = tl_agent.plan_agent_team(state, planner, trigger="feedback_rework")
+
+    assert plan.decision_source == "tl_agent"
+    assert "rework_evidence_items=1" in plan.decision_summary
+    assert plan.complexity_level == "standard"
+    guard = next(spec for spec in plan.agent_specs if spec.instance_id == "rework_acceptance_guard")
+    assert guard.role == "tester"
+    assert guard.collaboration_mode == "sequential_review"
+    assert guard.workitem_kinds == ["ui_implementation"]
+    assert any("missing checklist evidence targets: workitem-rework" in reason for reason in plan.reasons)

@@ -16,6 +16,7 @@ class RunProfile(StrEnum):
     """Preset runtime modes for controlling real CLI usage."""
 
     MOCK = "mock"
+    STATIC_WEB = "static_web"
     DESIGN_CLI_ONLY = "design_cli_only"
     CODE_CLI = "code_cli"
     FULL_CLI = "full_cli"
@@ -29,6 +30,7 @@ class RunProfileConfig:
     cli_roles: list[str]
     require_real_design_outputs: bool = False
     require_real_code_outputs: bool = False
+    enable_static_web_delivery: bool = False
 
     def uses_cli_for_role(self, role: str) -> bool:
         """Return whether the role should be bound to CLI in this profile."""
@@ -40,6 +42,12 @@ def resolve_run_profile(profile: str | RunProfile) -> RunProfileConfig:
     run_profile = profile if isinstance(profile, RunProfile) else RunProfile(profile)
     if run_profile == RunProfile.MOCK:
         return RunProfileConfig(profile=run_profile, cli_roles=[])
+    if run_profile == RunProfile.STATIC_WEB:
+        return RunProfileConfig(
+            profile=run_profile,
+            cli_roles=[],
+            enable_static_web_delivery=True,
+        )
     if run_profile == RunProfile.DESIGN_CLI_ONLY:
         return RunProfileConfig(
             profile=run_profile,

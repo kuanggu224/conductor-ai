@@ -8,8 +8,17 @@ from datetime import datetime, timedelta, timezone
 from conductor.config.cli import CLISelectionConfig
 from conductor.config.execution import RunProfile
 from conductor.config.llm import LLMPricingConfig, LLMRuntimeConfig, LLMUsagePolicy
+from conductor.control.human import HumanControlService
 from conductor.controller.engine import ConductorEngine
-from conductor.domain.models import Artifact, ProjectStatus, TaskAssignmentStatus, WorkItem, WorkItemStatus
+from conductor.domain.models import (
+    AgentActivation,
+    Artifact,
+    ProjectStatus,
+    TaskAssignment,
+    TaskAssignmentStatus,
+    WorkItem,
+    WorkItemStatus,
+)
 from conductor.agents.llm import LLMHTTPConfig
 
 
@@ -27,10 +36,12 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     manifest_path = engine.write_run_manifest(state.project.id, report_path)
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-    assert payload["schema_version"] == "1.35"
+    assert payload["schema_version"] == "1.36"
     assert payload["run_id"].startswith(state.project.id)
     assert payload["project_id"] == state.project.id
     assert payload["run_profile"] == "mock"
+    assert payload["run_options"] == {}
+    assert payload["pre_run_maintenance"] == {}
     assert payload["final_status"] == state.project_status.value
     assert payload["working_directory"] == state.project.project_root
     assert payload["report_path"] == str(report_path)
@@ -46,9 +57,11 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     assert "retry_history" in payload
     assert "team_plan" in payload["collaboration_runs"][0]
     assert "requirement_evaluations" in payload
+    assert "design_evaluations" in payload
     assert "requirement_coverage_results" in payload
     assert "scope_contract_results" in payload
     assert "delivery_readiness" in payload
+    assert "task_center_audit" in payload
     assert payload["requirement_evaluations"]
     assert payload["requirement_evaluations"][0]["kind"] == "requirement_spec"
     assert "score" in payload["requirement_evaluations"][0]
@@ -90,11 +103,19 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     assert "last_heartbeat_at" in payload["task_assignments"][0]
     assert "heartbeat_age_seconds" in payload["task_assignments"][0]
     assert "stale_claimed" in payload["task_assignments"][0]
+    assert "lease_seconds" in payload["task_assignments"][0]
+    assert "lease_expires_at" in payload["task_assignments"][0]
+    assert "lease_expired" in payload["task_assignments"][0]
     assert "returned_at" in payload["task_assignments"][0]
     assert "prompt_file" in payload["task_assignments"][0]
+    assert "transition_history" in payload["task_assignments"][0]
     assert "claimable" in payload["task_assignments"][0]
     assert "unmet_dependency_ids" in payload["task_assignments"][0]
+    assert "write_scope_conflict_assignment_ids" in payload["task_assignments"][0]
     assert isinstance(payload["task_assignments"][0]["unmet_dependency_ids"], list)
+    assert "task_center_audit_finding_count" in payload["summary"]
+    assert "task_center_audit_error_count" in payload["summary"]
+    assert "task_center_audit_warning_count" in payload["summary"]
     assert payload["artifact_files"]
     assert payload["artifacts"]
     assert "workitem_id" in payload["artifacts"][0]
@@ -111,6 +132,7 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     assert "preflight_gate" in payload["files"]
     assert payload["summary"]["execution_count"] == len(state.executions)
     assert "requirement_quality_score" in payload["summary"]
+    assert "design_quality_score" in payload["summary"]
     assert "requirement_coverage_status" in payload["summary"]
     assert "scope_contract_status" in payload["summary"]
     assert "scope_contract_violation_count" in payload["summary"]
@@ -239,6 +261,37 @@ def test_manifest_resume_cursor_marks_blocked_failed_workitems(tmp_path) -> None
     assert payload["resume_cursor"]["blockers"] == ["retry limit reached"]
 
 
+def test_manifest_resume_cursor_treats_human_override_as_clearance(tmp_path) -> None:
+    engine = ConductorEngine(
+        log_dir=tmp_path / "logs",
+        artifact_dir=tmp_path / "artifacts",
+        cli_selection_config=CLISelectionConfig(),
+        run_profile=RunProfile.MOCK,
+    )
+    state = engine.create_project("Build a reading list")
+    human_control = HumanControlService(engine.state_store)
+    human_control.request_approval(
+        state.project.id,
+        actor="tl_agent",
+        reason="high risk gate",
+        payload={"controller_action": "advance_stage", "stage": state.current_stage},
+    )
+    state = human_control.override(
+        state.project.id,
+        actor="operator",
+        reason="manual clearance",
+        payload={"controller_action": "advance_stage", "stage": state.current_stage},
+    )
+    report_path = engine.write_project_report(state.project.id)
+
+    manifest_path = engine.write_run_manifest(state.project.id, report_path)
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert [action["action"] for action in payload["human_control_actions"]] == ["request_approval", "override"]
+    assert payload["resume_cursor"]["next_action"] != "human_hold"
+    assert payload["resume_cursor"]["active_human_control_action"] == {}
+
+
 def test_manifest_indexes_task_prompt_files(tmp_path) -> None:
     engine = ConductorEngine(
         log_dir=tmp_path / "logs",
@@ -283,9 +336,92 @@ def test_manifest_records_stale_claimed_task_assignments(tmp_path) -> None:
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
 
     assert payload["summary"]["task_center_summary"]["stale_claimed"] == 1
+    assert payload["summary"]["task_center_audit_warning_count"] >= 1
+    assert any(finding["code"] == "stale_claimed" for finding in payload["task_center_audit"])
+    assert "related_assignment_ids" in payload["task_center_audit"][0]
     assert payload["task_assignments"][0]["claimed_age_seconds"] >= 7200
     assert payload["task_assignments"][0]["heartbeat_age_seconds"] >= 7200
     assert payload["task_assignments"][0]["stale_claimed"] is True
+
+
+def test_manifest_records_write_scope_blocked_task_assignments(tmp_path) -> None:
+    engine = ConductorEngine(
+        log_dir=tmp_path / "logs",
+        artifact_dir=tmp_path / "artifacts",
+        cli_selection_config=CLISelectionConfig(),
+        run_profile=RunProfile.MOCK,
+    )
+    state = engine.create_project("Build a frontend dashboard", project_root=str(tmp_path / "project"))
+    state = replace(
+        state,
+        current_stage="development",
+        workitems=[
+            WorkItem(
+                id="workitem-layout-a",
+                description="Implement layout A",
+                stage="development",
+                kind="ui_implementation",
+                status=WorkItemStatus.RUNNING,
+            ),
+            WorkItem(
+                id="workitem-layout-b",
+                description="Implement layout B",
+                stage="development",
+                kind="ui_implementation",
+                status=WorkItemStatus.PENDING,
+            ),
+        ],
+        task_assignments=[
+            TaskAssignment(
+                id="assignment-layout-a",
+                workitem_id="workitem-layout-a",
+                role="frontend_engineer",
+                status=TaskAssignmentStatus.CLAIMED,
+                assigned_agent_id="agent-layout-a",
+                claim_token="token-a",
+                claimed_at="2026-05-20T00:00:00+00:00",
+                last_heartbeat_at="2026-05-20T00:00:00+00:00",
+            ),
+            TaskAssignment(
+                id="assignment-layout-b",
+                workitem_id="workitem-layout-b",
+                role="frontend_engineer",
+                status=TaskAssignmentStatus.QUEUED,
+            ),
+        ],
+        agent_activations=[
+            AgentActivation(
+                role="frontend_engineer",
+                agent_id="agent-layout-a",
+                stage="development",
+                reason="parallel layout work",
+                related_workitem_kinds=["ui_implementation"],
+                dynamic=True,
+                parallel_safe=True,
+                write_scope=["index.html"],
+            ),
+            AgentActivation(
+                role="frontend_engineer",
+                agent_id="agent-layout-b",
+                stage="development",
+                reason="parallel layout work",
+                related_workitem_kinds=["ui_implementation"],
+                dynamic=True,
+                parallel_safe=True,
+                write_scope=["index.html"],
+            ),
+        ],
+    )
+    engine.state_store.save_state(state)
+    report_path = engine.write_project_report(state.project.id)
+
+    manifest_path = engine.write_run_manifest(state.project.id, report_path)
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    task_by_id = {task["id"]: task for task in payload["task_assignments"]}
+
+    assert payload["summary"]["task_center_summary"]["blocked_by_write_scope"] == 1
+    assert task_by_id["assignment-layout-b"]["write_scope_conflict_assignment_ids"] == ["assignment-layout-a"]
+    assert task_by_id["assignment-layout-b"]["claimable"] is False
 
 
 def test_manifest_does_not_persist_llm_api_keys(tmp_path) -> None:
@@ -935,6 +1071,17 @@ def test_manifest_extracts_cli_runs_from_agent_cli_artifacts(tmp_path) -> None:
         artifacts=[
             *artifact,
             Artifact(
+                id="artifact-design",
+                project_id=state.project.id,
+                workitem_id="workitem-design",
+                agent_id="agent-designer",
+                kind="frozen_design_spec",
+                title="Frozen Design",
+                content="设计基线",
+                path=str(tmp_path / "artifact-design.md"),
+                source_backend="collaboration",
+            ),
+            Artifact(
                 id="artifact-cli",
                 project_id=state.project.id,
                 workitem_id=workitem.id,
@@ -978,6 +1125,10 @@ def test_manifest_extracts_cli_runs_from_agent_cli_artifacts(tmp_path) -> None:
     assert payload["executions"][0]["delivery_contract"]["stage"] == workitem.stage
     assert payload["executions"][0]["delivery_contract"]["kind"] == workitem.kind
     assert payload["executions"][0]["delivery_contract"]["required_input_artifact_ids"] == ["artifact-design"]
+    assert payload["executions"][0]["delivery_contract"]["required_input_kinds"] == ["frozen_design_spec"]
+    assert "Frozen design coverage" in payload["executions"][0]["delivery_contract"]["verification_focus"]
+    design_evaluation = next(item for item in payload["design_evaluations"] if item["artifact_id"] == "artifact-design")
+    assert payload["summary"]["design_quality_score"] >= design_evaluation["score"]
     assert payload["executions"][0]["acceptance_trace"]
     assert payload["executions"][0]["acceptance_trace"][0]["status"] == "passed"
     assert payload["executions"][0]["cli_stdout_tail"] == "done"

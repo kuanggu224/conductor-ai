@@ -441,6 +441,43 @@ render();
     assert "Browser delete interaction removed visible item" in result.stdout
 
 
+def test_static_web_harness_reports_file_import_interaction(tmp_path) -> None:
+    (tmp_path / "static").mkdir()
+    (tmp_path / "index.html").write_text(
+        """<!doctype html>
+<html>
+  <head><title>CSV Import</title></head>
+  <body>
+    <input id="csvFile" type="file" accept=".csv">
+    <button id="importFile">Import</button>
+    <ul id="items"></ul>
+    <script src="static/app.js"></script>
+  </body>
+</html>
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "static" / "app.js").write_text(
+        """
+document.querySelector('#importFile').addEventListener('click', async () => {
+  const file = document.querySelector('#csvFile').files[0];
+  const text = await file.text();
+  const rows = text.trim().split('\\n').slice(1);
+  document.querySelector('#items').innerHTML = rows
+    .map(row => `<li>${row.split(',')[0]}</li>`)
+    .join('');
+});
+""",
+        encoding="utf-8",
+    )
+
+    result = StaticWebHarness().run(HarnessRequest(command=[], working_directory=str(tmp_path)))
+
+    assert result.success is True
+    assert "Browser file import processed sample file" in result.stdout
+    assert "Browser form interaction updated visible state: Imported Alpha" in result.stdout
+
+
 def test_static_web_harness_fails_missing_local_asset(tmp_path) -> None:
     (tmp_path / "index.html").write_text(
         """<!doctype html>

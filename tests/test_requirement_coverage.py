@@ -102,3 +102,35 @@ def test_requirement_coverage_infers_delete_interaction() -> None:
     assert missing.passed is False
     assert covered.passed is True
     assert covered.traceability[0].evidence_terms == ["browser delete interaction removed visible item"]
+
+
+def test_requirement_coverage_infers_file_import_interaction() -> None:
+    requirement = "\u9875\u9762\u9700\u652f\u6301\u5bfc\u5165 CSV \u6587\u4ef6\u5e76\u89e3\u6790\u6761\u76ee\u3002"
+
+    missing = evaluate_requirement_coverage(requirement, "Browser form interaction updated visible state: sample")
+    covered = evaluate_requirement_coverage(requirement, "Browser file import processed sample file")
+
+    assert [rule.rule_id for rule in missing.required_rules] == ["file_import"]
+    assert [rule.rule_id for rule in missing.missing_rules] == ["file_import"]
+    assert covered.passed is True
+    assert covered.traceability[0].evidence_terms == ["browser file import processed sample file"]
+
+
+def test_requirement_coverage_infers_api_behavior_interaction() -> None:
+    requirement = "\u9700\u5b9e\u73b0\u540e\u7aef API \u63a5\u53e3\uff0c\u652f\u6301\u521b\u5efa\u548c\u67e5\u8be2\u6761\u76ee\u3002"
+
+    missing = evaluate_requirement_coverage(requirement, "3 passed")
+    covered = evaluate_requirement_coverage(requirement, "API validation exercised endpoint behavior")
+
+    assert [rule.rule_id for rule in missing.required_rules] == ["api_behavior"]
+    assert [rule.rule_id for rule in missing.missing_rules] == ["api_behavior"]
+    assert covered.passed is True
+    assert covered.traceability[0].evidence_terms == ["api validation exercised endpoint behavior"]
+
+
+def test_requirement_coverage_does_not_infer_api_from_backend_negation() -> None:
+    requirement = "\u53ea\u505a\u524d\u7aef\u9759\u6001\u9875\u9762\uff0c\u4e0d\u63a5 API\uff0c\u4e0d\u9700\u8981\u540e\u7aef\u3002"
+
+    rules = infer_coverage_rules(requirement)
+
+    assert "api_behavior" not in [rule.rule_id for rule in rules]

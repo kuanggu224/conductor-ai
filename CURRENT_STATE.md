@@ -1,11 +1,11 @@
 # Conductor Current State
 
-Last updated: 2026-05-11
+Last updated: 2026-05-20
 
 ## Stable Checkpoint
 
 - Latest verified code checkpoint: `979e23e` (`Map testing failures to checklist feedback`).
-- Current full test result: `python -m pytest -q` -> `529 passed in 42.53s`.
+- Current full test result: `python -m pytest -q` -> `623 passed in 66.38s`.
 - Current focus: backend orchestration, auditability, logs, manifest/replay, and task-center reliability.
 - Frontend Board exists, but visual redesign is intentionally not the current priority.
 
@@ -18,6 +18,9 @@ Last updated: 2026-05-11
 - StaticWebHarness can exercise common input + button UIs without a `<form>`, and now records interaction, localStorage persistence, reload, and export evidence for these pages.
 - StaticWebHarness and LLM-generated file checks now reject common UTF-8/GBK mojibake patterns in HTML/JS/CSS artifacts while preserving normal Chinese UI text.
 - Requirement coverage no longer treats input sanitization wording such as filtering newline characters as a filter/search UI requirement.
+- Requirement coverage and StaticWebHarness now cover file import/upload flows with browser evidence that a sample file was processed.
+- Static web delivery now adds a real CSV import control only when frozen requirements ask for file import/upload, and StaticWebHarness distinguishes export/download buttons from import/upload controls.
+- Requirement coverage now includes API endpoint behavior for backend/API requirements, and API validation WorkItems can satisfy it with explicit endpoint-behavior evidence.
 - Testing-stage feedback rework has a project-level cap, preventing infinite development/testing loops.
 - Testing-stage feedback rework now persists explicit inputs on the rework WorkItem and Task Center assignment: failed test artifacts, original implementation artifacts, frozen requirement, and design artifacts.
 - Testing-stage feedback rework now embeds structured failure feedback extracted from failed test reports: failure signals, missing requirement coverage, exit code, and suggested fix directions.
@@ -28,7 +31,11 @@ Last updated: 2026-05-11
 - Code execution reports, project reports, and manifest execution records now include acceptance trace evidence that maps WorkItem acceptance criteria to validation status and changed files.
 - Testing WorkItems now carry a machine-readable `testing_checklist` derived from frozen requirement coverage rules, including rule ids, labels, requirement signals, and required evidence terms.
 - Structured testing feedback now maps missing coverage back to `missing_checklist_items`, so development rework prompts can cite the exact checklist `rule_id` and required evidence that failed.
-- Run Manifest schema is now `1.31`; WorkItem and retry history records include relationship fields, structured testing feedback, and testing checklists for rework audit/replay; execution records include delivery contracts plus acceptance traces.
+- Development feedback rework now promotes missing checklist evidence into WorkItem acceptance criteria and Task Center prompts, making the repair target auditable before the next test pass.
+- Run Manifest schema is now `1.36`; WorkItem and retry history records include relationship fields, structured testing feedback, and testing checklists for rework audit/replay; execution records include delivery contracts plus acceptance traces.
+- Human Control now has CLI and Board API control paths, Board snapshot exposure, Manifest records, and Markdown project report audit output.
+- TL dynamic team planning now adds a `rework_acceptance_guard` tester seat when development feedback rework carries explicit missing checklist evidence targets.
+- Task Center Board API now covers dynamic Agent task discovery/claiming, batch claim, explicit lease renewal, expired lease release, stale release, and combined sweep maintenance.
 - Manifest verification now validates execution delivery contracts and acceptance traces, including required input artifact references, list-shaped fields, trace status values, and evidence field types.
 - Manifest verification also validates WorkItem testing checklist structure so malformed checklist fields are surfaced before replay/resume.
 - Project reports render structured testing feedback under WorkItems, including failing checks, missing coverage, and suggested fixes.

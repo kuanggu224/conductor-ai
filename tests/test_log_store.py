@@ -4,7 +4,18 @@ import json
 
 from conductor.config.cli import CLISelectionConfig
 from conductor.controller.engine import ConductorEngine
-from conductor.domain.models import Artifact, Execution, ExecutionStatus, Project, ProjectStatus, SharedProjectState, WorkItem, WorkItemStatus
+from conductor.domain.models import (
+    Artifact,
+    Execution,
+    ExecutionStatus,
+    HumanControlAction,
+    HumanControlActionType,
+    Project,
+    ProjectStatus,
+    SharedProjectState,
+    WorkItem,
+    WorkItemStatus,
+)
 from conductor.logging.store import ProjectLogStore
 
 
@@ -45,6 +56,9 @@ def test_project_log_store_writes_structured_state_events_and_report(tmp_path) -
     report = report_path.read_text(encoding="utf-8")
     assert "## Preflight Gate" in report
     assert "- Not recorded" in report
+    assert "## Human Control" in report
+    assert "- Active: false" in report
+    assert "- Actions: none" in report
     assert "## Activated Agents" in report
     assert "## Task Center" in report
     assert "- Summary: total=" in report
@@ -56,6 +70,9 @@ def test_project_log_store_writes_structured_state_events_and_report(tmp_path) -
     assert "claimed_at=" in report
     assert "returned_at=" in report
     assert "claimed_age_seconds=" in report
+    assert "lease_seconds=" in report
+    assert "lease_expires_at=" in report
+    assert "lease_expired=" in report
     assert "stale_claimed=" in report
     assert "prompt_file=" in report
     assert "## Executions" in report
@@ -324,3 +341,34 @@ def test_project_report_includes_preflight_gate_summary(tmp_path) -> None:
     assert "- Status: fail" in report
     assert "- Error: local LLM preflight failed" in report
     assert "- Recommendation: Check local server" in report
+
+
+def test_project_report_includes_human_control_actions(tmp_path) -> None:
+    store = ProjectLogStore(tmp_path)
+    state = SharedProjectState(
+        project=Project(id="project-human-report", goal="report human control", current_stage="testing"),
+        project_status=ProjectStatus.IN_PROGRESS,
+        current_stage="testing",
+        human_control_actions=[
+            HumanControlAction(
+                id="human-approval",
+                project_id="project-human-report",
+                action=HumanControlActionType.REQUEST_APPROVAL,
+                actor="tl_agent",
+                reason="high risk escalation",
+                stage="testing",
+                workitem_id="workitem-risk",
+                payload={"controller_action": "escalate_project", "stage": "testing"},
+                created_at="2026-05-20T00:00:00+00:00",
+            )
+        ],
+    )
+
+    report = store.render_project_report(state, [])
+
+    assert "## Human Control" in report
+    assert "- Active: true" in report
+    assert "- Hold Reason: human_approval_required: high risk escalation" in report
+    assert "- Action Count: 1" in report
+    assert "human-approval | action=request_approval | actor=tl_agent" in report
+    assert 'payload={"controller_action": "escalate_project", "stage": "testing"}' in report

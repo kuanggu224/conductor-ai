@@ -124,6 +124,7 @@ class BoardTaskAssignmentView:
     assigned_agent_label: str
     claim_token: str = ""
     claimable: bool = False
+    write_scope_conflict_assignment_ids: list[str] = field(default_factory=list)
     unmet_dependency_ids: list[str] = field(default_factory=list)
     dependencies: list[str] = field(default_factory=list)
     input_artifact_ids: list[str] = field(default_factory=list)
@@ -133,6 +134,9 @@ class BoardTaskAssignmentView:
     claimed_age_seconds: int | None = None
     last_heartbeat_at: str = ""
     heartbeat_age_seconds: int | None = None
+    lease_seconds: int = 0
+    lease_expires_at: str = ""
+    lease_expired: bool = False
     stale_claimed: bool = False
     prompt_file: str = ""
 
@@ -195,6 +199,23 @@ class BoardRunAuditView:
 
 
 @dataclass(slots=True)
+class BoardHumanControlView:
+    """Human takeover and approval state for Board consumers."""
+
+    active: bool = False
+    hold_reason: str = ""
+    action: str = ""
+    action_label: str = ""
+    actor: str = ""
+    reason: str = ""
+    stage: str = ""
+    workitem_id: str = ""
+    payload: dict[str, object] = field(default_factory=dict)
+    created_at: str = ""
+    action_count: int = 0
+
+
+@dataclass(slots=True)
 class BoardDesignCollaborationView:
     """需求/设计阶段会议桌视图。"""
 
@@ -238,6 +259,7 @@ class BoardSnapshot:
     task_assignments: list[BoardTaskAssignmentView] = field(default_factory=list)
     preflight_gate: BoardPreflightGateView = field(default_factory=BoardPreflightGateView)
     run_audit: BoardRunAuditView = field(default_factory=BoardRunAuditView)
+    human_control: BoardHumanControlView = field(default_factory=BoardHumanControlView)
     execution_runtime: BoardExecutionRuntimeView = field(default_factory=BoardExecutionRuntimeView)
     design_collaboration: BoardDesignCollaborationView = field(default_factory=BoardDesignCollaborationView)
 
@@ -258,6 +280,8 @@ class BoardProjectSummary:
     risk_level: str = "normal"
     risk_level_label: str = "正常"
     retry_history_count: int = 0
+    human_control_active: bool = False
+    human_control_label: str = ""
     scope_contract_status: str = "not_evaluated"
     scope_contract_status_label: str = "未评估"
     scope_contract_violation_count: int = 0

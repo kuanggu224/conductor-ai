@@ -49,6 +49,10 @@ python -m app.task_center list --project-root <project-root> --stale-only --stal
 python -m app.task_center context <assignment-id> --project-root <project-root>
 python -m app.task_center context <assignment-id> --project-root <project-root> --format markdown
 python -m app.task_center context <assignment-id> --project-root <project-root> --prompt-file .conductor/task_center/prompts/task.md
+python -m app.task_center agents-for <assignment-id> --project-root <project-root>
+python -m app.task_center tasks-for-agent <agent-id> --project-root <project-root> --claimable-only
+python -m app.task_center claim-for-agent <agent-id> --project-root <project-root> --with-context
+python -m app.task_center claim-for-agent <agent-id> --project-root <project-root> --with-context --prompt-file .conductor/task_center/prompts/agent-task.md
 python -m app.task_center claim-next --project-root <project-root> --agent-id <agent-id> --role backend_engineer
 python -m app.task_center claim-next --project-root <project-root> --agent-id <agent-id> --with-context
 python -m app.task_center claim-next --project-root <project-root> --agent-id <agent-id> --with-context --context-format markdown
@@ -72,6 +76,14 @@ artifact content, and the return protocol.
 Use `claim` or `claim-next` with `--with-context --context-format markdown`
 when the worker should claim the task and receive a direct Markdown prompt in a
 single command.
+Use `agents-for` to see which dynamic Agent activations are eligible for a
+specific assignment. Use `tasks-for-agent` to list assignments that match one
+dynamic Agent activation. Use `claim-for-agent` when a dynamically activated
+Agent should claim the next matching task without separately passing role and
+assignment id. `claim-for-agent --with-context --prompt-file <path>` is the
+recommended handoff for external CLI agents because it claims the task, returns
+the claim token, records the matched Agent seat, renders the task context, and
+persists the Markdown prompt in one audited transition.
 Use `--prompt-file <path>` to persist the rendered Markdown prompt for audit,
 handoff, or direct CLI consumption. Relative paths are resolved under
 `project_root`.
@@ -89,6 +101,7 @@ Endpoints:
 - `GET /api/projects/{project_id}/tasks/summary`
 - `GET /api/projects/{project_id}/tasks/{assignment_id}/context`
 - `GET /api/projects/{project_id}/tasks/{assignment_id}/context?format=markdown`
+- `POST /api/projects/{project_id}/tasks/claim-batch`
 - `POST /api/projects/{project_id}/tasks/claim-next`
 - `POST /api/projects/{project_id}/tasks/{assignment_id}/claim`
 - `POST /api/projects/{project_id}/tasks/{assignment_id}/complete`
@@ -96,6 +109,8 @@ Endpoints:
 - `POST /api/projects/{project_id}/tasks/{assignment_id}/heartbeat`
 - `POST /api/projects/{project_id}/tasks/{assignment_id}/release`
 - `POST /api/projects/{project_id}/tasks/release-stale`
+- `POST /api/projects/{project_id}/tasks/release-expired-leases`
+- `POST /api/projects/{project_id}/tasks/sweep`
 
 `claim-next` request body:
 
@@ -108,9 +123,15 @@ Endpoints:
   "include_context_content": true,
   "max_context_content_chars": 12000,
   "context_format": "json",
-  "prompt_file": ".conductor/task_center/prompts/next-task.md"
+  "prompt_file": ".conductor/task_center/prompts/next-task.md",
+  "lease_seconds": 3600
 }
 ```
+
+`claim-batch` accepts the same fields plus `limit`. It claims up to `limit`
+currently claimable assignments, optionally filtered by `role`, and returns
+`claimed_count`, `summary`, and `tasks`. The API uses the same configured bulk
+claim cap as the CLI.
 
 `complete` request body:
 
@@ -143,12 +164,16 @@ Endpoints:
 ```json
 {
   "agent_id": "agent-backend",
-  "claim_token": "token-from-claim-response"
+  "claim_token": "token-from-claim-response",
+  "lease_seconds": 3600
 }
 ```
 
 `agent_id` and `claim_token` are optional. When provided, `agent_id` must match
 the current claimant and `claim_token` must match the current claim token.
+`lease_seconds` is optional on Board API claim and heartbeat requests. A
+positive value sets or renews the explicit lease; `0` clears the lease on
+claim, and heartbeat can pass `0` to remove an existing explicit lease.
 
 `release` request body:
 
@@ -182,6 +207,16 @@ WorkItem back to `pending`. Completed assignments cannot be released.
 `release-stale` bulk releases claimed assignments whose heartbeat age is greater
 than or equal to the threshold, falling back to `claimed_at` when no heartbeat
 exists. It returns `released_count`, `summary`, and the released task payloads.
+
+`release-expired-leases` releases only assignments whose explicit
+`lease_expires_at` is in the past. It is the API equivalent of
+`python -m app.task_center release-expired-leases` and is safe for a Board
+maintenance button or a lightweight watchdog.
+
+`sweep` runs expired lease release first, then stale claim release. It accepts
+`stale_after_seconds`, `expired_lease_release_reason`, and
+`stale_release_reason`, and returns separate `expired_lease_tasks` and
+`stale_tasks` lists.
 
 When `output_artifact_content` is present, the platform creates and persists a
 new artifact with source backend `task_center/external`, appends its id to
@@ -272,6 +307,9 @@ Task payloads include:
 - `unmet_dependency_ids`
 - `claimed_age_seconds`
 - `heartbeat_age_seconds`
+- `lease_seconds`
+- `lease_expires_at`
+- `lease_expired`
 - `stale_claimed`
 - `dependencies`
 - `input_artifact_ids`
@@ -302,9 +340,19 @@ Summary payloads include:
 - `blocked_by_dependencies`
 - `stale_claimed`
 
+Multi-project `audit-all` and `maintenance` reports include operator rollups:
+
+- `attention_project_ids`: project ids with at least one audit finding.
+- `finding_code_counts`: finding code histogram across all audited projects.
+- `recommendations`: de-duplicated remediation text from audit findings.
+
+The compact `maintenance --latest-output` pointer and `maintenance-status`
+payload preserve the same rollups so a scheduler, watchdog, or Board surface can
+show which projects need attention without reading the full maintenance report.
+
 ## Audit Outputs
 
-Run Manifest schema `1.28` records:
+Run Manifest schema `1.36` records:
 
 - `task_assignments[].claimable`
 - `task_assignments[].unmet_dependency_ids`
@@ -313,6 +361,9 @@ Run Manifest schema `1.28` records:
 - `task_assignments[].claimed_age_seconds`
 - `task_assignments[].last_heartbeat_at`
 - `task_assignments[].heartbeat_age_seconds`
+- `task_assignments[].lease_seconds`
+- `task_assignments[].lease_expires_at`
+- `task_assignments[].lease_expired`
 - `task_assignments[].stale_claimed`
 - `task_assignments[].returned_at`
 - `task_assignments[].prompt_file`
@@ -386,5 +437,8 @@ Board snapshots expose readiness through `BoardTaskAssignmentView.claimable`,
 `BoardTaskAssignmentView.claimed_age_seconds`,
 `BoardTaskAssignmentView.last_heartbeat_at`,
 `BoardTaskAssignmentView.heartbeat_age_seconds`,
+`BoardTaskAssignmentView.lease_seconds`,
+`BoardTaskAssignmentView.lease_expires_at`,
+`BoardTaskAssignmentView.lease_expired`,
 `BoardTaskAssignmentView.stale_claimed`, and
 `BoardTaskAssignmentView.prompt_file`.

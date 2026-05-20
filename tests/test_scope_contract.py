@@ -76,6 +76,30 @@ def test_scope_contract_allows_localstorage_api_and_sync_wording() -> None:
     assert result.passed is True
 
 
+def test_scope_contract_ignores_mock_runtime_backend_notes() -> None:
+    requirement = "Non-goals: no backend API, no login."
+    candidate = """
+    ## Scope Boundary
+    - No backend API and no login are part of the product scope.
+
+    ## Risk
+    - Current content is a mock artifact and must be replaced when real LLM or CLI backend execution is enabled.
+    """
+
+    result = evaluate_scope_contract(requirement, candidate)
+
+    assert result.passed is True
+
+
+def test_scope_contract_ignores_source_backend_metadata_in_chinese_runtime_note() -> None:
+    requirement = "Non-goals: no backend API."
+    candidate = "- 可通过 Artifact 的 `source_backend` 字段识别该产物是否来自 mock、mock fallback 或真实后端。"
+
+    result = evaluate_scope_contract(requirement, candidate)
+
+    assert result.passed is True
+
+
 def test_scope_contract_allows_local_frontend_api_event_registration_and_storage_sync() -> None:
     requirement = "非目标：不接后端，不做登录注册，不做云同步。"
     candidate = """

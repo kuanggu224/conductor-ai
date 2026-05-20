@@ -183,6 +183,7 @@ type BoardSnapshot = {
 
   preflight_gate: BoardPreflightGateView
   run_audit: BoardRunAuditView
+  human_control: BoardHumanControlView
   execution_runtime: BoardExecutionRuntimeView
   design_collaboration: BoardDesignCollaborationView
 }
@@ -205,6 +206,8 @@ type BoardProjectSummary = {
   risk_level: "normal" | "medium" | "high"
   risk_level_label: string
   retry_history_count: number
+  human_control_active: boolean
+  human_control_label: string
   scope_contract_status: "not_evaluated" | "pass" | "violation"
   scope_contract_status_label: string
   scope_contract_violation_count: number
@@ -251,6 +254,26 @@ type BoardRunAuditView = {
 冻结需求范围契约检查和 blockers。它不替代 Manifest 的完整 `retry_history`
 与 `scope_contract_results`，只用于页面高层状态展示。
 
+
+### 4.2.3 BoardHumanControlView
+
+```ts
+type BoardHumanControlView = {
+  active: boolean
+  hold_reason: string
+  action: "pause" | "request_approval" | "reject" | ""
+  action_label: string
+  actor: string
+  reason: string
+  stage: string
+  workitem_id: string
+  payload: Record<string, unknown>
+  created_at: string
+  action_count: number
+}
+```
+
+`human_control.active=true` 表示 Controller 当前应停止自动推进，前端应突出展示 `hold_reason` 和 `action_label`。项目列表可直接使用 `human_control_active` 和 `human_control_label` 标记等待人工处理的项目。
 
 ### 4.3 BoardWorkItemView
 
@@ -582,8 +605,19 @@ GET /projects/{project_id}/runtime/stream
 - `POST /api/projects/{project_id}/step`
 - `POST /api/projects/{project_id}/run`
 - `GET /api/projects/{project_id}/runtime/stream`
+- `GET /api/projects/{project_id}/human-control`
+- `POST /api/projects/{project_id}/human-control/pause`
+- `POST /api/projects/{project_id}/human-control/resume`
+- `POST /api/projects/{project_id}/human-control/request-approval`
+- `POST /api/projects/{project_id}/human-control/approve`
+- `POST /api/projects/{project_id}/human-control/reject`
+- `POST /api/projects/{project_id}/human-control/override`
 - `GET /api/projects/{project_id}/tasks`
 - `GET /api/projects/{project_id}/tasks/summary`
+- `GET /api/projects/{project_id}/tasks/{assignment_id}/agents`
+- `GET /api/projects/{project_id}/agents/{agent_id}/tasks`
+- `POST /api/projects/{project_id}/agents/{agent_id}/claim-task`
+- `POST /api/projects/{project_id}/tasks/claim-batch`
 - `POST /api/projects/{project_id}/tasks/claim-next`
 - `POST /api/projects/{project_id}/tasks/{assignment_id}/claim`
 - `POST /api/projects/{project_id}/tasks/{assignment_id}/complete`
@@ -591,12 +625,17 @@ GET /projects/{project_id}/runtime/stream
 - `POST /api/projects/{project_id}/tasks/{assignment_id}/heartbeat`
 - `POST /api/projects/{project_id}/tasks/{assignment_id}/release`
 - `POST /api/projects/{project_id}/tasks/release-stale`
+- `POST /api/projects/{project_id}/tasks/release-expired-leases`
+- `POST /api/projects/{project_id}/tasks/sweep`
 
 Task payloads and Board snapshots expose `claim_token`, `claimed_age_seconds`,
-`last_heartbeat_at`, `heartbeat_age_seconds`, and `stale_claimed`. Frontends
+`last_heartbeat_at`, `heartbeat_age_seconds`, `lease_seconds`,
+`lease_expires_at`, `lease_expired`, and `stale_claimed`. Frontends
 should use heartbeat age rather than claim age to decide whether a long-running
 external worker is stale, and should pass `claim_token` back on
 `complete`/`fail`/`heartbeat`/`release` mutations when available.
+Claim requests can pass `lease_seconds`; heartbeat requests can also pass
+`lease_seconds` to renew or clear the explicit lease.
 - `GET /api/settings/execution`
 - `POST /api/settings/execution`
 - `GET /api/settings/cli`

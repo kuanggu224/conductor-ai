@@ -153,7 +153,9 @@ def _find_positive_evidence(candidate_content: str, positive_terms: tuple[str, .
     for line in _iter_relevant_lines(candidate_content):
         if not _contains_any(line, positive_terms):
             continue
-        if _contains_any(line, NEGATION_TERMS):
+        if _contains_any(line, NEGATION_TERMS) or _is_negative_scope_statement(line):
+            continue
+        if _is_mock_or_runtime_note(line):
             continue
         if _is_allowed_local_frontend_usage(line, positive_terms):
             continue
@@ -263,6 +265,40 @@ def _is_artifact_metadata_line(line: str) -> bool:
         "execution_backend:",
     )
     return line.startswith(metadata_prefixes)
+
+
+def _is_mock_or_runtime_note(line: str) -> bool:
+    """Ignore audit/runtime notes that name execution backends rather than product scope."""
+    runtime_terms = (
+        "mock",
+        "mock_fallback",
+        "source_backend",
+        "source backend",
+        "llm",
+        "cli backend",
+        "execution backend",
+        "real backend",
+        "actual backend",
+    )
+    return _contains_any(line, runtime_terms) and _contains_any(
+        line,
+        ("backend", "api", "auth", "login", "cloud", "后端", "接口", "登录", "云"),
+    )
+
+
+def _is_negative_scope_statement(line: str) -> bool:
+    """Return whether a line repeats an exclusion instead of proposing new scope."""
+    padded = f" {line.lower()} "
+    negative_markers = (
+        " no ",
+        " not ",
+        " without ",
+        " non-goal",
+        " non goals",
+        " non-goals",
+        " out of scope",
+    )
+    return any(marker in padded for marker in negative_markers)
 
 
 def _contains_any(text: str, terms: tuple[str, ...]) -> bool:

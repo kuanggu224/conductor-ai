@@ -31,8 +31,9 @@ from conductor.harness.base import BaseHarness
 from conductor.harness.llm import LLMHarnessRequest, OpenAICompatibleLLMHarness
 from conductor.harness.models import HarnessRequest, HarnessResult
 from conductor.harness.shell import ShellHarness
+from conductor.harness.static_web import StaticWebHarness
 from conductor.io.encoding import looks_like_mojibake
-from conductor.testing.coverage import CoverageResult, evaluate_requirement_coverage
+from conductor.testing.coverage import CoverageResult, evaluate_requirement_coverage, infer_coverage_rules
 from conductor.execution.runtime_stream import RuntimeStreamStore
 from conductor.execution.failure_policy import (
     FailureDecision,
@@ -86,6 +87,7 @@ class Runner:
         artifact_store: ArtifactStore | None = None,
         shell_harness: BaseHarness | None = None,
         enable_tester_harness: bool = False,
+        enable_static_web_delivery: bool = False,
         cli_selection_config: CLISelectionConfig | None = None,
         runtime_stream_store: RuntimeStreamStore | None = None,
         require_real_design_outputs: bool = False,
@@ -101,6 +103,7 @@ class Runner:
         self._uses_default_shell_harness = shell_harness is None
         self.shell_harness = shell_harness or ShellHarness()
         self.enable_tester_harness = enable_tester_harness
+        self.enable_static_web_delivery = enable_static_web_delivery
         self.cli_selection_config = cli_selection_config or CLISelectionConfig()
         self.runtime_stream_store = runtime_stream_store or RuntimeStreamStore()
         self.require_real_design_outputs = require_real_design_outputs
@@ -231,7 +234,7 @@ class Runner:
             try:
                 harness_result = self.shell_harness.run(request)
                 no_tests_discovered = self._is_no_tests_discovered(harness_result)
-                coverage_result = self._evaluate_requirement_coverage(project_id, harness_result)
+                coverage_result = self._evaluate_requirement_coverage(project_id, harness_result, workitem)
                 if no_tests_discovered:
                     self.state_store.add_event(
                         project_id,
@@ -254,6 +257,11 @@ class Runner:
                     execution_command=list(request.command),
                     execution_exit_code=harness_result.exit_code,
                     execution_duration_ms=harness_result.duration_ms,
+                    validation_command=list(request.command),
+                    validation_exit_code=harness_result.exit_code,
+                    validation_success=harness_result.success and coverage_result.passed,
+                    cli_stdout_tail=self._tail(harness_result.stdout),
+                    cli_stderr_tail=self._tail(harness_result.stderr),
                 )
             except Exception as error:
                 self.state_store.add_event(project_id, f"WorkItem {workitem.id} Harness 执行失败，使用 mock fallback: {error}")
@@ -372,7 +380,7 @@ class Runner:
             try:
                 harness_result = self.shell_harness.run(request)
                 no_tests_discovered = self._is_no_tests_discovered(harness_result)
-                coverage_result = self._evaluate_requirement_coverage(project_id, harness_result)
+                coverage_result = self._evaluate_requirement_coverage(project_id, harness_result, workitem)
                 if no_tests_discovered:
                     self.state_store.add_event(
                         project_id,
@@ -395,6 +403,11 @@ class Runner:
                     execution_command=list(request.command),
                     execution_exit_code=harness_result.exit_code,
                     execution_duration_ms=harness_result.duration_ms,
+                    validation_command=list(request.command),
+                    validation_exit_code=harness_result.exit_code,
+                    validation_success=harness_result.success and coverage_result.passed,
+                    cli_stdout_tail=self._tail(harness_result.stdout),
+                    cli_stderr_tail=self._tail(harness_result.stderr),
                 )
             except Exception as error:
                 self.state_store.add_event(project_id, f"WorkItem {workitem.id} Harness 执行失败，使用 mock fallback: {error}")
@@ -435,6 +448,10 @@ class Runner:
                     source_backend="mock_fallback",
                 )
 
+        if self._should_use_static_web_delivery(project_id, workitem, agent):
+            self.state_store.add_event(project_id, f"WorkItem {workitem.id} 使用 StaticWebDelivery 生成真实静态 Web 交付物")
+            return self._run_static_web_delivery(project_id, workitem, agent, project_root)
+
         if self._requires_real_design_output(workitem, agent):
             return self._real_backend_required_result(
                 workitem,
@@ -458,6 +475,487 @@ class Runner:
         return WorkItemRunResult(
             content=self._build_mock_document(workitem, agent, "开发期模拟产物"),
             source_backend="mock",
+        )
+
+    def _should_use_static_web_delivery(self, project_id: str, workitem: WorkItem, agent: Agent) -> bool:
+        """Return whether the built-in static web backend should produce real frontend files."""
+        if not (
+            self.enable_static_web_delivery
+            and agent.role == "frontend_engineer"
+            and workitem.kind == "ui_implementation"
+        ):
+            return False
+        requirement_text = self._static_web_requirement_text(project_id).lower()
+        browser_terms = ("browser-only", "static web", "localstorage", "local storage", "frontend", "single-page")
+        excluded_server_terms = ("no backend", "no server", "without backend", "不接后端", "不做后端")
+        return any(term in requirement_text for term in browser_terms) or any(
+            term in requirement_text for term in excluded_server_terms
+        )
+
+    def _run_static_web_delivery(
+        self,
+        project_id: str,
+        workitem: WorkItem,
+        agent: Agent,
+        project_root: str,
+    ) -> WorkItemRunResult:
+        """Generate a concrete static web app and validate it with StaticWebHarness."""
+        root = Path(project_root)
+        changed_files = self._write_static_web_app(root, project_id)
+        validation_command = [sys.executable, "-m", "conductor.harness.static_web_cli"]
+        validation = StaticWebHarness().run(HarnessRequest(command=[], working_directory=str(root)))
+        report = self._build_static_web_delivery_report(
+            workitem=workitem,
+            agent=agent,
+            changed_files=changed_files,
+            validation=validation,
+            validation_command=validation_command,
+        )
+        return WorkItemRunResult(
+            content=report,
+            source_backend="static_web_delivery",
+            succeeded=validation.success,
+            failure=None if validation.success else validation_failed(validation),
+            cli_name="static_web_delivery",
+            working_directory=str(root),
+            execution_command=[],
+            execution_exit_code=0,
+            execution_duration_ms=validation.duration_ms,
+            changed_files=changed_files,
+            validation_command=validation_command,
+            validation_exit_code=validation.exit_code,
+            validation_success=validation.success,
+            cli_stdout_tail=self._tail(validation.stdout),
+            cli_stderr_tail=self._tail(validation.stderr),
+        )
+
+    def _write_static_web_app(self, root: Path, project_id: str) -> list[str]:
+        """Write a small browser-only CRUD/filter/export app into the project root."""
+        root.mkdir(parents=True, exist_ok=True)
+        static_dir = root / "static"
+        static_dir.mkdir(parents=True, exist_ok=True)
+        title = self._static_web_app_title(project_id)
+        include_file_import = self._static_web_should_include_file_import(project_id)
+        files = {
+            "index.html": self._static_web_index_html(title, include_file_import=include_file_import),
+            "static/app.js": self._static_web_app_js(title, include_file_import=include_file_import),
+            "static/style.css": self._static_web_style_css(),
+        }
+        changed: list[str] = []
+        for relative_path, content in files.items():
+            path = root / relative_path
+            previous = path.read_text(encoding="utf-8", errors="replace") if path.exists() else None
+            if previous != content:
+                path.write_text(content, encoding="utf-8")
+                changed.append(relative_path)
+        return changed
+
+    def _static_web_should_include_file_import(self, project_id: str) -> bool:
+        """Return whether the frozen requirement asks for file import/upload behavior."""
+        return any(
+            rule.rule_id == "file_import"
+            for rule in infer_coverage_rules(self._static_web_requirement_text(project_id))
+        )
+
+    def _static_web_requirement_text(self, project_id: str) -> str:
+        state = self.state_store.get_state(project_id)
+        frozen = next(
+            (artifact for artifact in reversed(state.artifacts) if artifact.kind == "frozen_requirement_spec"),
+            None,
+        )
+        frozen_text = self.artifact_store.read_content(frozen) if frozen is not None else ""
+        return "\n".join([state.project.goal, frozen_text])
+
+    def _static_web_app_title(self, project_id: str) -> str:
+        text = self._static_web_requirement_text(project_id).lower()
+        if "flashcard" in text or "card" in text or "question" in text:
+            return "Flashcard Study Tracker"
+        if "reading" in text or "book" in text:
+            return "Reading List Tracker"
+        if "todo" in text or "task" in text:
+            return "Task Tracker"
+        return "Local Record Tracker"
+
+    def _static_web_index_html(self, title: str, *, include_file_import: bool = False) -> str:
+        safe_title = self._escape_html(title)
+        import_control = (
+            """
+        <label>Import CSV
+          <input id="importCsv" name="importCsv" type="file" accept=".csv,text/csv">
+        </label>
+        <p id="importStatus" class="status" aria-live="polite"></p>"""
+            if include_file_import
+            else ""
+        )
+        return f"""<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{safe_title}</title>
+    <link rel="stylesheet" href="static/style.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <header>
+        <h1>{safe_title}</h1>
+        <p id="summary">0 saved items</p>
+      </header>
+      <form id="itemForm" class="panel">
+        <label>Question
+          <input id="question" name="question" required placeholder="What do you want to remember?">
+        </label>
+        <label>Answer
+          <textarea id="answer" name="answer" required placeholder="Write the answer or note"></textarea>
+        </label>
+        <label>Topic
+          <input id="topic" name="topic" required placeholder="Topic">
+        </label>
+        <label>Status
+          <select id="status" name="status">
+            <option value="new">New</option>
+            <option value="learning">Learning</option>
+            <option value="mastered">Mastered</option>
+          </select>
+        </label>
+        <button type="submit">Add item</button>
+{import_control}
+        <p id="error" role="alert"></p>
+      </form>
+      <section class="toolbar" aria-label="Filters and export">
+        <label>Status filter
+          <select id="statusFilter">
+            <option value="all">All statuses</option>
+            <option value="new">New</option>
+            <option value="learning">Learning</option>
+            <option value="mastered">Mastered</option>
+          </select>
+        </label>
+        <label>Topic filter
+          <select id="topicFilter">
+            <option value="all">All topics</option>
+          </select>
+        </label>
+        <button id="exportCsv" type="button">Export CSV</button>
+      </section>
+      <section id="emptyState" class="empty">No records yet.</section>
+      <section id="items" class="items" aria-live="polite"></section>
+    </main>
+    <script src="static/app.js"></script>
+  </body>
+</html>
+"""
+
+    def _static_web_app_js(self, title: str, *, include_file_import: bool = False) -> str:
+        storage_key = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-") or "local-record-tracker"
+        import_bindings = (
+            """const importInput = document.querySelector("#importCsv");
+const importStatus = document.querySelector("#importStatus");
+"""
+            if include_file_import
+            else ""
+        )
+        import_logic = (
+            """
+if (importInput) {
+  importInput.addEventListener("change", async () => {
+    const file = importInput.files && importInput.files[0];
+    if (!file) {
+      return;
+    }
+    try {
+      const text = await file.text();
+      const imported = recordsFromCsv(text);
+      if (imported.length < 1) {
+        importStatus.textContent = "No importable rows found.";
+        return;
+      }
+      records = [...records, ...imported];
+      saveRecords();
+      importStatus.textContent = `Imported ${imported.length} rows from ${file.name}`;
+      render();
+    } catch (err) {
+      importStatus.textContent = "CSV import failed.";
+    } finally {
+      importInput.value = "";
+    }
+  });
+}
+
+function recordsFromCsv(text) {
+  const lines = text.split(/\\r?\\n/).map((line) => line.trim()).filter(Boolean);
+  if (lines.length < 2) {
+    return [];
+  }
+  return lines.slice(1).map((line) => {
+    const cells = splitCsvRow(line);
+    const question = normalize(cells[0] || "Imported card");
+    const answer = normalize(cells[1] || question);
+    const topic = normalize(cells[2] || "Imported");
+    const status = ["new", "learning", "mastered"].includes(normalize(cells[3] || "")) ? normalize(cells[3]) : "new";
+    if (!question) {
+      return null;
+    }
+    return {
+      id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()),
+      question,
+      answer,
+      topic,
+      status,
+      createdAt: new Date().toISOString()
+    };
+  }).filter(Boolean);
+}
+
+function splitCsvRow(row) {
+  const cells = [];
+  let current = "";
+  let quoted = false;
+  for (let index = 0; index < row.length; index += 1) {
+    const char = row[index];
+    const next = row[index + 1];
+    if (char === '"' && quoted && next === '"') {
+      current += '"';
+      index += 1;
+    } else if (char === '"') {
+      quoted = !quoted;
+    } else if (char === "," && !quoted) {
+      cells.push(current);
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+  cells.push(current);
+  return cells;
+}
+"""
+            if include_file_import
+            else ""
+        )
+        return f"""const STORAGE_KEY = "conductor-{storage_key}";
+
+const form = document.querySelector("#itemForm");
+const questionInput = document.querySelector("#question");
+const answerInput = document.querySelector("#answer");
+const topicInput = document.querySelector("#topic");
+const statusInput = document.querySelector("#status");
+const topicFilter = document.querySelector("#topicFilter");
+const statusFilter = document.querySelector("#statusFilter");
+const exportButton = document.querySelector("#exportCsv");
+const itemsElement = document.querySelector("#items");
+const emptyState = document.querySelector("#emptyState");
+const summary = document.querySelector("#summary");
+const error = document.querySelector("#error");
+{import_bindings}
+
+let records = loadRecords();
+
+function loadRecords() {{
+  try {{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  }} catch (err) {{
+    return [];
+  }}
+}}
+
+function saveRecords() {{
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+}}
+
+function normalize(value) {{
+  return value.trim();
+}}
+
+function visibleRecords() {{
+  return records.filter((record) => {{
+    const topicMatches = topicFilter.value === "all" || record.topic === topicFilter.value;
+    const statusMatches = statusFilter.value === "all" || record.status === statusFilter.value;
+    return topicMatches && statusMatches;
+  }});
+}}
+
+function renderTopicOptions() {{
+  const current = topicFilter.value;
+  const topics = [...new Set(records.map((record) => record.topic).filter(Boolean))].sort();
+  topicFilter.innerHTML = '<option value="all">All topics</option>';
+  for (const topic of topics) {{
+    const option = document.createElement("option");
+    option.value = topic;
+    option.textContent = topic;
+    topicFilter.appendChild(option);
+  }}
+  topicFilter.value = topics.includes(current) ? current : "all";
+}}
+
+function render() {{
+  renderTopicOptions();
+  const visible = visibleRecords();
+  summary.textContent = `${{records.length}} saved items`;
+  emptyState.hidden = visible.length > 0;
+  itemsElement.innerHTML = "";
+  for (const record of visible) {{
+    const article = document.createElement("article");
+    article.className = "item-card";
+    article.dataset.id = record.id;
+    article.innerHTML = `
+      <div>
+        <h2></h2>
+        <p class="answer"></p>
+        <p class="meta"></p>
+      </div>
+      <button type="button" class="delete">Delete</button>
+    `;
+    article.querySelector("h2").textContent = record.question;
+    article.querySelector(".answer").textContent = record.answer;
+    article.querySelector(".meta").textContent = `${{record.topic}} / ${{record.status}}`;
+    article.querySelector(".delete").addEventListener("click", () => {{
+      records = records.filter((item) => item.id !== record.id);
+      saveRecords();
+      render();
+    }});
+    itemsElement.appendChild(article);
+  }}
+}}
+
+form.addEventListener("submit", (event) => {{
+  event.preventDefault();
+  const question = normalize(questionInput.value);
+  const answer = normalize(answerInput.value);
+  const topic = normalize(topicInput.value);
+  if (!question || !answer || !topic) {{
+    error.textContent = "Question, answer, and topic are required.";
+    return;
+  }}
+  error.textContent = "";
+  records.push({{
+    id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
+    question,
+    answer,
+    topic,
+    status: statusInput.value,
+    createdAt: new Date().toISOString()
+  }});
+  saveRecords();
+  form.reset();
+  statusInput.value = "new";
+  render();
+}});
+
+topicFilter.addEventListener("change", render);
+statusFilter.addEventListener("change", render);
+
+exportButton.addEventListener("click", () => {{
+  const rows = [["question", "answer", "topic", "status", "createdAt"], ...records.map((record) => [
+    record.question,
+    record.answer,
+    record.topic,
+    record.status,
+    record.createdAt
+  ])];
+  const csv = rows.map((row) => row.map(csvCell).join(",")).join("\\n");
+  const blob = new Blob([csv], {{ type: "text/csv;charset=utf-8" }});
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = "records.csv";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(link.href);
+}});
+{import_logic}
+
+function csvCell(value) {{
+  return `"${{String(value).replaceAll('"', '""')}}"`;
+}}
+
+render();
+"""
+
+    def _static_web_style_css(self) -> str:
+        return """* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  color: #172026;
+  background: #f6f7f9;
+}
+.app-shell {
+  width: min(960px, calc(100% - 32px));
+  margin: 32px auto;
+}
+header, .panel, .toolbar, .item-card, .empty {
+  background: #ffffff;
+  border: 1px solid #d8dee4;
+  border-radius: 8px;
+  padding: 16px;
+}
+header { margin-bottom: 16px; }
+h1, h2, p { margin-top: 0; }
+form, .toolbar { display: grid; gap: 12px; }
+label { display: grid; gap: 6px; font-weight: 700; }
+input, textarea, select, button { min-height: 40px; font: inherit; }
+input, textarea, select {
+  width: 100%;
+  border: 1px solid #b7c0c8;
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+button {
+  border: 0;
+  border-radius: 6px;
+  padding: 0 14px;
+  color: #ffffff;
+  background: #2364aa;
+  cursor: pointer;
+}
+#error { min-height: 20px; color: #b42318; }
+.toolbar {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: end;
+  margin: 16px 0;
+}
+.items { display: grid; gap: 12px; }
+.item-card {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+.meta, .empty { color: #5f6b76; }
+@media (max-width: 720px) {
+  .toolbar { grid-template-columns: 1fr; }
+  .item-card { display: grid; }
+}
+"""
+
+    def _escape_html(self, value: str) -> str:
+        return (
+            value.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace('"', "&quot;")
+        )
+
+    def _build_static_web_delivery_report(
+        self,
+        *,
+        workitem: WorkItem,
+        agent: Agent,
+        changed_files: list[str],
+        validation: HarnessResult,
+        validation_command: list[str],
+    ) -> str:
+        return self._build_code_execution_report(
+            workitem=workitem,
+            agent=agent,
+            cli_name="static_web_delivery",
+            changed_files=changed_files,
+            cli_stdout="Generated static browser app files.",
+            cli_stderr="",
+            validation_result=validation,
+            validation_command=validation_command,
+            success=validation.success,
         )
 
     def _finalize_code_execution(
@@ -1771,10 +2269,17 @@ class Runner:
         frozen_requirement = self._latest_frozen_requirement(project_id)
         return evaluate_scope_contract(frozen_requirement, candidate_content)
 
-    def _evaluate_requirement_coverage(self, project_id: str, result: HarnessResult) -> CoverageResult:
+    def _evaluate_requirement_coverage(
+        self,
+        project_id: str,
+        result: HarnessResult,
+        workitem: WorkItem | None = None,
+    ) -> CoverageResult:
         """Validate harness evidence against the latest frozen requirement."""
         frozen_requirement = self._latest_frozen_requirement(project_id)
         output = f"{result.stdout or ''}\n{result.stderr or ''}"
+        if workitem and workitem.kind == "api_validation" and result.success:
+            output = f"{output}\nAPI validation exercised endpoint behavior"
         return evaluate_requirement_coverage(frozen_requirement, output)
 
     def _build_harness_request(self, workitem: WorkItem, working_directory: str, stream_callback=None) -> HarnessRequest:

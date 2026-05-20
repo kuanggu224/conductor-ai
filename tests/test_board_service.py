@@ -9,9 +9,12 @@ from conductor.config.cli import CLISelectionConfig
 from conductor.config.llm import LLMHTTPConfig, LLMRuntimeConfig, LLMUsagePolicy
 from conductor.controller.lead_controller import LeadController
 from conductor.domain.models import (
+    AgentActivation,
     Artifact,
     Execution,
     ExecutionStatus,
+    HumanControlAction,
+    HumanControlActionType,
     Project,
     ProjectStatus,
     SharedProjectState,
@@ -82,6 +85,9 @@ def test_board_service_builds_snapshot_from_state() -> None:
     assert snapshot.task_assignments[0].heartbeat_age_seconds is None or isinstance(
         snapshot.task_assignments[0].heartbeat_age_seconds, int
     )
+    assert isinstance(snapshot.task_assignments[0].lease_seconds, int)
+    assert isinstance(snapshot.task_assignments[0].lease_expires_at, str)
+    assert snapshot.task_assignments[0].lease_expired in {True, False}
     assert snapshot.task_assignments[0].stale_claimed in {True, False}
     assert isinstance(snapshot.workitems[0].remediation_suggestions, list)
     assert isinstance(snapshot.executions[0].remediation_suggestions, list)
@@ -91,6 +97,44 @@ def test_board_service_builds_snapshot_from_state() -> None:
     assert isinstance(snapshot.run_audit.failed_workitem_ids, list)
     assert snapshot.run_audit.delivery_readiness_status in {"ready", "at_risk", "blocked", "incomplete"}
     assert isinstance(snapshot.run_audit.delivery_readiness_score, int)
+    assert snapshot.human_control.active is False
+    assert snapshot.human_control.action_count == len(state.human_control_actions)
+
+
+def test_board_service_exposes_active_human_control_state() -> None:
+    state = SharedProjectState(
+        project=Project(id="project-human-board", goal="human hold", current_stage="testing", project_root="C:/demo"),
+        project_status=ProjectStatus.IN_PROGRESS,
+        current_stage="testing",
+        human_control_actions=[
+            HumanControlAction(
+                id="human-approval",
+                project_id="project-human-board",
+                action=HumanControlActionType.REQUEST_APPROVAL,
+                actor="tl_agent",
+                reason="high risk escalation",
+                stage="testing",
+                workitem_id="workitem-risk",
+                payload={"controller_action": "escalate_project", "stage": "testing"},
+                created_at="2026-05-20T00:00:00+00:00",
+            )
+        ],
+    )
+
+    snapshot = BoardService().build_snapshot(state)
+    summaries = BoardService().build_project_summaries([state])
+
+    assert snapshot.human_control.active is True
+    assert snapshot.human_control.action == "request_approval"
+    assert snapshot.human_control.action_label == "等待人工审批"
+    assert snapshot.human_control.actor == "tl_agent"
+    assert snapshot.human_control.reason == "high risk escalation"
+    assert snapshot.human_control.workitem_id == "workitem-risk"
+    assert snapshot.human_control.payload == {"controller_action": "escalate_project", "stage": "testing"}
+    assert snapshot.human_control.hold_reason == "human_approval_required: high risk escalation"
+    assert snapshot.human_control.action_count == 1
+    assert summaries[0].human_control_active is True
+    assert summaries[0].human_control_label == "等待人工审批"
 
 
 def test_board_service_exposes_run_audit_risk_summary(tmp_path) -> None:
@@ -397,6 +441,74 @@ def test_board_service_exposes_task_center_readiness() -> None:
     assert snapshot.task_assignments[0].claimable is False
     assert snapshot.task_assignments[0].unmet_dependency_ids == ["workitem-dependency"]
     assert snapshot.task_assignments[0].prompt_file == "C:/demo/.conductor/task_center/prompts/assignment-blocked.md"
+
+
+def test_board_service_exposes_write_scope_conflicts() -> None:
+    state = SharedProjectState(
+        project=Project(id="project-task-scope-conflict", goal="parallel UI work", current_stage="development"),
+        project_status=ProjectStatus.IN_PROGRESS,
+        current_stage="development",
+        workitems=[
+            WorkItem(
+                id="workitem-claimed",
+                description="Claimed layout task",
+                stage="development",
+                kind="ui_implementation",
+                status=WorkItemStatus.RUNNING,
+                owner_agent="agent-layout-a",
+            ),
+            WorkItem(
+                id="workitem-queued",
+                description="Queued layout task",
+                stage="development",
+                kind="ui_implementation",
+            ),
+        ],
+        task_assignments=[
+            TaskAssignment(
+                id="assignment-claimed",
+                workitem_id="workitem-claimed",
+                role="frontend_engineer",
+                status=TaskAssignmentStatus.CLAIMED,
+                assigned_agent_id="agent-layout-a",
+                claim_token="token-a",
+            ),
+            TaskAssignment(
+                id="assignment-queued",
+                workitem_id="workitem-queued",
+                role="frontend_engineer",
+            ),
+        ],
+        agent_activations=[
+            AgentActivation(
+                role="frontend_engineer",
+                agent_id="agent-layout-a",
+                stage="development",
+                reason="layout scope",
+                related_workitem_kinds=["ui_implementation"],
+                dynamic=True,
+                parallel_safe=True,
+                write_scope=["index.html"],
+            ),
+            AgentActivation(
+                role="frontend_engineer",
+                agent_id="agent-layout-b",
+                stage="development",
+                reason="layout scope",
+                related_workitem_kinds=["ui_implementation"],
+                dynamic=True,
+                parallel_safe=True,
+                write_scope=["index.html"],
+            ),
+        ],
+    )
+
+    snapshot = BoardService().build_snapshot(state)
+    queued = next(item for item in snapshot.task_assignments if item.id == "assignment-queued")
+
+    assert snapshot.task_center_summary["blocked_by_write_scope"] == 1
+    assert queued.claimable is False
+    assert queued.write_scope_conflict_assignment_ids == ["assignment-claimed"]
 
 
 def test_board_service_exposes_stale_task_assignment_state() -> None:

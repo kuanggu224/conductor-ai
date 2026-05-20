@@ -9,6 +9,7 @@ from conductor.board.models import (
     BoardExecutionView,
     BoardExecutionRuntimeView,
     BoardMeetingAgentView,
+    BoardHumanControlView,
     BoardPreflightGateView,
     BoardProjectAgentView,
     BoardProjectSummary,
@@ -24,6 +25,7 @@ from conductor.domain.models import SharedProjectState
 from conductor.delivery_readiness import evaluate_delivery_readiness
 from conductor.config.cli import CLISelectionConfig
 from conductor.config.llm import LLMRuntimeConfig
+from conductor.control.human import HumanControlService
 from conductor.execution.failure_policy import remediation_suggestions
 from conductor.preflight_gate import read_preflight_gate
 from conductor.task_center.service import TaskCenterService
@@ -92,6 +94,7 @@ ROLE_POSITION_CLASSES = {
 WORKITEM_KIND_LABELS = {
     "requirement_spec": "冻结需求规格",
     "frozen_requirement_spec": "冻结需求规格",
+    "frozen_design_spec": "冻结设计规格",
     "design_overview": "总体设计",
     "ui_design": "界面设计",
     "api_design": "接口设计",
@@ -145,6 +148,15 @@ TASK_ASSIGNMENT_STATUS_LABELS = {
     "blocked": "依赖阻断",
 }
 
+HUMAN_CONTROL_ACTION_LABELS = {
+    "pause": "人工暂停",
+    "resume": "恢复执行",
+    "request_approval": "等待人工审批",
+    "approve": "人工批准",
+    "reject": "人工拒绝",
+    "override": "人工覆盖",
+}
+
 
 def label_stage(value: str) -> str:
     """转换阶段展示名。"""
@@ -166,6 +178,9 @@ class _BoardStateStore:
         if self.state.project.id != project_id:
             raise KeyError(project_id)
         return self.state
+
+    def save_state(self, state: SharedProjectState) -> None:
+        self.state = state
 
 
 class BoardService:
@@ -268,6 +283,7 @@ class BoardService:
                     assigned_agent_label=AGENT_LABELS.get(assignment.assigned_agent_id or "-", assignment.assigned_agent_id or "-"),
                     claim_token=assignment.claim_token,
                     claimable=task_center.claimable(state, assignment),
+                    write_scope_conflict_assignment_ids=task_center.write_scope_conflicts(state, assignment),
                     unmet_dependency_ids=task_center.unmet_dependency_ids(state, assignment),
                     dependencies=assignment.dependencies,
                     input_artifact_ids=assignment.input_artifact_ids,
@@ -277,6 +293,9 @@ class BoardService:
                     claimed_age_seconds=task_center.claimed_age_seconds(assignment),
                     last_heartbeat_at=assignment.last_heartbeat_at,
                     heartbeat_age_seconds=task_center.heartbeat_age_seconds(assignment),
+                    lease_seconds=assignment.lease_seconds,
+                    lease_expires_at=assignment.lease_expires_at,
+                    lease_expired=task_center.lease_expired(assignment),
                     stale_claimed=task_center.stale_claimed(assignment),
                     prompt_file=assignment.prompt_file,
                 )
@@ -284,6 +303,7 @@ class BoardService:
             ],
             preflight_gate=self._build_preflight_gate_view(state),
             run_audit=self._build_run_audit_view(state),
+            human_control=self._build_human_control_view(state),
             execution_runtime=self._build_execution_runtime_view(state, cli_config, llm_runtime_config),
             design_collaboration=self._build_design_collaboration_view(state, artifacts),
         )
@@ -309,6 +329,7 @@ class BoardService:
         for state in sorted_states:
             preflight_gate = read_preflight_gate(state.project.project_root)
             run_audit = self._build_run_audit_view(state)
+            human_control = self._build_human_control_view(state)
             summaries.append(BoardProjectSummary(
                 project_id=state.project.id,
                 goal=state.project.goal,
@@ -322,6 +343,8 @@ class BoardService:
                 risk_level=run_audit.risk_level,
                 risk_level_label=run_audit.risk_level_label,
                 retry_history_count=run_audit.retry_history_count,
+                human_control_active=human_control.active,
+                human_control_label=human_control.action_label,
                 scope_contract_status=run_audit.scope_contract_status,
                 scope_contract_status_label=run_audit.scope_contract_status_label,
                 scope_contract_violation_count=run_audit.scope_contract_violation_count,
@@ -329,6 +352,27 @@ class BoardService:
                 delivery_readiness_score=run_audit.delivery_readiness_score,
             ))
         return summaries
+
+    def _build_human_control_view(self, state: SharedProjectState) -> BoardHumanControlView:
+        """Build Board-facing human takeover status."""
+        service = HumanControlService(_BoardStateStore(state))
+        active = service.active_action(state)
+        if active is None:
+            return BoardHumanControlView(action_count=len(state.human_control_actions))
+        action = active.action.value
+        return BoardHumanControlView(
+            active=True,
+            hold_reason=service.controller_hold_reason(state) or "",
+            action=action,
+            action_label=HUMAN_CONTROL_ACTION_LABELS.get(action, action),
+            actor=active.actor,
+            reason=active.reason,
+            stage=active.stage,
+            workitem_id=active.workitem_id or "",
+            payload=dict(active.payload),
+            created_at=active.created_at,
+            action_count=len(state.human_control_actions),
+        )
 
     def _build_run_audit_view(self, state: SharedProjectState) -> BoardRunAuditView:
         """Build a compact run risk summary from current state."""

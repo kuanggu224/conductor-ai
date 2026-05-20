@@ -3,6 +3,7 @@
 import json
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from types import SimpleNamespace
 
 from app import run_project
@@ -10,6 +11,8 @@ from app.run_project import _build_cli_config, _run_preflight_gate, _resolve_pro
 from conductor.agents.llm import LLMHTTPConfig
 from conductor.config.execution import resolve_run_profile
 from conductor.config.llm import LLMRuntimeConfig, LLMUsagePolicy
+from conductor.control.human import HumanControlService
+from conductor.domain.models import TaskAssignment, TaskAssignmentStatus, WorkItem, WorkItemStatus
 from conductor.state.file_store import FileStateStore
 from conductor.task_center.service import TaskCenterService
 
@@ -39,6 +42,20 @@ def test_mock_run_profile_disables_configured_runner_llm(monkeypatch) -> None:
     monkeypatch.setattr(run_project, "load_llm_runtime_config", lambda: runtime_config)
 
     resolved = run_project._build_llm_runtime_config(args, run_profile=resolve_run_profile("mock"))
+
+    assert resolved.usage.runner_enabled is False
+
+
+def test_static_web_run_profile_disables_configured_runner_llm(monkeypatch) -> None:
+    args = build_parser().parse_args(["--requirement", "demo", "--project-root", "demo", "--run-profile", "static_web"])
+    runtime_config = LLMRuntimeConfig(
+        local=LLMHTTPConfig(base_url="http://127.0.0.1:1234/v1", model_name="local-model", enabled=True),
+        cloud=LLMHTTPConfig(base_url="https://example.com/v1", model_name="cloud-model", enabled=True),
+        usage=LLMUsagePolicy(runner_enabled=True),
+    )
+    monkeypatch.setattr(run_project, "load_llm_runtime_config", lambda: runtime_config)
+
+    resolved = run_project._build_llm_runtime_config(args, run_profile=resolve_run_profile("static_web"))
 
     assert resolved.usage.runner_enabled is False
 
@@ -201,6 +218,54 @@ def test_run_project_parser_accepts_release_stale_tasks() -> None:
     assert args.stale_release_reason == "resume cleanup"
 
 
+def test_run_project_parser_accepts_task_center_sweep() -> None:
+    args = build_parser().parse_args(
+        [
+            "--project-root",
+            "demo",
+            "--resume-project-id",
+            "project-123",
+            "--sweep-task-center",
+            "--stale-after-seconds",
+            "10",
+            "--stale-release-reason",
+            "resume stale cleanup",
+            "--expired-lease-release-reason",
+            "resume lease cleanup",
+        ]
+    )
+
+    assert args.sweep_task_center is True
+    assert args.stale_after_seconds == 10
+    assert args.stale_release_reason == "resume stale cleanup"
+    assert args.expired_lease_release_reason == "resume lease cleanup"
+
+
+def test_run_project_parser_accepts_task_center_maintenance() -> None:
+    args = build_parser().parse_args(
+        [
+            "--project-root",
+            "demo",
+            "--resume-project-id",
+            "project-123",
+            "--maintenance-task-center",
+            "--maintenance-fail-on-findings",
+            "--maintenance-report-output",
+            "maintenance/report.json",
+            "--maintenance-latest-output",
+            "maintenance/latest.json",
+            "--stale-after-seconds",
+            "10",
+        ]
+    )
+
+    assert args.maintenance_task_center is True
+    assert args.maintenance_fail_on_findings is True
+    assert args.maintenance_report_output == "maintenance/report.json"
+    assert args.maintenance_latest_output == "maintenance/latest.json"
+    assert args.stale_after_seconds == 10
+
+
 def test_run_project_parser_accepts_replay_trace_options() -> None:
     args = build_parser().parse_args(
         [
@@ -284,11 +349,53 @@ def test_run_project_can_resume_existing_project(tmp_path, capsys) -> None:
     assert second_payload["project_id"] == first_payload["project_id"]
     assert second_payload["resumed"] is True
     assert second_payload["status"] == "in_progress"
+    assert "task_center_audit" in second_payload
+    assert "finding_count" in second_payload["task_center_audit"]
     assert len(first_payload["workitems"]) == 1
     assert len(resumed_state.executions) == 1
     assert second_payload["manifest_path"].endswith(f"{first_payload['project_id']}.manifest.json")
     assert second_payload["manifest_verification"]["passed"] is True
     assert second_payload["manifest_verification"]["error_count"] == 0
+
+
+def test_run_project_stops_resume_loop_when_human_control_holds(tmp_path, capsys) -> None:
+    first_exit = run_project.main(
+        [
+            "--project-root",
+            str(tmp_path),
+            "--requirement",
+            "Build a small reading list",
+            "--max-steps",
+            "0",
+            "--skip-preflight-gate",
+        ]
+    )
+    first_payload = json.loads(capsys.readouterr().out)
+    store = FileStateStore(tmp_path / ".conductor" / "state")
+    HumanControlService(store).pause(first_payload["project_id"], actor="operator", reason="inspect checkpoint")
+
+    resumed_exit = run_project.main(
+        [
+            "--project-root",
+            str(tmp_path),
+            "--resume-project-id",
+            first_payload["project_id"],
+            "--max-steps",
+            "5",
+            "--skip-preflight-gate",
+        ]
+    )
+    resumed_payload = json.loads(capsys.readouterr().out)
+    resumed_state = FileStateStore(tmp_path / ".conductor" / "state").get_state(first_payload["project_id"])
+
+    assert first_exit == 1
+    assert resumed_exit == 1
+    assert resumed_payload["status"] == "initialized"
+    assert resumed_payload["manifest_verification"]["passed"] is True
+    assert len(resumed_state.executions) == 0
+    assert [decision.action for decision in resumed_state.tl_decisions] == ["human_hold"]
+    assert resumed_payload["workitems"][0]["status"] == "pending"
+    assert resumed_payload["artifacts"] == []
 
 
 def test_run_project_can_write_replay_trace(tmp_path, capsys) -> None:
@@ -552,6 +659,268 @@ def test_run_project_can_release_stale_tasks_before_resume(tmp_path, capsys) -> 
     assert reloaded.task_assignments[0].status.value == "queued"
     assert reloaded.task_assignments[0].claim_reason == "resume cleanup"
     assert reloaded.workitems[0].status.value == "pending"
+
+
+def test_run_project_can_sweep_task_center_before_resume(tmp_path, capsys) -> None:
+    exit_code = run_project.main(
+        [
+            "--project-root",
+            str(tmp_path),
+            "--requirement",
+            "Build a small reading list",
+            "--max-steps",
+            "0",
+            "--skip-preflight-gate",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+
+    store = FileStateStore(tmp_path / ".conductor" / "state")
+    initial_state = store.get_state(payload["project_id"])
+    service = TaskCenterService(store)
+    claimed = service.claim(
+        payload["project_id"],
+        initial_state.task_assignments[0].id,
+        agent_id="agent-expired",
+        lease_seconds=1,
+    )
+    expired_assignment = replace(
+        claimed.assignment,
+        lease_expires_at=(datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat(),
+    )
+    extra_workitem = WorkItem(
+        id="workitem-stale-extra",
+        description="Stale extra task",
+        stage=initial_state.current_stage or "requirement",
+        status=WorkItemStatus.RUNNING,
+        owner_agent="agent-stale",
+    )
+    stale_time = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+    extra_assignment = TaskAssignment(
+        id="assignment-stale-extra",
+        workitem_id=extra_workitem.id,
+        role=initial_state.task_assignments[0].role,
+        status=TaskAssignmentStatus.CLAIMED,
+        assigned_agent_id="agent-stale",
+        claimed_at=stale_time,
+        last_heartbeat_at=stale_time,
+        claim_token="stale-token",
+    )
+    state_with_extra = store.get_state(payload["project_id"])
+    state_with_extra = replace(
+        state_with_extra,
+        workitems=[*state_with_extra.workitems, extra_workitem],
+        task_assignments=[
+            expired_assignment,
+            *state_with_extra.task_assignments[1:],
+            extra_assignment,
+        ],
+    )
+    store.save_state(state_with_extra)
+
+    resumed_exit = run_project.main(
+        [
+            "--project-root",
+            str(tmp_path),
+            "--resume-project-id",
+            payload["project_id"],
+            "--max-steps",
+            "0",
+            "--skip-preflight-gate",
+            "--sweep-task-center",
+            "--stale-after-seconds",
+            "1",
+            "--stale-release-reason",
+            "resume stale cleanup",
+            "--expired-lease-release-reason",
+            "resume lease cleanup",
+        ]
+    )
+    resumed_payload = json.loads(capsys.readouterr().out)
+    reloaded = FileStateStore(tmp_path / ".conductor" / "state").get_state(payload["project_id"])
+    assignments = {item.id: item for item in reloaded.task_assignments}
+
+    assert resumed_exit == 1
+    assert resumed_payload["released_expired_lease_task_count"] == 1
+    assert resumed_payload["released_stale_task_count"] == 1
+    assert resumed_payload["task_center_audit"]["finding_count"] == 0
+    assert resumed_payload["manifest_verification"]["passed"] is True
+    assert assignments[initial_state.task_assignments[0].id].status.value == "queued"
+    assert assignments[initial_state.task_assignments[0].id].claim_reason == "resume lease cleanup"
+    assert assignments["assignment-stale-extra"].status.value == "queued"
+    assert assignments["assignment-stale-extra"].claim_reason == "resume stale cleanup"
+
+
+def test_run_project_can_run_task_center_maintenance_before_resume(tmp_path, capsys) -> None:
+    exit_code = run_project.main(
+        [
+            "--project-root",
+            str(tmp_path),
+            "--requirement",
+            "Build a small reading list",
+            "--max-steps",
+            "0",
+            "--skip-preflight-gate",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+
+    store = FileStateStore(tmp_path / ".conductor" / "state")
+    initial_state = store.get_state(payload["project_id"])
+    claimed = TaskCenterService(store).claim(
+        payload["project_id"],
+        initial_state.task_assignments[0].id,
+        agent_id="agent-expired",
+        lease_seconds=1,
+    )
+    expired_assignment = replace(
+        claimed.assignment,
+        lease_expires_at=(datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat(),
+    )
+    store.upsert_task_assignment(payload["project_id"], expired_assignment)
+
+    resumed_exit = run_project.main(
+        [
+            "--project-root",
+            str(tmp_path),
+            "--resume-project-id",
+            payload["project_id"],
+            "--max-steps",
+            "0",
+            "--skip-preflight-gate",
+            "--maintenance-task-center",
+            "--stale-after-seconds",
+            "1",
+            "--expired-lease-release-reason",
+            "resume maintenance lease cleanup",
+            "--maintenance-report-output",
+            "maintenance/pre-run.json",
+            "--maintenance-latest-output",
+            "maintenance/latest.json",
+        ]
+    )
+    resumed_payload = json.loads(capsys.readouterr().out)
+    manifest_payload = json.loads(Path(resumed_payload["manifest_path"]).read_text(encoding="utf-8"))
+    maintenance_report_path = tmp_path / "maintenance" / "pre-run.json"
+    maintenance_report = json.loads(maintenance_report_path.read_text(encoding="utf-8"))
+    maintenance_latest_path = tmp_path / "maintenance" / "latest.json"
+    maintenance_latest = json.loads(maintenance_latest_path.read_text(encoding="utf-8"))
+    reloaded = FileStateStore(tmp_path / ".conductor" / "state").get_state(payload["project_id"])
+    maintenance = resumed_payload["pre_run_task_center_maintenance"]
+
+    assert resumed_exit == 1
+    assert resumed_payload["released_expired_lease_task_count"] == 1
+    assert maintenance["status"] == "clean"
+    assert maintenance["generated_at"]
+    assert maintenance["project_id"] == payload["project_id"]
+    assert maintenance["resumed"] is True
+    assert maintenance["fail_on_findings"] is False
+    assert maintenance["released_count"] == 1
+    assert maintenance["expired_lease_released_count"] == 1
+    assert maintenance["audit"]["finding_count"] == 0
+    assert maintenance["report_path"] == str(maintenance_report_path.resolve())
+    assert maintenance["latest_path"] == str(maintenance_latest_path.resolve())
+    assert maintenance_report["project_id"] == payload["project_id"]
+    assert maintenance_report["released_count"] == 1
+    assert maintenance_latest["project_id"] == payload["project_id"]
+    assert maintenance_latest["status"] == "clean"
+    assert maintenance_latest["report_path"] == str(maintenance_report_path.resolve())
+    assert resumed_payload["task_center_audit"]["finding_count"] == 0
+    assert manifest_payload["run_options"]["maintenance_task_center"] is True
+    assert manifest_payload["run_options"]["maintenance_fail_on_findings"] is False
+    assert manifest_payload["run_options"]["maintenance_report_output"] == "maintenance/pre-run.json"
+    assert manifest_payload["run_options"]["maintenance_latest_output"] == "maintenance/latest.json"
+    assert manifest_payload["run_options"]["resumed"] is True
+    assert manifest_payload["pre_run_maintenance"]["released_count"] == 1
+    assert manifest_payload["pre_run_maintenance"]["report_path"] == str(maintenance_report_path.resolve())
+    assert manifest_payload["pre_run_maintenance"]["audit"]["finding_count"] == 0
+    assert reloaded.task_assignments[0].status == TaskAssignmentStatus.QUEUED
+    assert reloaded.task_assignments[0].claim_reason == "resume maintenance lease cleanup"
+
+
+def test_run_project_maintenance_can_stop_before_resume_on_audit_findings(tmp_path, capsys) -> None:
+    exit_code = run_project.main(
+        [
+            "--project-root",
+            str(tmp_path),
+            "--requirement",
+            "Build a small reading list",
+            "--max-steps",
+            "0",
+            "--skip-preflight-gate",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+
+    store = FileStateStore(tmp_path / ".conductor" / "state")
+    state = store.get_state(payload["project_id"])
+    broken_workitem = WorkItem(
+        id="workitem-broken-return",
+        description="Broken returned task",
+        stage=state.current_stage or "requirement",
+        status=WorkItemStatus.DONE,
+    )
+    broken_assignment = TaskAssignment(
+        id="assignment-broken-return",
+        workitem_id=broken_workitem.id,
+        role=state.task_assignments[0].role,
+        status=TaskAssignmentStatus.COMPLETED,
+        output_artifact_ids=["artifact-missing-return"],
+    )
+    store.save_state(
+        replace(
+            state,
+            workitems=[*state.workitems, broken_workitem],
+            task_assignments=[*state.task_assignments, broken_assignment],
+        )
+    )
+
+    resumed_exit = run_project.main(
+        [
+            "--project-root",
+            str(tmp_path),
+            "--resume-project-id",
+            payload["project_id"],
+            "--max-steps",
+            "1",
+            "--skip-preflight-gate",
+            "--maintenance-task-center",
+            "--maintenance-fail-on-findings",
+            "--maintenance-report-output",
+            "maintenance/failure.json",
+            "--maintenance-latest-output",
+            "maintenance/failure-latest.json",
+        ]
+    )
+    resumed_payload = json.loads(capsys.readouterr().out)
+    maintenance_report_path = tmp_path / "maintenance" / "failure.json"
+    maintenance_report = json.loads(maintenance_report_path.read_text(encoding="utf-8"))
+    maintenance_latest_path = tmp_path / "maintenance" / "failure-latest.json"
+    maintenance_latest = json.loads(maintenance_latest_path.read_text(encoding="utf-8"))
+    reloaded = FileStateStore(tmp_path / ".conductor" / "state").get_state(payload["project_id"])
+
+    assert resumed_exit == 3
+    assert resumed_payload["ok"] is False
+    assert resumed_payload["error"] == "task_center_maintenance_findings"
+    assert resumed_payload["pre_run_task_center_maintenance"]["project_id"] == payload["project_id"]
+    assert resumed_payload["pre_run_task_center_maintenance"]["fail_on_findings"] is True
+    assert resumed_payload["pre_run_task_center_maintenance"]["status"] == "needs_attention"
+    assert resumed_payload["pre_run_task_center_maintenance"]["audit"]["finding_count"] >= 1
+    assert resumed_payload["pre_run_task_center_maintenance"]["report_path"] == str(maintenance_report_path.resolve())
+    assert resumed_payload["pre_run_task_center_maintenance"]["latest_path"] == str(maintenance_latest_path.resolve())
+    assert maintenance_report["project_id"] == payload["project_id"]
+    assert maintenance_report["fail_on_findings"] is True
+    assert maintenance_report["status"] == "needs_attention"
+    assert maintenance_report["audit"]["finding_count"] >= 1
+    assert maintenance_latest["project_id"] == payload["project_id"]
+    assert maintenance_latest["status"] == "needs_attention"
+    assert maintenance_latest["finding_count"] >= 1
+    assert maintenance_latest["report_path"] == str(maintenance_report_path.resolve())
+    assert "manifest_path" not in resumed_payload
+    assert reloaded.executions == []
 
 
 def test_run_project_preflight_only_can_skip_without_requirement(tmp_path, capsys) -> None:

@@ -44,6 +44,7 @@ from conductor.config.llm import (
     load_llm_runtime_config,
     save_llm_runtime_config,
 )
+from conductor.control.human import HumanControlService
 from conductor.controller.engine import ConductorEngine
 from conductor.diagnostics import build_platform_diagnostics, build_requirement_llm_preflight_probe
 from conductor.domain.models import SharedProjectState, TaskAssignment
@@ -131,12 +132,19 @@ class TaskClaimRequest(BaseModel):
     max_context_content_chars: int = 12000
     context_format: str = "json"
     prompt_file: str = ""
+    lease_seconds: int = 0
 
 
 class TaskClaimNextRequest(TaskClaimRequest):
     """Payload for claiming the next available task-center assignment."""
 
     role: OptionalTodoTitle = None
+
+
+class TaskClaimBatchRequest(TaskClaimNextRequest):
+    """Payload for claiming a small batch of task-center assignments."""
+
+    limit: int = 1
 
 
 class TaskReturnRequest(BaseModel):
@@ -157,6 +165,7 @@ class TaskHeartbeatRequest(BaseModel):
 
     agent_id: OptionalTodoTitle = None
     claim_token: str = ""
+    lease_seconds: int | None = None
 
 
 class TaskReleaseRequest(BaseModel):
@@ -171,6 +180,25 @@ class TaskReleaseStaleRequest(TaskReleaseRequest):
     """Payload for releasing stale claimed task-center assignments."""
 
     stale_after_seconds: int = DEFAULT_STALE_CLAIMED_AFTER_SECONDS
+
+
+class TaskSweepRequest(BaseModel):
+    """Payload for Task Center maintenance sweep."""
+
+    stale_after_seconds: int = DEFAULT_STALE_CLAIMED_AFTER_SECONDS
+    expired_lease_release_reason: TodoContent = "expired task lease"
+    stale_release_reason: TodoContent = "stale claimed assignment"
+
+
+class HumanControlRequest(BaseModel):
+    """Payload for human takeover and approval actions."""
+
+    actor: TodoTitle = "human"
+    reason: TodoContent = ""
+    controller_action: str = ""
+    stage: str = ""
+    workitem_id: str = ""
+    payload: dict[str, object] = Field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -372,6 +400,44 @@ def _snapshot_payload(project_id: str):
         llm_runtime_config=engine.llm_runtime_config,
     )
     return snapshot, asdict(snapshot)
+
+
+def _human_control_response_payload(project_id: str) -> dict[str, object]:
+    """Build a human-control mutation response with a fresh snapshot."""
+    snapshot, snapshot_payload = _snapshot_payload(project_id)
+    return {
+        "project_id": project_id,
+        "human_control": snapshot_payload["human_control"],
+        "snapshot": snapshot_payload,
+        "task_status": _task_status_payload(snapshot.project_id),
+    }
+
+
+def _human_gate_payload(payload: HumanControlRequest, state: SharedProjectState) -> dict[str, object]:
+    """Return the explicit gate payload from an API request."""
+    gate_payload = dict(payload.payload)
+    if payload.controller_action:
+        gate_payload["controller_action"] = payload.controller_action
+    if payload.stage:
+        gate_payload["stage"] = payload.stage
+    elif payload.controller_action and "stage" not in gate_payload:
+        gate_payload["stage"] = state.current_stage or ""
+    return gate_payload
+
+
+def _human_gate_payload_or_active(
+    payload: HumanControlRequest,
+    state: SharedProjectState,
+    service: HumanControlService,
+) -> dict[str, object]:
+    """Use explicit gate payload, or inherit the currently active gate payload."""
+    explicit = _human_gate_payload(payload, state)
+    if explicit:
+        return explicit
+    active = service.active_action(state)
+    if active and active.payload:
+        return dict(active.payload)
+    return {}
 
 
 def _require_project_state(project_id: str):
@@ -618,6 +684,90 @@ def project_detail_api(project_id: str) -> JSONResponse:
     )
 
 
+@app.get("/api/projects/{project_id}/human-control")
+def project_human_control_api(project_id: str) -> JSONResponse:
+    """Return the active human-control state for one project."""
+    _require_project_state(project_id)
+    snapshot, snapshot_payload = _snapshot_payload(project_id)
+    return JSONResponse(
+        {
+            "project_id": project_id,
+            "human_control": snapshot_payload["human_control"],
+            "snapshot": snapshot_payload,
+        }
+    )
+
+
+@app.post("/api/projects/{project_id}/human-control/pause")
+async def pause_project_human_control_api(project_id: str, payload: HumanControlRequest) -> JSONResponse:
+    """Pause automatic controller advancement for one project."""
+    _require_project_state(project_id)
+    service = HumanControlService(engine.state_store)
+    state = service.pause(project_id, actor=payload.actor, reason=payload.reason)
+    return JSONResponse(_human_control_response_payload(state.project.id))
+
+
+@app.post("/api/projects/{project_id}/human-control/resume")
+async def resume_project_human_control_api(project_id: str, payload: HumanControlRequest) -> JSONResponse:
+    """Resume automatic controller advancement for one project."""
+    _require_project_state(project_id)
+    service = HumanControlService(engine.state_store)
+    state = service.resume(project_id, actor=payload.actor, reason=payload.reason)
+    return JSONResponse(_human_control_response_payload(state.project.id))
+
+
+@app.post("/api/projects/{project_id}/human-control/request-approval")
+async def request_project_human_approval_api(project_id: str, payload: HumanControlRequest) -> JSONResponse:
+    """Request human approval for a controller gate."""
+    state = _require_project_state(project_id)
+    service = HumanControlService(engine.state_store)
+    updated = service.request_approval(
+        project_id,
+        actor=payload.actor,
+        reason=payload.reason,
+        workitem_id=payload.workitem_id or None,
+        payload=_human_gate_payload(payload, state),
+    )
+    return JSONResponse(_human_control_response_payload(updated.project.id))
+
+
+@app.post("/api/projects/{project_id}/human-control/approve")
+async def approve_project_human_control_api(project_id: str, payload: HumanControlRequest) -> JSONResponse:
+    """Approve the active human gate for one project."""
+    state = _require_project_state(project_id)
+    service = HumanControlService(engine.state_store)
+    updated = service.approve(
+        project_id,
+        actor=payload.actor,
+        reason=payload.reason,
+        payload=_human_gate_payload_or_active(payload, state, service),
+    )
+    return JSONResponse(_human_control_response_payload(updated.project.id))
+
+
+@app.post("/api/projects/{project_id}/human-control/reject")
+async def reject_project_human_control_api(project_id: str, payload: HumanControlRequest) -> JSONResponse:
+    """Reject the active human gate for one project."""
+    _require_project_state(project_id)
+    service = HumanControlService(engine.state_store)
+    state = service.reject(project_id, actor=payload.actor, reason=payload.reason)
+    return JSONResponse(_human_control_response_payload(state.project.id))
+
+
+@app.post("/api/projects/{project_id}/human-control/override")
+async def override_project_human_control_api(project_id: str, payload: HumanControlRequest) -> JSONResponse:
+    """Record a human override for one project."""
+    state = _require_project_state(project_id)
+    service = HumanControlService(engine.state_store)
+    updated = service.override(
+        project_id,
+        actor=payload.actor,
+        reason=payload.reason,
+        payload=_human_gate_payload_or_active(payload, state, service),
+    )
+    return JSONResponse(_human_control_response_payload(updated.project.id))
+
+
 @app.get("/api/projects/{project_id}/tasks")
 def project_tasks_api(
     project_id: str,
@@ -653,6 +803,100 @@ def project_tasks_summary_api(
     )
 
 
+@app.get("/api/projects/{project_id}/tasks/{assignment_id}/agents")
+def project_task_agents_api(project_id: str, assignment_id: str) -> JSONResponse:
+    """Return dynamic Agent activations eligible for one task assignment."""
+    state = _require_project_state(project_id)
+    context_builder = TaskContextBuilder(engine.artifact_store)
+    try:
+        context = context_builder.build(
+            state,
+            assignment_id,
+            service=_task_center_service(),
+            include_content=False,
+            max_content_chars=0,
+        )
+    except TaskCenterError as error:
+        raise HTTPException(status_code=error.status_code, detail=str(error)) from error
+    assignment = context["assignment"]
+    workitem = context["workitem"]
+    agents = context["eligible_agent_activations"]
+    return JSONResponse(
+        {
+            "project_id": project_id,
+            "assignment_id": assignment_id,
+            "workitem_id": workitem["id"],
+            "stage": workitem["stage"],
+            "kind": workitem["kind"],
+            "role": assignment["role"],
+            "eligible_count": len(agents),
+            "agents": agents,
+        }
+    )
+
+
+@app.get("/api/projects/{project_id}/agents/{agent_id}/tasks")
+def project_agent_tasks_api(project_id: str, agent_id: str, claimable_only: bool = False) -> JSONResponse:
+    """Return task assignments that match one dynamic Agent activation."""
+    state = _require_project_state(project_id)
+    return JSONResponse(_agent_tasks_payload(state, agent_id=agent_id, claimable_only=claimable_only))
+
+
+@app.post("/api/projects/{project_id}/agents/{agent_id}/claim-task")
+async def claim_project_agent_task_api(project_id: str, agent_id: str, payload: TaskClaimRequest) -> JSONResponse:
+    """Claim the next task that matches one dynamic Agent activation."""
+    _validate_task_prompt_file_request(project_id, payload.prompt_file)
+    state = _require_project_state(project_id)
+    tasks_payload = _agent_tasks_payload(state, agent_id=agent_id, claimable_only=True)
+    tasks = tasks_payload["tasks"]
+    if not tasks:
+        raise HTTPException(status_code=404, detail=f"No claimable task assignment available for agent {agent_id}")
+    assignment_id = tasks[0]["assignment_id"]
+    transition = _run_task_center_transition(
+        _task_center_service().claim,
+        project_id,
+        assignment_id=assignment_id,
+        agent_id=agent_id,
+        claim_reason=payload.claim_reason,
+        lease_seconds=payload.lease_seconds,
+    )
+    response = _task_claim_response_payload(project_id, transition.state, transition.assignment, payload)
+    response["matched_agent"] = {
+        "agent_id": agent_id,
+        "instance_id": tasks[0].get("instance_id", ""),
+        "scope": tasks[0].get("scope", ""),
+        "parallel_safe": tasks[0].get("parallel_safe", False),
+        "write_scope": tasks[0].get("write_scope", []),
+    }
+    return JSONResponse(response)
+
+
+@app.post("/api/projects/{project_id}/tasks/claim-batch")
+async def claim_batch_project_tasks_api(project_id: str, payload: TaskClaimBatchRequest) -> JSONResponse:
+    """Claim a small batch of queued task-center assignments."""
+    transition = _run_task_center_transition(
+        _task_center_service().claim_batch,
+        project_id,
+        agent_id=payload.agent_id,
+        role=payload.role,
+        claim_reason=payload.claim_reason,
+        limit=payload.limit,
+        lease_seconds=payload.lease_seconds,
+    )
+    return JSONResponse(
+        {
+            "project_id": project_id,
+            "claimed_count": len(transition.assignments),
+            "limit": payload.limit,
+            "summary": _task_center_service().summary(transition.state),
+            "tasks": [
+                _task_assignment_payload(assignment, transition.state)
+                for assignment in transition.assignments
+            ],
+        }
+    )
+
+
 @app.post("/api/projects/{project_id}/tasks/claim-next")
 async def claim_next_project_task_api(project_id: str, payload: TaskClaimNextRequest) -> JSONResponse:
     """Claim the next queued task-center assignment, optionally filtered by role."""
@@ -663,6 +907,7 @@ async def claim_next_project_task_api(project_id: str, payload: TaskClaimNextReq
         agent_id=payload.agent_id,
         role=payload.role,
         claim_reason=payload.claim_reason,
+        lease_seconds=payload.lease_seconds,
     )
     return JSONResponse(
         _task_claim_response_payload(
@@ -684,6 +929,7 @@ async def claim_project_task_api(project_id: str, assignment_id: str, payload: T
         assignment_id=assignment_id,
         agent_id=payload.agent_id,
         claim_reason=payload.claim_reason,
+        lease_seconds=payload.lease_seconds,
     )
     return JSONResponse(
         _task_claim_response_payload(
@@ -781,6 +1027,7 @@ async def heartbeat_project_task_api(
         assignment_id=assignment_id,
         agent_id=payload.agent_id or "",
         claim_token=payload.claim_token,
+        lease_seconds=payload.lease_seconds,
     )
     return JSONResponse(
         {
@@ -836,6 +1083,67 @@ async def release_stale_project_tasks_api(project_id: str, payload: TaskReleaseS
                     stale_after_seconds=payload.stale_after_seconds,
                 )
                 for assignment in transition.assignments
+            ],
+        }
+    )
+
+
+@app.post("/api/projects/{project_id}/tasks/release-expired-leases")
+async def release_expired_lease_project_tasks_api(project_id: str, payload: TaskReleaseRequest) -> JSONResponse:
+    """Release assignments whose explicit claim lease expired."""
+    transition = _run_task_center_transition(
+        _task_center_service().release_expired_leases,
+        project_id,
+        release_reason=payload.release_reason or "expired task lease",
+    )
+    return JSONResponse(
+        {
+            "project_id": project_id,
+            "released_count": len(transition.assignments),
+            "summary": _task_center_service().summary(transition.state),
+            "tasks": [
+                _task_assignment_payload(
+                    assignment,
+                    transition.state,
+                )
+                for assignment in transition.assignments
+            ],
+        }
+    )
+
+
+@app.post("/api/projects/{project_id}/tasks/sweep")
+async def sweep_project_tasks_api(project_id: str, payload: TaskSweepRequest) -> JSONResponse:
+    """Release expired leases and stale claimed assignments in one maintenance pass."""
+    transition = _run_task_center_transition(
+        _task_center_service().sweep,
+        project_id,
+        stale_after_seconds=payload.stale_after_seconds,
+        expired_lease_release_reason=payload.expired_lease_release_reason,
+        stale_release_reason=payload.stale_release_reason,
+    )
+    return JSONResponse(
+        {
+            "project_id": project_id,
+            "released_count": len(transition.expired_lease_assignments) + len(transition.stale_assignments),
+            "expired_lease_released_count": len(transition.expired_lease_assignments),
+            "stale_released_count": len(transition.stale_assignments),
+            "stale_after_seconds": payload.stale_after_seconds,
+            "summary": _task_center_service().summary(
+                transition.state,
+                stale_after_seconds=payload.stale_after_seconds,
+            ),
+            "expired_lease_tasks": [
+                _task_assignment_payload(assignment, transition.state)
+                for assignment in transition.expired_lease_assignments
+            ],
+            "stale_tasks": [
+                _task_assignment_payload(
+                    assignment,
+                    transition.state,
+                    stale_after_seconds=payload.stale_after_seconds,
+                )
+                for assignment in transition.stale_assignments
             ],
         }
     )
@@ -957,6 +1265,73 @@ def _task_center_payload(
     }
 
 
+def _agent_tasks_payload(
+    state: SharedProjectState,
+    *,
+    agent_id: str,
+    claimable_only: bool = False,
+) -> dict[str, object]:
+    """Return assignments matching a dynamic Agent activation."""
+    service = _task_center_service()
+    activations = [activation for activation in state.agent_activations if activation.agent_id == agent_id]
+    workitems_by_id = {item.id: item for item in state.workitems}
+    tasks: list[dict[str, object]] = []
+    for activation in activations:
+        for assignment in state.task_assignments:
+            if assignment.role != activation.role:
+                continue
+            workitem = workitems_by_id.get(assignment.workitem_id)
+            if workitem is None:
+                continue
+            if activation.stage and workitem.stage != activation.stage:
+                continue
+            if activation.related_workitem_kinds and workitem.kind not in activation.related_workitem_kinds:
+                continue
+            claimable = service.claimable(state, assignment, agent_id=agent_id)
+            if claimable_only and not claimable:
+                continue
+            write_scope_conflicts = service.write_scope_conflicts(state, assignment, agent_id=agent_id)
+            tasks.append(
+                {
+                    "assignment_id": assignment.id,
+                    "workitem_id": workitem.id,
+                    "stage": workitem.stage,
+                    "kind": workitem.kind,
+                    "role": assignment.role,
+                    "status": assignment.status.value,
+                    "claimable": claimable,
+                    "unmet_dependency_ids": service.unmet_dependency_ids(state, assignment),
+                    "write_scope_conflict_assignment_ids": write_scope_conflicts,
+                    "instance_id": activation.instance_id,
+                    "scope": activation.scope,
+                    "parallel_safe": activation.parallel_safe,
+                    "write_scope": list(activation.write_scope),
+                }
+            )
+    return {
+        "project_id": state.project.id,
+        "agent_id": agent_id,
+        "activation_count": len(activations),
+        "claimable_only": claimable_only,
+        "task_count": len(tasks),
+        "activations": [
+            {
+                "agent_id": activation.agent_id,
+                "role": activation.role,
+                "stage": activation.stage,
+                "reason": activation.reason,
+                "instance_id": activation.instance_id,
+                "scope": activation.scope,
+                "parallel_safe": activation.parallel_safe,
+                "write_scope": list(activation.write_scope),
+                "related_workitem_kinds": list(activation.related_workitem_kinds),
+            }
+            for activation in activations
+        ],
+        "tasks": tasks,
+    }
+
+
 def _task_assignment_payload(
     assignment: TaskAssignment,
     state: SharedProjectState,
@@ -984,6 +1359,7 @@ def _task_assignment_payload(
         ]
     claimed_age_seconds = task_center.claimed_age_seconds(assignment)
     heartbeat_age_seconds = task_center.heartbeat_age_seconds(assignment)
+    write_scope_conflicts = task_center.write_scope_conflicts(state, assignment)
     return {
         "id": assignment.id,
         "workitem_id": assignment.workitem_id,
@@ -994,6 +1370,7 @@ def _task_assignment_payload(
         "claim_reason": assignment.claim_reason,
         "claimable": task_center.claimable(state, assignment),
         "unmet_dependency_ids": task_center.unmet_dependency_ids(state, assignment),
+        "write_scope_conflict_assignment_ids": write_scope_conflicts,
         "claimed_age_seconds": claimed_age_seconds,
         "heartbeat_age_seconds": heartbeat_age_seconds,
         "stale_claimed": task_center.stale_claimed(assignment, stale_after_seconds=stale_after_seconds),
@@ -1004,6 +1381,9 @@ def _task_assignment_payload(
         "blocked_reason": assignment.blocked_reason or "",
         "claimed_at": assignment.claimed_at,
         "last_heartbeat_at": assignment.last_heartbeat_at,
+        "lease_seconds": assignment.lease_seconds,
+        "lease_expires_at": assignment.lease_expires_at,
+        "lease_expired": task_center.lease_expired(assignment),
         "returned_at": assignment.returned_at,
         "prompt_file": assignment.prompt_file,
         "workitem": _task_workitem_payload(workitem),

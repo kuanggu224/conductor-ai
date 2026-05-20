@@ -330,8 +330,9 @@ Current targeted verification for read-only replay trace:
 `21 passed` with `python -m pytest tests\test_replay_trace.py tests\test_replay_verifier.py -q`.
 
 Current full verification after preflight gate, diagnostics, manifest hardening,
-task-center recovery work, and manifest verification:
-`422 passed` with `python -m pytest -q`.
+task-center recovery work, Human Control, Board Task Center APIs, and manifest
+verification:
+`623 passed` with `python -m pytest -q`.
 
 ## Project Layout
 

@@ -5,6 +5,7 @@ from dataclasses import replace
 
 from conductor.agents.agent import Agent
 from conductor.agents.llm import MockCloudLLMBackend
+from conductor.artifacts.store import ArtifactStore
 from conductor.config.cli import CLISelectionConfig
 from conductor.config.llm import LLMUsagePolicy
 from conductor.agents.profile import build_default_agent_profiles
@@ -432,6 +433,63 @@ def test_runner_blocks_validation_when_frozen_requirement_coverage_is_missing(tm
     assert "refresh persistence" in latest.artifacts[-1].content
 
 
+def test_runner_records_api_validation_evidence_for_api_requirement(tmp_path) -> None:
+    (tmp_path / "app.py").write_text("# api deliverable\n", encoding="utf-8")
+    (tmp_path / "tests").mkdir()
+    state_store = InMemoryStateStore()
+    runner = Runner(
+        state_store,
+        shell_harness=FakeSuccessHarness(),
+        enable_tester_harness=True,
+    )
+    controller = LeadController(
+        workflow_template=WorkflowTemplate(),
+        state_store=state_store,
+        runner=runner,
+    )
+    state = controller.initialize_project(
+        "\u9700\u5b9e\u73b0\u540e\u7aef API \u63a5\u53e3\uff0c\u652f\u6301\u521b\u5efa\u548c\u67e5\u8be2\u6761\u76ee\u3002"
+    )
+    state.project.project_root = str(tmp_path)
+    test_workitem = WorkItem(
+        id="workitem-api-validation",
+        description="\u6267\u884c API \u9a8c\u8bc1",
+        stage="testing",
+        kind="api_validation",
+    )
+    state.workitems = [test_workitem]
+    state.artifacts = [
+        Artifact(
+            id="artifact-frozen",
+            project_id=state.project.id,
+            workitem_id="workitem-requirement",
+            agent_id="agent-designer",
+            kind="frozen_requirement_spec",
+            title="Frozen Requirement",
+            content=state.project.goal,
+        )
+    ]
+    state_store.save_state(state)
+    tester_profile = next(profile for profile in build_default_agent_profiles() if profile.role_name == "tester")
+    agent = Agent(
+        id="agent-tester",
+        role="tester",
+        profile=tester_profile,
+        capabilities=[Capability.TESTING],
+        backend="mock",
+        execution_backend="cli",
+    )
+
+    execution = runner.run(project_id=state.project.id, workitem=test_workitem, agent=agent)
+    latest = state_store.get_state(state.project.id)
+
+    assert execution.status == ExecutionStatus.SUCCESS
+    assert latest.workitems[0].status == WorkItemStatus.DONE
+    assert "Status: `pass`" in latest.artifacts[-1].content
+    assert "API endpoint behavior" in latest.artifacts[-1].content
+    assert "api validation exercised endpoint behavior" in latest.artifacts[-1].content
+
+
 def test_tester_validation_prefers_shell_harness_even_when_bound_to_agent_cli(monkeypatch) -> None:
     monkeypatch.setattr("conductor.agents.cli_executor.shutil.which", lambda name: f"C:/bin/{name}.cmd")
     state_store = InMemoryStateStore()
@@ -840,6 +898,120 @@ def test_runner_blocks_code_mock_when_real_code_required() -> None:
 
     assert execution.status == ExecutionStatus.FAILED
     assert "不会用 mock 文档冒充实现" in execution.result
+
+
+def test_runner_static_web_delivery_generates_files_and_validation(tmp_path) -> None:
+    project_root = tmp_path / "flashcards"
+    state_store = InMemoryStateStore()
+    runner = Runner(
+        state_store,
+        artifact_store=ArtifactStore(project_root / ".conductor" / "artifacts"),
+        enable_static_web_delivery=True,
+    )
+    controller = LeadController(
+        workflow_template=WorkflowTemplate(),
+        state_store=state_store,
+        runner=runner,
+    )
+    state = controller.initialize_project(
+        "Build a browser-only flashcard study tracker with localStorage, filters, delete, and CSV export.",
+        project_root=str(project_root),
+    )
+    frozen = Artifact(
+        id="artifact-frozen-requirement",
+        project_id=state.project.id,
+        workitem_id="workitem-requirement",
+        agent_id="agent-requirement-designer",
+        kind="frozen_requirement_spec",
+        title="Frozen Requirement",
+        content=(
+            "Build a browser-only flashcard study tracker. "
+            "Users can add flashcards with question, answer, topic, and status; "
+            "filter by topic and status; persist data after refresh using localStorage; "
+            "delete cards; export CSV; no backend and no login."
+        ),
+    )
+    workitem = WorkItem(
+        id="workitem-ui",
+        description="Implement browser-only flashcard UI",
+        stage="development",
+        kind="ui_implementation",
+    )
+    state = replace(state, workitems=[workitem], artifacts=[frozen])
+    state_store.save_state(state)
+    agent = Agent(
+        id="agent-frontend",
+        role="frontend_engineer",
+        capabilities=[Capability.CODING],
+        backend="mock",
+        execution_backend="mock",
+    )
+
+    execution = runner.run(state.project.id, workitem, agent)
+
+    assert execution.status == ExecutionStatus.SUCCESS
+    assert execution.source_backend == "static_web_delivery"
+    assert execution.changed_files == ["index.html", "static/app.js", "static/style.css"]
+    assert execution.validation_success is True
+    assert (project_root / "index.html").exists()
+    assert (project_root / "static" / "app.js").exists()
+    assert "Static Web Validation: PASS" in execution.cli_stdout_tail
+
+
+def test_runner_static_web_delivery_adds_csv_import_when_required(tmp_path) -> None:
+    project_root = tmp_path / "flashcards-import"
+    state_store = InMemoryStateStore()
+    runner = Runner(
+        state_store,
+        artifact_store=ArtifactStore(project_root / ".conductor" / "artifacts"),
+        enable_static_web_delivery=True,
+    )
+    controller = LeadController(
+        workflow_template=WorkflowTemplate(),
+        state_store=state_store,
+        runner=runner,
+    )
+    state = controller.initialize_project(
+        "Build a browser-only flashcard study tracker with CSV import, localStorage, filters, delete, and CSV export.",
+        project_root=str(project_root),
+    )
+    frozen = Artifact(
+        id="artifact-frozen-requirement",
+        project_id=state.project.id,
+        workitem_id="workitem-requirement",
+        agent_id="agent-requirement-designer",
+        kind="frozen_requirement_spec",
+        title="Frozen Requirement",
+        content=(
+            "Build a browser-only flashcard study tracker. "
+            "Users can add flashcards with question, answer, topic, and status; "
+            "filter by topic and status; persist data after refresh using localStorage; "
+            "delete cards; export CSV; import a CSV file of cards and show imported rows in the UI; "
+            "no backend and no login."
+        ),
+    )
+    workitem = WorkItem(
+        id="workitem-ui",
+        description="Implement browser-only flashcard UI with CSV import",
+        stage="development",
+        kind="ui_implementation",
+    )
+    state = replace(state, workitems=[workitem], artifacts=[frozen])
+    state_store.save_state(state)
+    agent = Agent(
+        id="agent-frontend",
+        role="frontend_engineer",
+        capabilities=[Capability.CODING],
+        backend="mock",
+        execution_backend="mock",
+    )
+
+    execution = runner.run(state.project.id, workitem, agent)
+
+    assert execution.status == ExecutionStatus.SUCCESS
+    assert execution.validation_success is True
+    assert 'id="importCsv"' in (project_root / "index.html").read_text(encoding="utf-8")
+    assert "Browser file import processed sample file" in execution.cli_stdout_tail
 
 
 def test_runner_code_execution_allows_no_tests_until_testing_stage(monkeypatch) -> None:

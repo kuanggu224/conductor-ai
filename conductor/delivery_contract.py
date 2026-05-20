@@ -13,12 +13,15 @@ def build_delivery_contract(
     is_rework: bool = False,
 ) -> dict[str, object]:
     """Return the explicit stage-level contract an Agent must satisfy."""
+    required_kinds = list(dict.fromkeys(required_input_kinds or []))
     guardrails = [
         "Treat the frozen requirement as the controlling scope contract.",
         "Cite the input artifact ids that shaped the result.",
         "Do not add unrelated features, files, dependencies, or architecture.",
         "If the task is blocked, return failure with a precise blocked_reason instead of inventing output.",
     ]
+    if "frozen_design_spec" in required_kinds:
+        guardrails.insert(1, "Treat the frozen design as the controlling implementation and testing baseline.")
     if is_rework:
         guardrails.insert(1, "Fix only the referenced feedback and preserve existing accepted behavior.")
     return {
@@ -26,10 +29,10 @@ def build_delivery_contract(
         "kind": kind,
         "role": role,
         "required_input_artifact_ids": list(dict.fromkeys(required_input_artifact_ids or [])),
-        "required_input_kinds": list(dict.fromkeys(required_input_kinds or [])),
+        "required_input_kinds": required_kinds,
         "expected_outputs": expected_outputs_for(stage, kind),
         "guardrails": guardrails,
-        "verification_focus": verification_focus_for(stage, kind, is_rework=is_rework),
+        "verification_focus": verification_focus_for(stage, kind, required_input_kinds=required_kinds, is_rework=is_rework),
     }
 
 
@@ -63,9 +66,18 @@ def expected_outputs_for(stage: str, kind: str) -> list[str]:
     return ["A concise artifact that satisfies the WorkItem acceptance criteria."]
 
 
-def verification_focus_for(stage: str, kind: str, *, is_rework: bool = False) -> list[str]:
+def verification_focus_for(
+    stage: str,
+    kind: str,
+    *,
+    required_input_kinds: list[str] | None = None,
+    is_rework: bool = False,
+) -> list[str]:
     """Return verification focus points for one stage/kind pair."""
+    required_kinds = set(required_input_kinds or [])
     focus = ["WorkItem acceptance criteria", "Frozen requirement coverage"]
+    if "frozen_design_spec" in required_kinds:
+        focus.append("Frozen design coverage")
     if stage == "development":
         focus.extend(["Scope boundary preservation", "Runnable or inspectable implementation output"])
     if stage == "testing":

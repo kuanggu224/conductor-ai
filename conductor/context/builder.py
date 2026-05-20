@@ -55,10 +55,14 @@ class ContextBuilder:
         frozen_requirement_artifacts = [
             artifact for artifact in previous_artifacts if artifact.kind == "frozen_requirement_spec"
         ]
+        frozen_design_artifacts = [
+            artifact for artifact in previous_artifacts if artifact.kind == "frozen_design_spec"
+        ]
         lineage_seed_ids = {
             *explicit_artifact_ids,
             *[artifact.id for artifact in dependency_artifacts],
             *[artifact.id for artifact in frozen_requirement_artifacts],
+            *[artifact.id for artifact in frozen_design_artifacts],
         }
         lineage_artifacts = self._lineage_artifacts(previous_artifacts, lineage_seed_ids)
         design_artifacts = [
@@ -73,6 +77,7 @@ class ContextBuilder:
         ]
         priority = [
             *frozen_requirement_artifacts,
+            *frozen_design_artifacts,
             *explicit_artifacts,
             *dependency_artifacts,
             *lineage_artifacts,
@@ -127,6 +132,8 @@ class ContextBuilder:
         """根据产物类型推断来源阶段。"""
         if kind in {"requirement_spec", "frozen_requirement_spec"}:
             return "requirement"
+        if kind == "frozen_design_spec":
+            return "design"
         if "design" in kind:
             return "design"
         if "test" in kind or "validation" in kind or kind == "acceptance_check":

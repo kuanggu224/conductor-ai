@@ -140,6 +140,60 @@ def test_testing_failure_feedback_suggests_delete_fix_for_missing_delete_coverag
     assert "\u68c0\u67e5\u5220\u9664/\u79fb\u9664\u6309\u94ae\u4e8b\u4ef6\u7ed1\u5b9a" in markdown
 
 
+def test_testing_failure_feedback_suggests_file_import_fix() -> None:
+    workitem = WorkItem(
+        id="workitem-file-import",
+        description="Acceptance check",
+        stage="testing",
+        kind="acceptance_check",
+        failure_summary="Requirement coverage missing: file import/upload",
+        testing_checklist=[
+            {
+                "rule_id": "file_import",
+                "label": "file import/upload",
+                "status": "pending",
+                "requirement_terms": ["import"],
+                "required_evidence_terms": ["browser file import processed sample file"],
+            }
+        ],
+    )
+
+    feedback = build_testing_failure_feedback(workitem, [])
+    markdown = feedback.render_markdown()
+
+    assert feedback.missing_coverage == ["file import/upload"]
+    assert feedback.missing_checklist_items[0]["rule_id"] == "file_import"
+    assert "browser file import processed sample file" in markdown
+    assert "Check file selection, import/upload handlers" in markdown
+
+
+def test_testing_failure_feedback_suggests_api_validation_fix() -> None:
+    workitem = WorkItem(
+        id="workitem-api-validation",
+        description="Acceptance check",
+        stage="testing",
+        kind="api_validation",
+        failure_summary="Requirement coverage missing: API endpoint behavior",
+        testing_checklist=[
+            {
+                "rule_id": "api_behavior",
+                "label": "API endpoint behavior",
+                "status": "pending",
+                "requirement_terms": ["api"],
+                "required_evidence_terms": ["api validation exercised endpoint behavior"],
+            }
+        ],
+    )
+
+    feedback = build_testing_failure_feedback(workitem, [])
+    markdown = feedback.render_markdown()
+
+    assert feedback.missing_coverage == ["API endpoint behavior"]
+    assert feedback.missing_checklist_items[0]["rule_id"] == "api_behavior"
+    assert "api validation exercised endpoint behavior" in markdown
+    assert "Check API route wiring" in markdown
+
+
 def test_testing_feedback_for_rework_follows_feedback_from_testing_workitem() -> None:
     failed_test = WorkItem(
         id="workitem-ui-test",

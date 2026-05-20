@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from conductor.agents.registry import AgentRegistry
@@ -12,6 +13,7 @@ from conductor.collaboration.runner import CollaborationRunner
 from conductor.control.human import HumanControlService
 from conductor.controller.tl_agent import TechnicalLeadAgent
 from conductor.context.builder import ContextBuilder
+from conductor.design_quality import evaluate_design_document
 from conductor.domain.models import (
     AgentActivation,
     AgentCapabilityStats,
@@ -41,6 +43,7 @@ class LeadController:
     """Advance a project through workflow stages using explicit shared state."""
 
     MAX_REQUIREMENT_REWORK_DEPTH = 1
+    MAX_DESIGN_REWORK_DEPTH = 1
     MAX_TEST_FEEDBACK_REWORK_CYCLES = 2
     MAX_FAILURE_REWORK_DEPTH = 1
 
@@ -259,6 +262,13 @@ class LeadController:
                 collaboration_id=collaboration.id,
                 reason=reason,
             )
+        if failed_workitem and failed_workitem.kind == "design_overview":
+            return self._create_design_rework_from_collaboration_gate(
+                project_id=project_id,
+                failed_workitem=failed_workitem,
+                collaboration_id=collaboration.id,
+                reason=reason,
+            )
         assignment = self._assignment_for(latest, workitem_id)
         if assignment:
             output_artifact_ids = [
@@ -285,10 +295,18 @@ class LeadController:
         state = self.state_store.get_state(project_id)
         workitem = next((item for item in state.workitems if item.id == workitem_id), None)
         base = f"Collaboration gate did not accept requirement/design draft: {collaboration.status.value}"
-        if workitem is None or workitem.kind != "requirement_spec":
+        if workitem is None:
             return base
         latest_draft = collaboration.draft_versions[-1].content if collaboration.draft_versions else ""
         if not latest_draft:
+            return base
+        if workitem.kind == "design_overview":
+            evaluation = evaluate_design_document(latest_draft)
+            if evaluation.passed:
+                return base
+            findings = "; ".join(evaluation.findings) or "design quality gate failed"
+            return f"{base}. Design quality findings: {findings}"
+        if workitem.kind != "requirement_spec":
             return base
         case = build_requirement_case_from_text(project_id, state.project.goal, name="project_requirement")
         evaluation = evaluate_requirement_document(latest_draft, case)
@@ -296,6 +314,128 @@ class LeadController:
             return base
         findings = "; ".join(evaluation.findings) or "requirement quality gate failed"
         return f"{base}. Requirement quality findings: {findings}"
+
+    def _create_design_rework_from_collaboration_gate(
+        self,
+        *,
+        project_id: str,
+        failed_workitem: WorkItem,
+        collaboration_id: str,
+        reason: str,
+    ) -> SharedProjectState:
+        """Create a design rework WorkItem instead of blocking on weak design output."""
+        latest = self.state_store.get_state(project_id)
+        if self._has_existing_design_rework(latest, failed_workitem.id):
+            return self.state_store.get_state(project_id)
+        rework_depth = self._design_rework_depth(latest, failed_workitem)
+        if rework_depth >= self.MAX_DESIGN_REWORK_DEPTH:
+            return self._block_design_rework_exhausted(
+                project_id=project_id,
+                failed_workitem=failed_workitem,
+                collaboration_id=collaboration_id,
+                reason=reason,
+                rework_depth=rework_depth,
+            )
+        output_artifact_ids = [
+            artifact.id for artifact in latest.artifacts if artifact.workitem_id == failed_workitem.id
+        ]
+        rework_item = WorkItem(
+            id=self._next_workitem_id(latest, []),
+            description=(
+                f"根据设计协作/质量门禁反馈返工 `{failed_workitem.id}`：{failed_workitem.description}\n\n"
+                f"门禁原因: {failed_workitem.failure_summary or reason}\n"
+                "要求：补齐需求追踪、范围边界、架构/模块方案、数据与状态、验收测试、风险假设，"
+                "并重新接受多角色评审后生成冻结设计规格。"
+            ),
+            stage="design",
+            kind="design_overview",
+            dependencies=list(failed_workitem.dependencies),
+            input_artifact_ids=output_artifact_ids,
+            acceptance_criteria=[
+                f"修复设计门禁失败 {failed_workitem.id}",
+                "产出可冻结的总体设计规格",
+                "设计质量评分达到阈值并通过协作评审",
+                "不扩展冻结需求定义之外的范围",
+            ],
+            feedback_from=[failed_workitem.id],
+            rework_of=failed_workitem.id,
+        )
+        assignments = self._build_task_assignments([rework_item], latest)
+        updated_workitems = [
+            replace(item, status=WorkItemStatus.DONE, blocked_reason="设计门禁失败已转入返工 WorkItem")
+            if item.id == failed_workitem.id
+            else item
+            for item in latest.workitems
+        ]
+        latest_state = replace(
+            latest,
+            workitems=[*updated_workitems, rework_item],
+            task_assignments=[*latest.task_assignments, *assignments],
+            planned_roles=list(dict.fromkeys([*latest.planned_roles, "designer"])),
+            recent_events=[
+                *latest.recent_events,
+                f"设计门禁返工: {failed_workitem.id} -> {rework_item.id}, collaboration={collaboration_id}",
+            ],
+        )
+        self.state_store.save_state(latest_state)
+        assignment = self._assignment_for(latest_state, failed_workitem.id)
+        if assignment:
+            self.state_store.upsert_task_assignment(
+                project_id,
+                replace(
+                    assignment,
+                    status=TaskAssignmentStatus.FAILED,
+                    output_artifact_ids=output_artifact_ids,
+                    blocked_reason=reason,
+                    result_summary=f"Design gate rework created: {rework_item.id}",
+                ),
+            )
+        return self.state_store.get_state(project_id)
+
+    def _block_design_rework_exhausted(
+        self,
+        *,
+        project_id: str,
+        failed_workitem: WorkItem,
+        collaboration_id: str,
+        reason: str,
+        rework_depth: int,
+    ) -> SharedProjectState:
+        """Block the project when design rework keeps failing."""
+        latest = self.state_store.get_state(project_id)
+        output_artifact_ids = [
+            artifact.id for artifact in latest.artifacts if artifact.workitem_id == failed_workitem.id
+        ]
+        blocker = (
+            f"设计门禁连续返工仍未通过: {failed_workitem.id}, "
+            f"depth={rework_depth}, max={self.MAX_DESIGN_REWORK_DEPTH}, "
+            f"collaboration={collaboration_id}"
+        )
+        assignment = self._assignment_for(latest, failed_workitem.id)
+        assignments = latest.task_assignments
+        if assignment:
+            assignments = [
+                replace(
+                    item,
+                    status=TaskAssignmentStatus.FAILED,
+                    output_artifact_ids=output_artifact_ids,
+                    blocked_reason=reason,
+                    result_summary=blocker,
+                )
+                if item.workitem_id == failed_workitem.id
+                else item
+                for item in latest.task_assignments
+            ]
+        blocked_state = replace(
+            latest,
+            project=replace(latest.project, status=ProjectStatus.BLOCKED),
+            project_status=ProjectStatus.BLOCKED,
+            task_assignments=assignments,
+            blockers=[*latest.blockers, blocker],
+            recent_events=[*latest.recent_events, f"设计门禁返工上限触发: {blocker}"],
+        )
+        self.state_store.save_state(blocked_state)
+        return blocked_state
 
     def _create_requirement_rework_from_collaboration_gate(
         self,
@@ -424,6 +564,15 @@ class LeadController:
             for item in state.workitems
         )
 
+    def _has_existing_design_rework(self, state: SharedProjectState, failed_workitem_id: str) -> bool:
+        """Return whether a design WorkItem already has a rework child."""
+        return any(
+            item.stage == "design"
+            and item.kind == "design_overview"
+            and failed_workitem_id in item.feedback_from
+            for item in state.workitems
+        )
+
     def _requirement_rework_depth(self, state: SharedProjectState, workitem: WorkItem) -> int:
         """Return how many requirement rework hops led to this WorkItem."""
         by_id = {item.id: item for item in state.workitems}
@@ -438,6 +587,10 @@ class LeadController:
             depth += 1
             current = parent
         return depth
+
+    def _design_rework_depth(self, state: SharedProjectState, workitem: WorkItem) -> int:
+        """Return how many design rework hops led to this WorkItem."""
+        return self._requirement_rework_depth(state, workitem)
 
     def _retry_failed_workitem(self, state: SharedProjectState) -> SharedProjectState:
         project_id = state.project.id
@@ -590,6 +743,7 @@ class LeadController:
             input_artifact_ids = list(dict.fromkeys([*failed_artifact_ids, *original_artifact_ids]))
             failed_artifacts = [artifact for artifact in latest.artifacts if artifact.id in failed_artifact_ids]
             feedback = build_testing_failure_feedback(failed, failed_artifacts)
+            checklist_acceptance_criteria = self._feedback_rework_acceptance_criteria(feedback)
             rework_items.append(
                 WorkItem(
                     id=self._next_workitem_id(latest, [*rework_items]),
@@ -605,6 +759,7 @@ class LeadController:
                     dependencies=self._development_dependency_ids_for_feedback(latest, target_kind),
                     acceptance_criteria=[
                         f"修复测试反馈 {failed.id}",
+                        *checklist_acceptance_criteria,
                         "明确引用失败测试产物和原始实现产物",
                         "保持冻结需求和设计产物定义的范围边界",
                         "完成后重新进入测试阶段验证",
@@ -657,6 +812,26 @@ class LeadController:
         )
         self.state_store.save_state(latest_state)
         return latest_state
+
+    def _feedback_rework_acceptance_criteria(self, feedback) -> list[str]:
+        """Build rework acceptance criteria from missing testing checklist evidence."""
+        criteria: list[str] = []
+        for item in feedback.missing_checklist_items:
+            if not isinstance(item, dict):
+                continue
+            rule_id = str(item.get("rule_id", "")).strip()
+            label = str(item.get("label", "")).strip()
+            evidence_terms = [
+                str(value).strip()
+                for value in item.get("required_evidence_terms", []) or []
+                if str(value).strip()
+            ]
+            if not rule_id and not evidence_terms:
+                continue
+            evidence = ", ".join(evidence_terms) if evidence_terms else "explicit validation evidence"
+            name = f"`{rule_id}` {label}".strip() if rule_id else label
+            criteria.append(f"Address missing testing checklist {name}: produce evidence {evidence}")
+        return criteria
 
     def _create_failure_rework(self, project_id: str) -> SharedProjectState:
         """Create executable same-stage rework tasks for exhausted retryable failures."""
@@ -1069,6 +1244,28 @@ class LeadController:
                 return assignment
         return None
 
+    def _assignment_with_transition(
+        self,
+        assignment: TaskAssignment,
+        *,
+        action: str,
+        status: TaskAssignmentStatus,
+        agent_id: str = "",
+        reason: str = "",
+        details: dict[str, object] | None = None,
+    ) -> TaskAssignment:
+        """Append a Task Center transition for controller-owned internal execution."""
+        record: dict[str, object] = {
+            "at": datetime.now(timezone.utc).isoformat(),
+            "action": action,
+            "status": status.value,
+            "agent_id": agent_id,
+            "reason": reason,
+        }
+        if details:
+            record["details"] = details
+        return replace(assignment, transition_history=[*assignment.transition_history, record])
+
     def _claim_assignment(self, project_id: str, workitem: WorkItem, agent_id: str) -> None:
         """Mark a Task Center assignment as claimed by an Agent."""
         latest = self.state_store.get_state(project_id)
@@ -1077,15 +1274,20 @@ class LeadController:
         if assignment is None:
             assignment = self._build_task_assignments([workitem], latest)[0]
             self.state_store.upsert_task_assignment(project_id, assignment)
-        self.state_store.upsert_task_assignment(
-            project_id,
-            replace(
-                assignment,
-                status=TaskAssignmentStatus.CLAIMED,
-                assigned_agent_id=agent_id,
-                input_artifact_ids=input_artifact_ids,
-            ),
+        updated = replace(
+            assignment,
+            status=TaskAssignmentStatus.CLAIMED,
+            assigned_agent_id=agent_id,
+            input_artifact_ids=input_artifact_ids,
         )
+        updated = self._assignment_with_transition(
+            updated,
+            action="claim",
+            status=TaskAssignmentStatus.CLAIMED,
+            agent_id=agent_id,
+            reason=assignment.claim_reason,
+        )
+        self.state_store.upsert_task_assignment(project_id, updated)
         self.state_store.add_event(project_id, f"任务中心: {agent_id} 领取 {workitem.id}")
 
     def _return_assignment(self, project_id: str, workitem_id: str, execution: Execution) -> SharedProjectState:
@@ -1097,13 +1299,34 @@ class LeadController:
             workitem = next((item for item in latest.workitems if item.id == workitem_id), None)
             if workitem is not None:
                 self.state_store.upsert_task_assignment(project_id, self._build_task_assignments([workitem], latest)[0])
-        self.state_store.update_task_assignment(
-            project_id,
-            workitem_id,
-            assignment_status,
-            output_artifact_ids=output_artifact_ids,
-            result_summary=execution.result[:240],
-        )
+        latest = self.state_store.get_state(project_id)
+        assignment = self._assignment_for(latest, workitem_id)
+        if assignment is not None:
+            updated_assignment = replace(
+                assignment,
+                status=assignment_status,
+                output_artifact_ids=output_artifact_ids,
+                result_summary=execution.result[:240],
+                blocked_reason=(
+                    execution.failure_summary or execution.result[:240]
+                    if assignment_status == TaskAssignmentStatus.FAILED
+                    else assignment.blocked_reason
+                ),
+                returned_at=datetime.now(timezone.utc).isoformat(),
+            )
+            updated_assignment = self._assignment_with_transition(
+                updated_assignment,
+                action="return",
+                status=assignment_status,
+                agent_id=execution.agent_id,
+                reason=execution.failure_summary or execution.result[:240],
+                details={
+                    "result_summary": execution.result[:240],
+                    "output_artifact_ids": output_artifact_ids,
+                    "failure_type": execution.failure_type,
+                },
+            )
+            self.state_store.upsert_task_assignment(project_id, updated_assignment)
         latest = self.state_store.get_state(project_id)
         current_status = self._workitem_status(latest, workitem_id)
         if current_status is not None:
@@ -1213,7 +1436,12 @@ class LeadController:
         plan = self.tl_agent.plan_agent_team(state, self.agent_team_planner, trigger=trigger)
         if not plan.agent_specs:
             return state
-        activations = [self._activation_from_dynamic_spec(spec) for spec in plan.agent_specs]
+        existing_agent_ids = {activation.agent_id for activation in state.agent_activations}
+        activations = [
+            self._activation_from_dynamic_spec(spec)
+            for spec in plan.agent_specs
+            if spec.agent_id not in existing_agent_ids
+        ]
         for spec in plan.agent_specs:
             self._register_dynamic_agent(spec)
         roles = list(dict.fromkeys([*state.planned_roles, *[spec.role for spec in plan.agent_specs]]))

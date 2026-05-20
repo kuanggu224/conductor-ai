@@ -210,7 +210,11 @@ def test_collaboration_runner_collects_all_reviews_before_revision(tmp_path) -> 
     }
     assert [item.phase for item in round_one_reviews[:2]] == ["design_peer_review", "design_peer_review"]
     assert all(item.decision == ReviewDecision.REQUEST_CHANGES for item in round_one_reviews)
-    assert collaboration.status in {CollaborationStatus.ACCEPTED, CollaborationStatus.MAX_ROUNDS_REACHED}
+    assert collaboration.status in {
+        CollaborationStatus.ACCEPTED,
+        CollaborationStatus.MAX_ROUNDS_REACHED,
+        CollaborationStatus.FAILED,
+    }
     assert collaboration.final_artifact_id == "artifact-collaboration-workitem-001"
     assert len(collaboration.draft_versions) >= 2
     assert collaboration.draft_versions[0].version == 1
@@ -551,6 +555,150 @@ def test_requirement_final_arbitration_accepts_resolved_last_revision(tmp_path) 
     ]
     assert any(artifact.kind == "frozen_requirement_spec" for artifact in latest.artifacts)
     assert any("Requirement final arbitration" in event for event in latest.recent_events)
+
+
+def test_design_collaboration_creates_frozen_design_spec_when_accepted(tmp_path) -> None:
+    state_store = InMemoryStateStore()
+    registry = AgentRegistry()
+    artifact_store = ArtifactStore(tmp_path)
+    runner = CollaborationRunner(
+        state_store=state_store,
+        registry=registry,
+        artifact_store=artifact_store,
+        policy=CollaborationPolicy(
+            enabled=True,
+            max_rounds=1,
+            lead_role_by_stage={"design": "designer"},
+            peer_reviewer_roles_by_stage={"design": ["solution_designer"]},
+            reviewer_roles_by_stage={"design": []},
+            enabled_kinds={"design_overview"},
+        ),
+        require_real_outputs=True,
+        use_llm=False,
+        llm_harness=FakeApprovalLLMHarness(),
+        llm_harness_config=LLMHTTPConfig(
+            base_url="http://127.0.0.1:1234/v1",
+            model_name="reviewer-model",
+            enabled=True,
+        ),
+    )
+    workitem = WorkItem(
+        id="workitem-design-freeze",
+        description="形成总体设计",
+        stage="design",
+        kind="design_overview",
+    )
+    draft = artifact_store.save_markdown(
+        Artifact(
+            id="artifact-design-freeze",
+            project_id="project-design-freeze",
+            workitem_id=workitem.id,
+            agent_id="agent-designer",
+            kind="design_overview",
+            title="总体设计草案",
+            content=(
+                "# 总体设计\n\n"
+                "## 目标\n交付个人读书清单静态 Web 应用。\n\n"
+                "## 需求理解\n用户需要新增书名、作者、阅读状态和评分，并能筛选和导出 CSV。\n\n"
+                "## 范围边界\n范围是本地单用户页面；非目标是不接后端、不做登录。\n\n"
+                "## 方案\n架构由页面组件、列表模块、CSV 导出模块组成，接口边界是浏览器本地事件。\n\n"
+                "## 数据与状态\n字段包括 title、author、status、rating，状态存储在 localStorage。\n\n"
+                "## 验收与测试\n测试新增、筛选、导出、刷新保留数据，以及空输入异常错误。\n\n"
+                "## 风险与假设\n风险是 localStorage 被清理；假设只支持单浏览器。"
+            ),
+            source_backend="llm_harness/reviewer-model",
+        )
+    )
+    state_store.save_state(
+        SharedProjectState(
+            project=Project(
+                id="project-design-freeze",
+                goal="实现个人读书清单 Web 应用",
+                current_stage="design",
+                project_root=str(tmp_path),
+            ),
+            project_status=ProjectStatus.IN_PROGRESS,
+            current_stage="design",
+            workitems=[workitem],
+            artifacts=[draft],
+        )
+    )
+
+    collaboration = runner.run_review_loop("project-design-freeze", workitem, draft)
+    latest = state_store.get_state("project-design-freeze")
+    frozen = next(artifact for artifact in latest.artifacts if artifact.kind == "frozen_design_spec")
+
+    assert collaboration.status == CollaborationStatus.ACCEPTED
+    assert frozen.parent_artifact_id == "artifact-collaboration-workitem-design-freeze"
+    assert frozen.review_of == "artifact-workitem-design-freeze"
+    assert "后续开发、测试必须以本冻结设计规格作为实现基线" in frozen.content
+    assert any("冻结设计规格" in event for event in latest.recent_events)
+
+
+def test_design_quality_gate_can_fail_approved_but_weak_draft(tmp_path) -> None:
+    state_store = InMemoryStateStore()
+    registry = AgentRegistry()
+    artifact_store = ArtifactStore(tmp_path)
+    runner = CollaborationRunner(
+        state_store=state_store,
+        registry=registry,
+        artifact_store=artifact_store,
+        policy=CollaborationPolicy(
+            enabled=True,
+            max_rounds=1,
+            lead_role_by_stage={"design": "designer"},
+            peer_reviewer_roles_by_stage={"design": ["solution_designer"]},
+            reviewer_roles_by_stage={"design": []},
+            enabled_kinds={"design_overview"},
+        ),
+        require_real_outputs=True,
+        use_llm=False,
+        llm_harness=FakeApprovalLLMHarness(),
+        llm_harness_config=LLMHTTPConfig(
+            base_url="http://127.0.0.1:1234/v1",
+            model_name="reviewer-model",
+            enabled=True,
+        ),
+    )
+    workitem = WorkItem(
+        id="workitem-weak-design",
+        description="形成总体设计",
+        stage="design",
+        kind="design_overview",
+    )
+    draft = artifact_store.save_markdown(
+        Artifact(
+            id="artifact-weak-design",
+            project_id="project-weak-design",
+            workitem_id=workitem.id,
+            agent_id="agent-designer",
+            kind="design_overview",
+            title="总体设计草案",
+            content="可以做一个页面。",
+            source_backend="llm_harness/reviewer-model",
+        )
+    )
+    state_store.save_state(
+        SharedProjectState(
+            project=Project(
+                id="project-weak-design",
+                goal="实现个人读书清单 Web 应用",
+                current_stage="design",
+                project_root=str(tmp_path),
+            ),
+            project_status=ProjectStatus.IN_PROGRESS,
+            current_stage="design",
+            workitems=[workitem],
+            artifacts=[draft],
+        )
+    )
+
+    collaboration = runner.run_review_loop("project-weak-design", workitem, draft)
+    latest = state_store.get_state("project-weak-design")
+
+    assert collaboration.status == CollaborationStatus.FAILED
+    assert not any(artifact.kind == "frozen_design_spec" for artifact in latest.artifacts)
+    assert any("设计质量门禁未通过" in event for event in latest.recent_events)
 
 
 def test_requirement_mock_revision_can_pass_offline_smoke_gate(tmp_path) -> None:

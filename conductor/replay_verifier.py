@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -69,6 +70,10 @@ class ManifestVerifier:
         "llm_run_count": "llm_runs",
         "collaboration_run_count": "collaboration_runs",
         "retry_history_count": "retry_history",
+        "agent_team_plan_count": "agent_team_plans",
+        "tl_decision_count": "tl_decisions",
+        "human_control_action_count": "human_control_actions",
+        "task_center_audit_finding_count": "task_center_audit",
     }
 
     CURSOR_WORKITEM_LISTS = (
@@ -157,12 +162,24 @@ class ManifestVerifier:
             "llm_runs",
             "collaboration_runs",
             "retry_history",
+            "agent_team_plans",
+            "tl_decisions",
+            "human_control_actions",
             "task_assignments",
+            "task_center_audit",
             "selected_cli_names",
         ):
             if key in payload and not isinstance(payload.get(key), list):
                 result.errors.append(f"{key} must be a list")
-        for key in ("summary", "resume_cursor", "files", "role_cli_bindings", "delivery_readiness"):
+        for key in (
+            "summary",
+            "resume_cursor",
+            "files",
+            "role_cli_bindings",
+            "delivery_readiness",
+            "run_options",
+            "pre_run_maintenance",
+        ):
             if key in payload and not isinstance(payload.get(key), dict):
                 result.errors.append(f"{key} must be an object")
         self._verify_cli_config(payload, result)
@@ -228,9 +245,11 @@ class ManifestVerifier:
         self._verify_summary_blockers(summary, self._dict(payload.get("resume_cursor")), result)
         self._verify_summary_validation_failure_count(summary, self._list(payload.get("executions")), result)
         self._verify_requirement_quality_score(summary, self._list(payload.get("requirement_evaluations")), result)
+        self._verify_design_quality_score(summary, self._list(payload.get("design_evaluations")), result)
         self._verify_requirement_coverage_status(summary, self._list(payload.get("requirement_coverage_results")), result)
         self._verify_scope_contract_summary(summary, self._list(payload.get("scope_contract_results")), result)
         self._verify_delivery_readiness_summary(summary, self._dict(payload.get("delivery_readiness")), result)
+        self._verify_task_center_audit_summary(summary, self._list(payload.get("task_center_audit")), result)
         self._verify_llm_context_windows(summary, self._list(payload.get("llm_runs")), result)
         self._verify_summary_llm_identity_lists(summary, self._list(payload.get("llm_runs")), result)
 
@@ -428,6 +447,31 @@ class ManifestVerifier:
                 f"summary.requirement_quality_score={actual} does not match max(requirement_evaluations.score)={expected}"
             )
 
+    def _verify_design_quality_score(
+        self,
+        summary: dict[str, Any],
+        design_evaluations: list[Any],
+        result: ManifestVerificationResult,
+    ) -> None:
+        if "design_quality_score" not in summary:
+            return
+        actual = self._as_int(summary.get("design_quality_score"))
+        if actual is None:
+            result.errors.append("summary.design_quality_score must be an integer")
+            return
+        scores = [
+            parsed
+            for evaluation in design_evaluations
+            if isinstance(evaluation, dict)
+            for parsed in [self._as_int(evaluation.get("score"))]
+            if parsed is not None
+        ]
+        expected = max(scores, default=0)
+        if actual != expected:
+            result.errors.append(
+                f"summary.design_quality_score={actual} does not match max(design_evaluations.score)={expected}"
+            )
+
     def _verify_requirement_coverage_status(
         self,
         summary: dict[str, Any],
@@ -593,6 +637,17 @@ class ManifestVerifier:
                 ]
             ),
             "stale_claimed": len([item for item in task_assignments if isinstance(item, dict) and item.get("stale_claimed") is True]),
+            "lease_expired": len([item for item in task_assignments if isinstance(item, dict) and item.get("lease_expired") is True]),
+            "blocked_by_write_scope": len(
+                [
+                    item
+                    for item in task_assignments
+                    if isinstance(item, dict)
+                    and str(item.get("status", "")) == "queued"
+                    and not bool(self._string_list(item.get("unmet_dependency_ids", [])))
+                    and bool(self._string_list(item.get("write_scope_conflict_assignment_ids", [])))
+                ]
+            ),
         }
         for assignment in task_assignments:
             if not isinstance(assignment, dict):
@@ -609,6 +664,40 @@ class ManifestVerifier:
             elif actual != expected:
                 result.errors.append(
                     f"summary.task_center_summary.{summary_key}={actual} does not match task_assignments={expected}"
+                )
+
+    def _verify_task_center_audit_summary(
+        self,
+        summary: dict[str, Any],
+        task_center_audit: list[Any],
+        result: ManifestVerificationResult,
+    ) -> None:
+        """Verify Task Center audit severity counts archived in the run summary."""
+        severity_counts = {
+            "task_center_audit_error_count": len(
+                [
+                    finding
+                    for finding in task_center_audit
+                    if isinstance(finding, dict) and str(finding.get("severity", "")) == "error"
+                ]
+            ),
+            "task_center_audit_warning_count": len(
+                [
+                    finding
+                    for finding in task_center_audit
+                    if isinstance(finding, dict) and str(finding.get("severity", "")) == "warning"
+                ]
+            ),
+        }
+        for summary_key, expected in severity_counts.items():
+            if summary_key not in summary:
+                continue
+            actual = self._as_int(summary.get(summary_key))
+            if actual is None:
+                result.errors.append(f"summary.{summary_key} must be an integer")
+            elif actual != expected:
+                result.errors.append(
+                    f"summary.{summary_key}={actual} does not match task_center_audit={expected}"
                 )
 
     def _verify_summary_blockers(
@@ -687,7 +776,15 @@ class ManifestVerifier:
         if final_status == "blocked" and cursor.get("blocked") is not True:
             result.errors.append("blocked manifest must have resume_cursor.blocked=true")
         if final_status != "blocked" and cursor.get("blocked") is True:
-            result.errors.append("non-blocked manifest cannot have resume_cursor.blocked=true")
+            terminal_failed_ids = self._string_list(cursor.get("terminal_failed_workitem_ids"))
+            blocker_reasons = self._string_list(cursor.get("blockers"))
+            blocked_resume_is_actionable = (
+                final_status == "in_progress"
+                and next_action in {"blocked", "human_hold"}
+                and (terminal_failed_ids or blocker_reasons)
+            )
+            if not blocked_resume_is_actionable:
+                result.errors.append("non-blocked manifest cannot have resume_cursor.blocked=true")
         if "blockers" in cursor and not isinstance(cursor.get("blockers"), list):
             result.warnings.append("resume_cursor.blockers must be a list")
 
@@ -697,6 +794,14 @@ class ManifestVerifier:
             for item in self._list(payload.get("workitems"))
             if isinstance(item, dict) and str(item.get("id", ""))
         }
+        self._verify_resume_cursor_human_control(
+            cursor,
+            self._list(payload.get("human_control_actions")),
+            project_id,
+            workitem_ids,
+            next_action,
+            result,
+        )
         for cursor_key in self.CURSOR_WORKITEM_LISTS:
             if cursor_key in cursor and not isinstance(cursor.get(cursor_key), list):
                 result.warnings.append(f"resume_cursor.{cursor_key} must be a list")
@@ -720,6 +825,59 @@ class ManifestVerifier:
             result.errors.append(
                 f"resume_cursor.last_execution_workitem_id references unknown WorkItem: {last_execution_workitem_id}"
             )
+
+    def _verify_resume_cursor_human_control(
+        self,
+        cursor: dict[str, Any],
+        human_control_actions: list[Any],
+        project_id: str,
+        workitem_ids: set[str],
+        next_action: str,
+        result: ManifestVerificationResult,
+    ) -> None:
+        if "active_human_control_action" not in cursor:
+            return
+        raw_active = cursor.get("active_human_control_action")
+        if raw_active in (None, ""):
+            active: dict[str, Any] = {}
+        elif not isinstance(raw_active, dict):
+            result.errors.append("resume_cursor.active_human_control_action must be an object")
+            return
+        else:
+            active = raw_active
+        expected = self._expected_active_human_control_action(human_control_actions)
+        active_id = str(active.get("id", "")) if active else ""
+        expected_id = str(expected.get("id", "")) if expected else ""
+        if active_id != expected_id:
+            result.errors.append(
+                "resume_cursor.active_human_control_action does not match human_control_actions active hold"
+            )
+        if active:
+            if next_action != "human_hold":
+                result.errors.append("resume_cursor.next_action must be human_hold when active_human_control_action is set")
+            active_project_id = str(active.get("project_id", ""))
+            if active_project_id and active_project_id != project_id:
+                result.errors.append("resume_cursor.active_human_control_action.project_id does not match manifest.project_id")
+            workitem_id = str(active.get("workitem_id", ""))
+            if workitem_id and workitem_id not in workitem_ids:
+                result.errors.append(
+                    f"resume_cursor.active_human_control_action references unknown WorkItem: {workitem_id}"
+                )
+        elif next_action == "human_hold":
+            result.errors.append("resume_cursor.next_action=human_hold requires active_human_control_action")
+
+    def _expected_active_human_control_action(self, actions: list[Any]) -> dict[str, Any]:
+        active: dict[str, Any] = {}
+        for action in actions:
+            if not isinstance(action, dict):
+                continue
+            action_type = str(action.get("action", ""))
+            if action_type in {"pause", "request_approval", "reject"}:
+                active = action
+                continue
+            if action_type in {"resume", "approve", "override"}:
+                active = {}
+        return active
 
     def _verify_cursor_workitem_statuses(
         self,
@@ -749,12 +907,38 @@ class ManifestVerifier:
         artifacts = self._list(payload.get("artifacts"))
         executions = self._list(payload.get("executions"))
         task_assignments = self._list(payload.get("task_assignments"))
+        task_center_audit = self._list(payload.get("task_center_audit"))
         retry_history = self._list(payload.get("retry_history"))
         collaboration_runs = self._list(payload.get("collaboration_runs"))
+        agent_team_plans = self._list(payload.get("agent_team_plans"))
+        tl_decisions = self._list(payload.get("tl_decisions"))
+        human_control_actions = self._list(payload.get("human_control_actions"))
         agent_ids = self._agent_ids(payload, result)
 
         workitem_ids = self._ids_with_duplicate_check("workitems", workitems, result)
         artifact_ids = self._ids_with_duplicate_check("artifacts", artifacts, result)
+        task_assignment_ids = self._ids_with_duplicate_check("task_assignments", task_assignments, result)
+        assignment_workitem_ids = {
+            str(assignment.get("id", "")): str(assignment.get("workitem_id", ""))
+            for assignment in task_assignments
+            if isinstance(assignment, dict) and str(assignment.get("id", ""))
+        }
+        self._verify_control_plane_links(
+            project_id,
+            workitem_ids,
+            agent_ids,
+            agent_team_plans,
+            tl_decisions,
+            human_control_actions,
+            result,
+        )
+        self._verify_task_center_audit_links(
+            task_center_audit,
+            task_assignment_ids,
+            workitem_ids,
+            assignment_workitem_ids,
+            result,
+        )
         collaboration_ids = self._id_set(collaboration_runs)
         workitem_statuses = {
             str(item.get("id", "")): str(item.get("status", ""))
@@ -892,12 +1076,19 @@ class ManifestVerifier:
             self._warn_non_list_fields(
                 assignment,
                 f"task assignment {assignment_id}",
-                ("dependencies", "input_artifact_ids", "output_artifact_ids"),
+                (
+                    "dependencies",
+                    "input_artifact_ids",
+                    "output_artifact_ids",
+                    "write_scope_conflict_assignment_ids",
+                    "transition_history",
+                ),
                 result,
             )
             if workitem_id and workitem_id not in workitem_ids:
                 result.errors.append(f"task assignment references unknown WorkItem: {workitem_id}")
             self._verify_task_assignment_workitem_status(assignment, workitem_statuses, result)
+            self._verify_task_assignment_transition_history(assignment, result)
             for dependency_id in self._string_list(assignment.get("dependencies", [])):
                 if dependency_id not in workitem_ids:
                     result.errors.append(
@@ -912,6 +1103,11 @@ class ManifestVerifier:
                 if artifact_id not in artifact_ids:
                     result.warnings.append(
                         f"task assignment {assignment_id} output_artifact_ids is not indexed in artifacts: {artifact_id}"
+                    )
+            for conflict_assignment_id in self._string_list(assignment.get("write_scope_conflict_assignment_ids", [])):
+                if conflict_assignment_id not in task_assignment_ids:
+                    result.errors.append(
+                        f"task assignment {assignment_id} write_scope_conflict_assignment_ids references unknown TaskAssignment: {conflict_assignment_id}"
                     )
 
         for run_list_name in ("cli_runs", "llm_runs"):
@@ -1021,6 +1217,300 @@ class ManifestVerifier:
                     f"collaboration_runs[{index}].reviews[{review_index}].agent_id",
                     result,
                 )
+
+    def _verify_task_assignment_transition_history(
+        self,
+        assignment: dict[str, Any],
+        result: ManifestVerificationResult,
+    ) -> None:
+        """Verify archived TaskAssignment transition history when present."""
+        if "transition_history" not in assignment or not isinstance(assignment.get("transition_history"), list):
+            return
+        assignment_id = str(assignment.get("id", ""))
+        status = str(assignment.get("status", ""))
+        history = self._list(assignment.get("transition_history"))
+        actions: list[str] = []
+        for index, transition in enumerate(history):
+            if not isinstance(transition, dict):
+                result.errors.append(f"task assignment {assignment_id} transition_history[{index}] must be an object")
+                continue
+            action = str(transition.get("action", ""))
+            actions.append(action)
+            if not action:
+                result.errors.append(f"task assignment {assignment_id} transition_history[{index}].action must be non-empty")
+            if action and action not in {"claim", "release", "return", "heartbeat"}:
+                result.warnings.append(
+                    f"task assignment {assignment_id} transition_history[{index}].action is unknown: {action}"
+                )
+            if "details" in transition and not isinstance(transition.get("details"), dict):
+                result.warnings.append(
+                    f"task assignment {assignment_id} transition_history[{index}].details must be an object"
+                )
+        if not history:
+            return
+        latest_action = next((action for action in reversed(actions) if action), "")
+        if status == "claimed":
+            if "claim" not in actions:
+                result.errors.append(f"task assignment {assignment_id} is claimed but transition_history has no claim")
+            if latest_action not in {"claim", "heartbeat"}:
+                result.errors.append(
+                    f"task assignment {assignment_id} status claimed has incompatible latest transition: {latest_action}"
+                )
+        if status in {"completed", "failed"}:
+            if "return" not in actions:
+                result.errors.append(f"task assignment {assignment_id} status {status} has no return transition")
+            if latest_action != "return":
+                result.errors.append(
+                    f"task assignment {assignment_id} status {status} has incompatible latest transition: {latest_action}"
+                )
+        if status == "queued" and latest_action and latest_action not in {"release"}:
+            result.errors.append(
+                f"task assignment {assignment_id} status queued has incompatible latest transition: {latest_action}"
+            )
+        returned_at = str(assignment.get("returned_at", ""))
+        if returned_at:
+            return_transitions = [
+                transition
+                for transition in history
+                if isinstance(transition, dict) and transition.get("action") == "return"
+            ]
+            latest_returned_at = str(return_transitions[-1].get("at", "")) if return_transitions else ""
+            if latest_returned_at and not self._timestamps_match(latest_returned_at, returned_at, tolerance_seconds=1):
+                result.errors.append(
+                    f"task assignment {assignment_id} returned_at does not match latest return transition"
+                )
+
+    def _timestamps_match(self, left: str, right: str, *, tolerance_seconds: int = 0) -> bool:
+        if left == right:
+            return True
+        try:
+            left_dt = datetime.fromisoformat(left)
+            right_dt = datetime.fromisoformat(right)
+        except ValueError:
+            return False
+        return abs((left_dt - right_dt).total_seconds()) <= tolerance_seconds
+
+    def _verify_task_center_audit_links(
+        self,
+        task_center_audit: list[Any],
+        task_assignment_ids: set[str],
+        workitem_ids: set[str],
+        assignment_workitem_ids: dict[str, str],
+        result: ManifestVerificationResult,
+    ) -> None:
+        """Verify Task Center audit findings can be traced back to archived assignments."""
+        for index, finding in enumerate(task_center_audit):
+            if not isinstance(finding, dict):
+                result.errors.append(f"task_center_audit[{index}] must be an object")
+                continue
+            code = str(finding.get("code", ""))
+            severity = str(finding.get("severity", ""))
+            assignment_id = str(finding.get("assignment_id", ""))
+            workitem_id = str(finding.get("workitem_id", ""))
+            if "related_assignment_ids" in finding and not isinstance(finding.get("related_assignment_ids"), list):
+                result.errors.append(f"task_center_audit[{index}].related_assignment_ids must be a list")
+            if not code:
+                result.errors.append(f"task_center_audit[{index}].code must be non-empty")
+            if severity and severity not in {"error", "warning"}:
+                result.errors.append(f"task_center_audit[{index}].severity must be error or warning")
+            if assignment_id and assignment_id not in task_assignment_ids:
+                result.errors.append(
+                    f"task_center_audit[{index}] references unknown TaskAssignment: {assignment_id}"
+                )
+            if workitem_id and workitem_id not in workitem_ids and code != "missing_workitem":
+                result.errors.append(f"task_center_audit[{index}] references unknown WorkItem: {workitem_id}")
+            expected_workitem_id = assignment_workitem_ids.get(assignment_id, "")
+            if expected_workitem_id and workitem_id and workitem_id != expected_workitem_id:
+                result.errors.append(
+                    f"task_center_audit[{index}] workitem_id={workitem_id} does not match "
+                    f"TaskAssignment {assignment_id} workitem_id={expected_workitem_id}"
+                )
+            for related_assignment_id in self._string_list(finding.get("related_assignment_ids", [])):
+                if related_assignment_id not in task_assignment_ids:
+                    result.errors.append(
+                        f"task_center_audit[{index}].related_assignment_ids references unknown TaskAssignment: "
+                        f"{related_assignment_id}"
+                    )
+
+    def _verify_control_plane_links(
+        self,
+        project_id: str,
+        workitem_ids: set[str],
+        agent_ids: set[str],
+        agent_team_plans: list[Any],
+        tl_decisions: list[Any],
+        human_control_actions: list[Any],
+        result: ManifestVerificationResult,
+    ) -> None:
+        """Verify archived control-plane records point at this project and known work."""
+        self._ids_with_duplicate_check("agent_team_plans", agent_team_plans, result)
+        self._ids_with_duplicate_check("tl_decisions", tl_decisions, result)
+        self._ids_with_duplicate_check("human_control_actions", human_control_actions, result)
+        for index, plan in enumerate(agent_team_plans):
+            if not isinstance(plan, dict):
+                continue
+            plan_id = str(plan.get("id", ""))
+            plan_stage = str(plan.get("stage", ""))
+            self._verify_project_scoped_record("agent_team_plans", index, plan, project_id, plan_id, result)
+            self._warn_non_list_fields(plan, f"agent_team_plans[{index}]", ("reasons", "agent_specs"), result)
+            plan_agent_ids: set[str] = set()
+            for spec_index, spec in enumerate(self._list(plan.get("agent_specs", []))):
+                if not isinstance(spec, dict):
+                    result.warnings.append(f"agent_team_plans[{index}].agent_specs[{spec_index}] must be an object")
+                    continue
+                spec_agent_id = str(spec.get("agent_id", ""))
+                spec_stage = str(spec.get("stage", ""))
+                if not spec_agent_id:
+                    result.errors.append(f"agent_team_plans[{index}].agent_specs[{spec_index}].agent_id must be non-empty")
+                elif spec_agent_id in plan_agent_ids:
+                    result.errors.append(
+                        f"agent_team_plans[{index}] contains duplicate agent_spec agent_id: {spec_agent_id}"
+                    )
+                plan_agent_ids.add(spec_agent_id)
+                if plan_stage and spec_stage and spec_stage != plan_stage:
+                    result.errors.append(
+                        f"agent_team_plans[{index}].agent_specs[{spec_index}].stage={spec_stage} "
+                        f"does not match plan stage={plan_stage}"
+                    )
+                if str(spec.get("collaboration_mode", "")) == "parallel_development":
+                    write_scope = self._string_list(spec.get("write_scope", []))
+                    if not write_scope:
+                        result.errors.append(
+                            f"agent_team_plans[{index}].agent_specs[{spec_index}] parallel_development requires write_scope"
+                        )
+                self._warn_unknown_agent(
+                    agent_ids,
+                    spec_agent_id,
+                    f"agent_team_plans[{index}].agent_specs[{spec_index}].agent_id",
+                    result,
+                )
+                self._warn_non_list_fields(
+                    spec,
+                    f"agent_team_plans[{index}].agent_specs[{spec_index}]",
+                    (
+                        "write_scope",
+                        "output_contract",
+                        "review_focus",
+                        "revision_rules",
+                        "allowed_collaboration_modes",
+                        "workitem_kinds",
+                    ),
+                    result,
+                )
+        for index, decision in enumerate(tl_decisions):
+            if not isinstance(decision, dict):
+                continue
+            decision_id = str(decision.get("id", ""))
+            self._verify_project_scoped_record("tl_decisions", index, decision, project_id, decision_id, result)
+            self._warn_non_list_fields(decision, f"tl_decisions[{index}]", ("recommendations",), result)
+            self._warn_missing_human_gate_for_tl_decision(index, decision, human_control_actions, result)
+        for index, action in enumerate(human_control_actions):
+            if not isinstance(action, dict):
+                continue
+            action_id = str(action.get("id", ""))
+            self._verify_project_scoped_record("human_control_actions", index, action, project_id, action_id, result)
+            workitem_id = str(action.get("workitem_id", ""))
+            if workitem_id and workitem_id not in workitem_ids:
+                result.errors.append(
+                    f"human_control_actions[{index}] references unknown WorkItem: {workitem_id}"
+                )
+            if "payload" in action and not isinstance(action.get("payload"), dict):
+                result.warnings.append(f"human_control_actions[{index}].payload must be an object")
+            self._warn_human_gate_without_tl_decision(index, action, tl_decisions, result)
+
+    def _warn_missing_human_gate_for_tl_decision(
+        self,
+        index: int,
+        decision: dict[str, Any],
+        human_control_actions: list[Any],
+        result: ManifestVerificationResult,
+    ) -> None:
+        """Warn when a TL decision requires human action but no matching control record exists."""
+        if decision.get("human_action_required") is not True:
+            return
+        action = str(decision.get("action", ""))
+        stage = str(decision.get("stage", ""))
+        if action == "human_hold":
+            if self._has_human_hold_action(human_control_actions, stage):
+                return
+        elif self._has_human_gate_for_controller_action(human_control_actions, action, stage):
+            return
+        result.warnings.append(
+            f"tl_decisions[{index}] human_action_required has no matching human_control_actions gate: "
+            f"action={action}, stage={stage}"
+        )
+
+    def _warn_human_gate_without_tl_decision(
+        self,
+        index: int,
+        action: dict[str, Any],
+        tl_decisions: list[Any],
+        result: ManifestVerificationResult,
+    ) -> None:
+        """Warn when a controller-scoped human gate cannot be traced to a TL decision."""
+        if str(action.get("action", "")) not in {"request_approval", "approve", "reject", "override"}:
+            return
+        payload = action.get("payload")
+        if not isinstance(payload, dict):
+            return
+        controller_action = str(payload.get("controller_action", ""))
+        stage = str(payload.get("stage", ""))
+        if not controller_action or not stage:
+            return
+        if any(
+            isinstance(decision, dict)
+            and str(decision.get("action", "")) == controller_action
+            and str(decision.get("stage", "")) == stage
+            for decision in tl_decisions
+        ):
+            return
+        result.warnings.append(
+            f"human_control_actions[{index}] controller gate has no matching tl_decisions entry: "
+            f"action={controller_action}, stage={stage}"
+        )
+
+    def _has_human_hold_action(self, actions: list[Any], stage: str) -> bool:
+        return any(
+            isinstance(action, dict)
+            and str(action.get("action", "")) in {"pause", "request_approval", "reject"}
+            and (not stage or str(action.get("stage", "")) == stage)
+            for action in actions
+        )
+
+    def _has_human_gate_for_controller_action(
+        self,
+        actions: list[Any],
+        controller_action: str,
+        stage: str,
+    ) -> bool:
+        for action in actions:
+            if not isinstance(action, dict):
+                continue
+            payload = action.get("payload")
+            if not isinstance(payload, dict):
+                continue
+            if str(payload.get("controller_action", "")) != controller_action:
+                continue
+            if stage and str(payload.get("stage", "")) != stage:
+                continue
+            if str(action.get("action", "")) in {"request_approval", "approve", "reject", "override"}:
+                return True
+        return False
+
+    def _verify_project_scoped_record(
+        self,
+        list_name: str,
+        index: int,
+        record: dict[str, Any],
+        project_id: str,
+        record_id: str,
+        result: ManifestVerificationResult,
+    ) -> None:
+        record_project_id = str(record.get("project_id", ""))
+        if record_project_id and record_project_id != project_id:
+            result.errors.append(
+                f"{list_name}[{index}].project_id does not match manifest.project_id: {record_id}"
+            )
 
     def _verify_latest_execution_workitem_status(
         self,
@@ -1381,6 +1871,7 @@ class ManifestVerifier:
             if raw_path and not self._path_exists(raw_path, manifest_path, project_root):
                 result.warnings.append(f"files.{label} does not exist: {raw_path}")
         self._verify_preflight_gate_file(manifest_path, project_root, payload, files, result)
+        self._verify_pre_run_maintenance_report(manifest_path, project_root, payload, result)
 
         indexed_manifest_path = str(files.get("manifest", ""))
         if indexed_manifest_path and not self._same_path(indexed_manifest_path, manifest_path):
@@ -1457,6 +1948,87 @@ class ManifestVerifier:
             for raw_path in self._string_list(agent.get("output_files", [])):
                 if raw_path and not self._path_exists(raw_path, manifest_path, project_root):
                     result.warnings.append(f"agents[{index}].output_files entry does not exist: {raw_path}")
+
+    def _verify_pre_run_maintenance_report(
+        self,
+        manifest_path: Path,
+        project_root: Path | None,
+        payload: dict[str, Any],
+        result: ManifestVerificationResult,
+    ) -> None:
+        maintenance = self._dict(payload.get("pre_run_maintenance"))
+        raw_path = str(maintenance.get("report_path", ""))
+        if not raw_path:
+            return
+        report_path = self._resolve_existing_path(raw_path, manifest_path, project_root)
+        if report_path is None:
+            result.warnings.append(f"pre_run_maintenance.report_path does not exist: {raw_path}")
+            return
+        try:
+            report_payload = json.loads(report_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            result.warnings.append(f"pre_run_maintenance.report_path is not readable JSON: {error}")
+            return
+        if not isinstance(report_payload, dict):
+            result.errors.append("pre_run_maintenance.report_path payload must be an object")
+            return
+        for key in ("project_id", "status", "released_count", "expired_lease_released_count", "stale_released_count"):
+            if key in maintenance and report_payload.get(key) != maintenance.get(key):
+                result.errors.append(
+                    f"pre_run_maintenance.{key}={maintenance.get(key)!r} does not match report {key}={report_payload.get(key)!r}"
+                )
+        maintenance_audit = self._dict(maintenance.get("audit"))
+        report_audit = self._dict(report_payload.get("audit"))
+        for key in ("finding_count", "error_count", "warning_count"):
+            if key in maintenance_audit and report_audit.get(key) != maintenance_audit.get(key):
+                result.errors.append(
+                    f"pre_run_maintenance.audit.{key}={maintenance_audit.get(key)!r} "
+                    f"does not match report audit {key}={report_audit.get(key)!r}"
+                )
+        self._verify_pre_run_maintenance_latest(manifest_path, project_root, maintenance, report_payload, result)
+
+    def _verify_pre_run_maintenance_latest(
+        self,
+        manifest_path: Path,
+        project_root: Path | None,
+        maintenance: dict[str, Any],
+        report_payload: dict[str, Any],
+        result: ManifestVerificationResult,
+    ) -> None:
+        raw_path = str(maintenance.get("latest_path", ""))
+        if not raw_path:
+            return
+        latest_path = self._resolve_existing_path(raw_path, manifest_path, project_root)
+        if latest_path is None:
+            result.warnings.append(f"pre_run_maintenance.latest_path does not exist: {raw_path}")
+            return
+        try:
+            latest_payload = json.loads(latest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            result.warnings.append(f"pre_run_maintenance.latest_path is not readable JSON: {error}")
+            return
+        if not isinstance(latest_payload, dict):
+            result.errors.append("pre_run_maintenance.latest_path payload must be an object")
+            return
+        latest_expected = {
+            "project_id": maintenance.get("project_id"),
+            "status": maintenance.get("status"),
+            "released_count": maintenance.get("released_count"),
+            "report_path": maintenance.get("report_path", ""),
+        }
+        for key, expected in latest_expected.items():
+            if key in latest_payload and latest_payload.get(key) != expected:
+                result.errors.append(
+                    f"pre_run_maintenance.latest.{key}={latest_payload.get(key)!r} "
+                    f"does not match manifest {key}={expected!r}"
+                )
+        report_audit = self._dict(report_payload.get("audit"))
+        for key in ("finding_count", "error_count", "warning_count"):
+            if key in latest_payload and latest_payload.get(key) != report_audit.get(key):
+                result.errors.append(
+                    f"pre_run_maintenance.latest.{key}={latest_payload.get(key)!r} "
+                    f"does not match report audit {key}={report_audit.get(key)!r}"
+                )
 
     def _verify_preflight_gate_file(
         self,

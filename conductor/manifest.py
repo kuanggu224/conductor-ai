@@ -15,6 +15,7 @@ from conductor.artifacts.store import ArtifactStore
 from conductor.config.cli import CLISelectionConfig
 from conductor.config.execution import RunProfile
 from conductor.config.llm import LLMRuntimeConfig
+from conductor.design_quality import evaluate_design_document
 from conductor.delivery_contract import build_acceptance_trace, build_delivery_contract
 from conductor.delivery_readiness import evaluate_delivery_readiness
 from conductor.diagnostics import build_platform_diagnostics
@@ -45,6 +46,8 @@ class RunManifest:
     working_directory: str
     selected_cli_names: list[str]
     role_cli_bindings: dict[str, str | None]
+    run_options: dict[str, object]
+    pre_run_maintenance: dict[str, object]
     summary: dict[str, object]
     resume_cursor: dict[str, object]
     run_environment: dict[str, object]
@@ -59,11 +62,13 @@ class RunManifest:
     human_control_actions: list[dict[str, object]]
     retry_history: list[dict[str, object]]
     requirement_evaluations: list[dict[str, object]]
+    design_evaluations: list[dict[str, object]]
     requirement_coverage_results: list[dict[str, object]]
     scope_contract_results: list[dict[str, object]]
     delivery_readiness: dict[str, object]
     workitems: list[dict[str, object]]
     task_assignments: list[dict[str, object]]
+    task_center_audit: list[dict[str, object]]
     artifacts: list[dict[str, object]]
     artifact_files: list[str]
     task_prompt_files: list[str]
@@ -84,6 +89,8 @@ class RunManifestWriter:
         run_profile: str | RunProfile,
         report_path: str | Path,
         llm_runtime_config: LLMRuntimeConfig | None = None,
+        run_options: dict[str, object] | None = None,
+        pre_run_maintenance: dict[str, object] | None = None,
     ) -> Path:
         """Write and return the manifest path."""
         path = self._manifest_path(state.project.id, state.project.project_root)
@@ -97,10 +104,12 @@ class RunManifestWriter:
         collaboration_runs = self._collaboration_runs(state)
         retry_history = self._retry_history(state)
         requirement_evaluations = self._requirement_evaluations(state)
+        design_evaluations = self._design_evaluations(state)
         requirement_coverage_results = self._requirement_coverage_results(state)
         scope_contract_results = self._scope_contract_results(state)
         delivery_readiness = evaluate_delivery_readiness(state).to_dict()
         task_center = TaskCenterService(_ManifestStateStore(state))
+        task_center_audit = [asdict(finding) for finding in task_center.audit(state)]
         artifact_files = [artifact.path or "" for artifact in state.artifacts if artifact.path]
         task_prompt_files = self._dedupe([assignment.prompt_file for assignment in state.task_assignments])
         preflight_gate = read_preflight_gate(state.project.project_root)
@@ -134,6 +143,8 @@ class RunManifestWriter:
             working_directory=state.project.project_root,
             selected_cli_names=list(cli_config.selected_cli_names),
             role_cli_bindings=dict(cli_config.role_cli_bindings),
+            run_options=dict(run_options or {}),
+            pre_run_maintenance=dict(pre_run_maintenance or {}),
             summary={
                 "final_status": state.project_status.value,
                 "workitem_count": len(state.workitems),
@@ -143,6 +154,10 @@ class RunManifestWriter:
                 "blocked_count": len(state.blockers),
                 "requirement_quality_score": max(
                     [int(item["score"]) for item in requirement_evaluations],
+                    default=0,
+                ),
+                "design_quality_score": max(
+                    [int(item["score"]) for item in design_evaluations],
                     default=0,
                 ),
                 "requirement_coverage_status": self._requirement_coverage_status(requirement_coverage_results),
@@ -155,6 +170,13 @@ class RunManifestWriter:
                 "delivery_readiness_blocking_count": delivery_readiness["blocking_count"],
                 "delivery_readiness_warning_count": delivery_readiness["warning_count"],
                 "task_center_summary": task_center.summary(state),
+                "task_center_audit_finding_count": len(task_center_audit),
+                "task_center_audit_error_count": sum(
+                    1 for finding in task_center_audit if finding.get("severity") == "error"
+                ),
+                "task_center_audit_warning_count": sum(
+                    1 for finding in task_center_audit if finding.get("severity") == "warning"
+                ),
                 "workitem_status_counts": self._workitem_status_counts(state),
                 "execution_status_counts": self._execution_status_counts(executions),
                 "failed_workitem_ids": self._failed_workitem_ids(state),
@@ -199,6 +221,7 @@ class RunManifestWriter:
             ],
             retry_history=retry_history,
             requirement_evaluations=requirement_evaluations,
+            design_evaluations=design_evaluations,
             requirement_coverage_results=requirement_coverage_results,
             scope_contract_results=scope_contract_results,
             delivery_readiness=delivery_readiness,
@@ -244,6 +267,11 @@ class RunManifestWriter:
                     "claim_reason": assignment.claim_reason,
                     "claimable": task_center.claimable(state, assignment),
                     "unmet_dependency_ids": task_center.unmet_dependency_ids(state, assignment),
+                    "write_scope_conflict_assignment_ids": task_center.write_scope_conflicts(
+                        state,
+                        assignment,
+                        agent_id=assignment.assigned_agent_id or "",
+                    ),
                     "dependencies": list(assignment.dependencies),
                     "input_artifact_ids": list(assignment.input_artifact_ids),
                     "output_artifact_ids": list(assignment.output_artifact_ids),
@@ -254,11 +282,16 @@ class RunManifestWriter:
                     "last_heartbeat_at": assignment.last_heartbeat_at,
                     "heartbeat_age_seconds": task_center.heartbeat_age_seconds(assignment),
                     "stale_claimed": task_center.stale_claimed(assignment),
+                    "lease_seconds": assignment.lease_seconds,
+                    "lease_expires_at": assignment.lease_expires_at,
+                    "lease_expired": task_center.lease_expired(assignment),
                     "returned_at": assignment.returned_at,
                     "prompt_file": assignment.prompt_file,
+                    "transition_history": [dict(item) for item in assignment.transition_history],
                 }
                 for assignment in state.task_assignments
             ],
+            task_center_audit=task_center_audit,
             artifacts=[
                 {
                     "id": artifact.id,
@@ -366,6 +399,26 @@ class RunManifestWriter:
                     "passed": evaluation.passed,
                     "checks": evaluation.checks,
                     "metrics": evaluation.metrics,
+                    "findings": evaluation.findings,
+                }
+            )
+        return evaluations
+
+    def _design_evaluations(self, state: SharedProjectState) -> list[dict[str, object]]:
+        """Evaluate design-stage artifacts and embed quality scores in the manifest."""
+        evaluations: list[dict[str, object]] = []
+        for artifact in state.artifacts:
+            if artifact.kind not in {"design_overview", "frozen_design_spec"}:
+                continue
+            evaluation = evaluate_design_document(artifact.content)
+            evaluations.append(
+                {
+                    "artifact_id": artifact.id,
+                    "kind": artifact.kind,
+                    "path": artifact.path or "",
+                    "score": evaluation.score,
+                    "passed": evaluation.passed,
+                    "dimension_scores": evaluation.dimension_scores,
                     "findings": evaluation.findings,
                 }
             )
@@ -739,7 +792,7 @@ class RunManifestWriter:
             if action.action.value in {"pause", "request_approval", "reject"}:
                 active = action
                 continue
-            if action.action.value in {"resume", "approve"}:
+            if action.action.value in {"resume", "approve", "override"}:
                 active = None
         return self._human_control_action_record(active) if active else {}
 
@@ -1062,11 +1115,18 @@ class RunManifestWriter:
         """Build the delivery contract snapshot that applied to one execution."""
         if workitem is None:
             return {}
+        required_input_artifact_ids = list(execution.input_artifact_ids or workitem.input_artifact_ids)
+        artifacts_by_id = {artifact.id: artifact for artifact in state.artifacts}
         return build_delivery_contract(
             stage=workitem.stage,
             kind=workitem.kind,
             role=self._agent_role_for_execution(state, execution.agent_id),
-            required_input_artifact_ids=list(execution.input_artifact_ids or workitem.input_artifact_ids),
+            required_input_artifact_ids=required_input_artifact_ids,
+            required_input_kinds=[
+                artifacts_by_id[artifact_id].kind
+                for artifact_id in required_input_artifact_ids
+                if artifact_id in artifacts_by_id
+            ],
             is_rework=bool(workitem.feedback_from or workitem.rework_of),
         )
 

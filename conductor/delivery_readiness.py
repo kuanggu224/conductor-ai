@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from conductor.artifacts.scope_contract import evaluate_scope_contract
 from conductor.artifacts.store import ArtifactStore
@@ -57,9 +58,10 @@ class DeliveryReadinessResult:
 
 
 CODE_WORKITEM_KINDS = {"api_implementation", "data_implementation", "generic_implementation", "ui_implementation"}
-DESIGN_ARTIFACT_KINDS = {"design_overview", "ui_design", "api_design", "test_design"}
+DESIGN_ARTIFACT_KINDS = {"design_overview", "frozen_design_spec", "ui_design", "api_design", "test_design"}
 TEST_WORKITEM_KINDS = {"acceptance_check", "automated_test", "api_validation", "ui_validation"}
 SKIP_SCOPE_KINDS = {"requirement_spec", "frozen_requirement_spec", "collaboration_review"}
+STATIC_WEB_DELIVERABLES = ("index.html", "static/app.js", "static/style.css")
 
 
 def evaluate_delivery_readiness(
@@ -71,6 +73,7 @@ def evaluate_delivery_readiness(
     store = artifact_store or ArtifactStore()
     checks = [
         _frozen_requirement_check(state),
+        _frozen_design_check(state),
         _stage_completion_check(state),
         _failure_blocker_check(state),
         _design_artifact_check(state),
@@ -106,6 +109,36 @@ def _frozen_requirement_check(state: SharedProjectState) -> DeliveryReadinessChe
         status="pass" if artifact else "fail",
         severity="blocker",
         evidence=artifact.id if artifact else "missing frozen_requirement_spec artifact",
+    )
+
+
+def _frozen_design_check(state: SharedProjectState) -> DeliveryReadinessCheck:
+    """Return whether implementation/testing has an accepted design baseline."""
+    artifact = _latest_artifact(state, {"frozen_design_spec"})
+    downstream_exists = any(
+        item.stage in {"development", "testing"} for item in state.workitems
+    ) or any(
+        _workitem_kind(state, execution.workitem_id) in CODE_WORKITEM_KINDS | TEST_WORKITEM_KINDS
+        for execution in state.executions
+    )
+    if artifact:
+        status = "pass"
+        severity = "blocker"
+        evidence = artifact.id
+    elif downstream_exists:
+        status = "fail"
+        severity = "blocker"
+        evidence = "missing frozen_design_spec artifact for development/testing handoff"
+    else:
+        status = "warn"
+        severity = "warning"
+        evidence = "not required until development/testing handoff"
+    return DeliveryReadinessCheck(
+        id="frozen_design",
+        label="Frozen design exists before implementation/testing",
+        status=status,
+        severity=severity,
+        evidence=evidence,
     )
 
 
@@ -167,6 +200,7 @@ def _design_artifact_check(state: SharedProjectState) -> DeliveryReadinessCheck:
 def _code_evidence_check(state: SharedProjectState) -> DeliveryReadinessCheck:
     code_executions = [execution for execution in state.executions if _workitem_kind(state, execution.workitem_id) in CODE_WORKITEM_KINDS]
     changed_files = sorted({path for execution in code_executions for path in execution.changed_files})
+    static_web_files = _validated_static_web_deliverables(state, code_executions)
     code_artifacts = [
         artifact.id
         for artifact in state.artifacts
@@ -175,6 +209,9 @@ def _code_evidence_check(state: SharedProjectState) -> DeliveryReadinessCheck:
     if changed_files:
         status = "pass"
         evidence = "changed files: " + ", ".join(changed_files[:8])
+    elif static_web_files:
+        status = "pass"
+        evidence = "validated static web deliverables: " + ", ".join(static_web_files)
     elif code_artifacts:
         status = "warn"
         evidence = "code artifacts without changed-file evidence: " + ", ".join(code_artifacts)
@@ -188,6 +225,20 @@ def _code_evidence_check(state: SharedProjectState) -> DeliveryReadinessCheck:
         severity="warning",
         evidence=evidence,
     )
+
+
+def _validated_static_web_deliverables(state: SharedProjectState, code_executions: list[Execution]) -> list[str]:
+    """Return static web files that prove an already-materialized delivery exists."""
+    for execution in code_executions:
+        if execution.source_backend != "static_web_delivery" or execution.validation_success is not True:
+            continue
+        root_text = execution.working_directory or state.project.project_root
+        if not root_text:
+            continue
+        root = Path(root_text)
+        if all((root / relative_path).is_file() for relative_path in STATIC_WEB_DELIVERABLES):
+            return list(STATIC_WEB_DELIVERABLES)
+    return []
 
 
 def _validation_evidence_check(state: SharedProjectState) -> DeliveryReadinessCheck:

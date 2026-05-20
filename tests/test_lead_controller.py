@@ -64,6 +64,39 @@ class ScopeExpansionRequirementCollaborationRunner(FailingRequirementCollaborati
         )
 
 
+class FailingDesignCollaborationRunner:
+    policy = CollaborationPolicy(
+        enabled=True,
+        lead_role_by_stage={"design": "designer"},
+        peer_reviewer_roles_by_stage={"design": ["solution_designer"]},
+        reviewer_roles_by_stage={"design": ["tester"]},
+        enabled_kinds={"design_overview"},
+    )
+
+    def should_collaborate(self, project_id: str, workitem: WorkItem) -> bool:
+        return workitem.kind == "design_overview"
+
+    def run_review_loop(self, project_id: str, workitem: WorkItem, draft_artifact):
+        return Collaboration(
+            id=f"collaboration-{workitem.id}",
+            project_id=project_id,
+            workitem_id=workitem.id,
+            lead_agent_id="agent-designer",
+            reviewer_agent_ids=[],
+            status=CollaborationStatus.FAILED,
+            max_rounds=1,
+            current_round=1,
+            draft_versions=[
+                CollaborationDraftVersion(
+                    version=1,
+                    round_index=1,
+                    author_agent_id="agent-designer",
+                    content="A page with a list.",
+                )
+            ],
+        )
+
+
 def build_controller() -> LeadController:
     state_store = InMemoryStateStore()
     runner = Runner(state_store=state_store)
@@ -92,6 +125,18 @@ def build_controller_with_scope_expansion_requirement_collaboration() -> LeadCon
         state_store=state_store,
         runner=runner,
         collaboration_runner=ScopeExpansionRequirementCollaborationRunner(),
+    )
+
+
+def build_controller_with_failing_design_collaboration() -> LeadController:
+    state_store = InMemoryStateStore()
+    runner = Runner(state_store=state_store)
+    workflow = WorkflowTemplate()
+    return LeadController(
+        workflow_template=workflow,
+        state_store=state_store,
+        runner=runner,
+        collaboration_runner=FailingDesignCollaborationRunner(),
     )
 
 
@@ -180,6 +225,47 @@ def test_requirement_gate_rework_limit_blocks_project() -> None:
     assert state.blockers
     assert "需求门禁连续返工仍未通过" in state.blockers[-1]
     assert any("需求门禁返工上限触发" in event for event in state.recent_events)
+
+
+def test_design_gate_failure_creates_rework_workitem() -> None:
+    controller = build_controller_with_failing_design_collaboration()
+    state = controller.initialize_project("Build a reading list app.")
+
+    state = controller.advance(state)
+    state = controller.advance(state)
+    state = controller.advance(state)
+
+    design_items = [item for item in state.workitems if item.stage == "design"]
+    original = next(item for item in design_items if not item.rework_of)
+    rework = next(item for item in design_items if item.rework_of == original.id)
+    original_assignment = next(item for item in state.task_assignments if item.workitem_id == original.id)
+    rework_assignment = next(item for item in state.task_assignments if item.workitem_id == rework.id)
+
+    assert original.status == WorkItemStatus.DONE
+    assert original.blocked_reason
+    assert rework.status == WorkItemStatus.PENDING
+    assert rework.kind == "design_overview"
+    assert rework.feedback_from == [original.id]
+    assert rework.input_artifact_ids
+    assert "Design quality findings" in rework.description
+    assert original_assignment.status == TaskAssignmentStatus.FAILED
+    assert original_assignment.result_summary == f"Design gate rework created: {rework.id}"
+    assert rework_assignment.status == TaskAssignmentStatus.QUEUED
+
+
+def test_design_gate_rework_limit_blocks_project() -> None:
+    controller = build_controller_with_failing_design_collaboration()
+    state = controller.initialize_project("Build a reading list app.")
+
+    for _ in range(5):
+        state = controller.advance(state)
+
+    design_items = [item for item in state.workitems if item.stage == "design" and item.kind == "design_overview"]
+
+    assert state.project_status == ProjectStatus.BLOCKED
+    assert len(design_items) == 2
+    assert state.blockers
+    assert "collaboration=collaboration-" in state.blockers[-1]
 
 
 def test_advance_can_run_and_finish_project() -> None:
@@ -553,6 +639,17 @@ def test_human_pause_holds_and_resume_allows_controller_to_continue() -> None:
     assert advanced.executions[0].workitem_id == "workitem-001"
 
 
+def test_dynamic_team_plan_does_not_duplicate_existing_agent_activations() -> None:
+    controller = build_controller()
+    state = controller.initialize_project("Build a UI form with CSV export")
+
+    updated = controller._apply_agent_team_plan_to_state(state, trigger="runtime_risk")
+    agent_ids = [activation.agent_id for activation in updated.agent_activations]
+
+    assert len(agent_ids) == len(set(agent_ids))
+    assert any(plan.trigger == "runtime_risk" for plan in updated.agent_team_plans)
+
+
 def test_next_stage_workitems_depend_on_previous_stage() -> None:
     controller = build_controller()
     state = controller.initialize_project("实现 API 和 UI 页面")
@@ -718,6 +815,11 @@ def test_testing_failure_creates_development_feedback_rework() -> None:
     assert "`add_item` add item interaction" in rework_items[0].description
     assert "Browser form submit did not change visible page state" in rework_items[0].description
     assert "检查表单/按钮事件绑定" in rework_items[0].description
+    assert any(
+        "Address missing testing checklist `add_item` add item interaction" in criterion
+        and "browser form interaction updated visible state" in criterion
+        for criterion in rework_items[0].acceptance_criteria
+    )
     assert "保持冻结需求和设计产物定义的范围边界" in rework_items[0].acceptance_criteria
     assert state.pending_test_scope == ["ui_validation"]
     rework_assignment = next(assignment for assignment in state.task_assignments if assignment.workitem_id == rework_items[0].id)

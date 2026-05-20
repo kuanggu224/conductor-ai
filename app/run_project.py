@@ -117,6 +117,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="Before running, release stale claimed Task Center assignments back to queued.",
     )
     parser.add_argument(
+        "--sweep-task-center",
+        action="store_true",
+        help="Before running, release expired leases and stale Task Center assignments back to queued.",
+    )
+    parser.add_argument(
+        "--maintenance-task-center",
+        action="store_true",
+        help="Before running, sweep expired/stale Task Center assignments and attach a pre-run audit summary.",
+    )
+    parser.add_argument(
+        "--maintenance-fail-on-findings",
+        action="store_true",
+        help="With --maintenance-task-center, stop before running when the pre-run Task Center audit has findings.",
+    )
+    parser.add_argument(
+        "--maintenance-report-output",
+        help="Optional JSON report path for --maintenance-task-center. Relative paths use --project-root.",
+    )
+    parser.add_argument(
+        "--maintenance-latest-output",
+        help="Optional compact latest-maintenance pointer JSON path. Relative paths use --project-root.",
+    )
+    parser.add_argument(
         "--stale-after-seconds",
         type=int,
         default=DEFAULT_STALE_CLAIMED_AFTER_SECONDS,
@@ -126,6 +149,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--stale-release-reason",
         default="resume stale cleanup",
         help="Release reason recorded when --release-stale-tasks requeues assignments.",
+    )
+    parser.add_argument(
+        "--expired-lease-release-reason",
+        default="resume expired lease cleanup",
+        help="Release reason recorded when --sweep-task-center requeues expired lease assignments.",
     )
     parser.add_argument(
         "--write-replay-trace",
@@ -261,8 +289,58 @@ def main(argv: list[str] | None = None) -> int:
         )
         state = engine.create_project(requirement=requirement, project_root=str(project_root))
     released_stale_task_count = 0
-    if args.release_stale_tasks:
-        stale_release = TaskCenterService(engine.state_store, event_prefix="RunProject").release_stale(
+    released_expired_lease_task_count = 0
+    pre_run_task_center_maintenance: dict[str, object] = {}
+    task_center_service = TaskCenterService(engine.state_store, event_prefix="RunProject")
+    if args.maintenance_task_center:
+        sweep = task_center_service.sweep(
+            state.project.id,
+            stale_after_seconds=args.stale_after_seconds,
+            expired_lease_release_reason=args.expired_lease_release_reason,
+            stale_release_reason=args.stale_release_reason,
+        )
+        state = sweep.state
+        released_expired_lease_task_count = len(sweep.expired_lease_assignments)
+        released_stale_task_count = len(sweep.stale_assignments)
+        maintenance_findings = task_center_service.audit(state, stale_after_seconds=args.stale_after_seconds)
+        pre_run_task_center_maintenance = {
+            "ok": True,
+            "generated_at": datetime.now().isoformat(),
+            "project_id": state.project.id,
+            "status": "clean" if not maintenance_findings else "needs_attention",
+            "resumed": bool(args.resume_project_id),
+            "fail_on_findings": bool(args.maintenance_fail_on_findings),
+            "released_count": released_expired_lease_task_count + released_stale_task_count,
+            "expired_lease_released_count": released_expired_lease_task_count,
+            "stale_released_count": released_stale_task_count,
+            "stale_after_seconds": args.stale_after_seconds,
+            "audit": _task_center_audit_payload(maintenance_findings),
+        }
+        _write_pre_run_maintenance_report_if_requested(args, project_root, pre_run_task_center_maintenance)
+        if args.maintenance_fail_on_findings and maintenance_findings:
+            payload = _pre_run_maintenance_failure_payload(
+                args=args,
+                state=state,
+                project_root=project_root,
+                run_profile=run_profile.profile.value,
+                released_stale_task_count=released_stale_task_count,
+                released_expired_lease_task_count=released_expired_lease_task_count,
+                pre_run_task_center_maintenance=pre_run_task_center_maintenance,
+            )
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+            return 3
+    elif args.sweep_task_center:
+        sweep = task_center_service.sweep(
+            state.project.id,
+            stale_after_seconds=args.stale_after_seconds,
+            expired_lease_release_reason=args.expired_lease_release_reason,
+            stale_release_reason=args.stale_release_reason,
+        )
+        state = sweep.state
+        released_expired_lease_task_count = len(sweep.expired_lease_assignments)
+        released_stale_task_count = len(sweep.stale_assignments)
+    elif args.release_stale_tasks:
+        stale_release = task_center_service.release_stale(
             state.project.id,
             stale_after_seconds=args.stale_after_seconds,
             release_reason=args.stale_release_reason,
@@ -271,8 +349,25 @@ def main(argv: list[str] | None = None) -> int:
         released_stale_task_count = len(stale_release.assignments)
     state = engine.run_project(state.project.id, max_steps=args.max_steps)
     report_path = engine.write_project_report(state.project.id)
-    manifest_path = engine.write_run_manifest(state.project.id, report_path=report_path)
+    run_options = {
+        "resumed": bool(args.resume_project_id),
+        "max_steps": args.max_steps,
+        "release_stale_tasks": bool(args.release_stale_tasks),
+        "sweep_task_center": bool(args.sweep_task_center),
+        "maintenance_task_center": bool(args.maintenance_task_center),
+        "maintenance_fail_on_findings": bool(args.maintenance_fail_on_findings),
+        "maintenance_report_output": args.maintenance_report_output or "",
+        "maintenance_latest_output": args.maintenance_latest_output or "",
+        "stale_after_seconds": args.stale_after_seconds,
+    }
+    manifest_path = engine.write_run_manifest(
+        state.project.id,
+        report_path=report_path,
+        run_options=run_options,
+        pre_run_maintenance=pre_run_task_center_maintenance,
+    )
     manifest_verification = verify_manifest(manifest_path)
+    task_center_audit_findings = TaskCenterService(engine.state_store).audit(state)
     manifest_verification_payload = _write_manifest_verification_if_requested(
         args,
         project_root,
@@ -300,9 +395,12 @@ def main(argv: list[str] | None = None) -> int:
         "run_profile": run_profile.profile.value,
         "resumed": bool(args.resume_project_id),
         "released_stale_task_count": released_stale_task_count,
+        "released_expired_lease_task_count": released_expired_lease_task_count,
+        "pre_run_task_center_maintenance": pre_run_task_center_maintenance,
         "report_path": str(report_path),
         "manifest_path": str(manifest_path),
         "manifest_verification": manifest_verification.to_dict(),
+        "task_center_audit": _task_center_audit_payload(task_center_audit_findings),
         "manifest_verification_report": manifest_verification_payload,
         "replay_trace": replay_trace_payload,
         "audit_bundle": audit_bundle_payload,
@@ -343,6 +441,84 @@ def _write_manifest_verification_if_requested(
 
 def _default_manifest_verification_path(project_root: Path, project_id: str) -> Path:
     return project_root / ".conductor" / "replay" / f"{project_id}.verification.json"
+
+
+def _task_center_audit_payload(findings) -> dict[str, object]:
+    return {
+        "passed": not findings,
+        "finding_count": len(findings),
+        "error_count": sum(1 for finding in findings if finding.severity == "error"),
+        "warning_count": sum(1 for finding in findings if finding.severity == "warning"),
+        "findings": [asdict(finding) for finding in findings],
+    }
+
+
+def _pre_run_maintenance_failure_payload(
+    *,
+    args,
+    state,
+    project_root: Path,
+    run_profile: str,
+    released_stale_task_count: int,
+    released_expired_lease_task_count: int,
+    pre_run_task_center_maintenance: dict[str, object],
+) -> dict[str, object]:
+    return {
+        "ok": False,
+        "error": "task_center_maintenance_findings",
+        "project_id": state.project.id,
+        "status": state.project_status.value,
+        "current_stage": state.current_stage,
+        "project_root": str(project_root),
+        "run_profile": run_profile,
+        "resumed": bool(args.resume_project_id),
+        "released_stale_task_count": released_stale_task_count,
+        "released_expired_lease_task_count": released_expired_lease_task_count,
+        "pre_run_task_center_maintenance": pre_run_task_center_maintenance,
+    }
+
+
+def _write_pre_run_maintenance_report_if_requested(
+    args,
+    project_root: Path,
+    pre_run_task_center_maintenance: dict[str, object],
+) -> None:
+    output_arg = getattr(args, "maintenance_report_output", None)
+    latest_output_arg = getattr(args, "maintenance_latest_output", None)
+    if not pre_run_task_center_maintenance:
+        return
+    if output_arg:
+        output_path = _resolve_project_output_path(project_root, output_arg)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        pre_run_task_center_maintenance["report_path"] = str(output_path)
+        output_path.write_text(
+            json.dumps(pre_run_task_center_maintenance, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    if latest_output_arg:
+        latest_path = _resolve_project_output_path(project_root, latest_output_arg)
+        latest_path.parent.mkdir(parents=True, exist_ok=True)
+        latest_payload = _pre_run_maintenance_latest_payload(pre_run_task_center_maintenance)
+        latest_path.write_text(json.dumps(latest_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        pre_run_task_center_maintenance["latest_path"] = str(latest_path)
+
+
+def _pre_run_maintenance_latest_payload(pre_run_task_center_maintenance: dict[str, object]) -> dict[str, object]:
+    audit = pre_run_task_center_maintenance.get("audit", {})
+    audit = audit if isinstance(audit, dict) else {}
+    return {
+        "ok": bool(pre_run_task_center_maintenance.get("ok", False)),
+        "generated_at": str(pre_run_task_center_maintenance.get("generated_at", "")),
+        "project_id": str(pre_run_task_center_maintenance.get("project_id", "")),
+        "status": str(pre_run_task_center_maintenance.get("status", "")),
+        "resumed": bool(pre_run_task_center_maintenance.get("resumed", False)),
+        "fail_on_findings": bool(pre_run_task_center_maintenance.get("fail_on_findings", False)),
+        "released_count": int(pre_run_task_center_maintenance.get("released_count", 0)),
+        "finding_count": int(audit.get("finding_count", 0)),
+        "error_count": int(audit.get("error_count", 0)),
+        "warning_count": int(audit.get("warning_count", 0)),
+        "report_path": str(pre_run_task_center_maintenance.get("report_path", "")),
+    }
 
 
 def _write_audit_bundle_index_if_requested(
@@ -507,7 +683,7 @@ def _build_cli_config(agent_cli: str | None, run_profile, aspirecode_model: str 
 
 def _build_llm_runtime_config(args, *, run_profile=None):
     runtime_config = load_llm_runtime_config()
-    if run_profile is not None and run_profile.profile == RunProfile.MOCK and not args.llm_harness:
+    if run_profile is not None and run_profile.profile in {RunProfile.MOCK, RunProfile.STATIC_WEB} and not args.llm_harness:
         runtime_config.usage.runner_enabled = False
     if not args.llm_harness:
         return runtime_config

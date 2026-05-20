@@ -239,6 +239,59 @@ def test_context_builder_always_carries_frozen_requirement_into_later_stages() -
     assert "静态 Web 应用" in rendered
 
 
+def test_context_builder_always_carries_frozen_design_into_later_stages() -> None:
+    requirement = WorkItem(id="workitem-req", description="requirement", stage="requirement", kind="requirement_spec")
+    design = WorkItem(id="workitem-design", description="design", stage="design", kind="design_overview")
+    backend = WorkItem(id="workitem-backend", description="backend", stage="development", kind="api_implementation")
+    testing = WorkItem(id="workitem-test", description="test", stage="testing", kind="acceptance_check")
+    artifacts = [
+        Artifact(
+            id="artifact-frozen-req",
+            project_id="project-1",
+            workitem_id="workitem-req",
+            agent_id="agent-requirement",
+            kind="frozen_requirement_spec",
+            title="Frozen Requirement",
+            content="冻结需求：必须支持新增、筛选和持久化。",
+        ),
+        Artifact(
+            id="artifact-frozen-design",
+            project_id="project-1",
+            workitem_id="workitem-design",
+            agent_id="agent-designer",
+            kind="frozen_design_spec",
+            title="Frozen Design",
+            content="冻结设计：使用静态页面、localStorage 和列表状态机。",
+        ),
+        *[
+            Artifact(
+                id=f"artifact-recent-{index}",
+                project_id="project-1",
+                workitem_id=f"workitem-recent-{index}",
+                agent_id="agent",
+                kind="api_implementation",
+                title=f"Recent {index}",
+                content=f"recent {index}",
+            )
+            for index in range(8)
+        ],
+    ]
+    state = SharedProjectState(
+        project=Project(id="project-1", goal="实现静态 Web 应用", current_stage="testing"),
+        project_status=ProjectStatus.IN_PROGRESS,
+        current_stage="testing",
+        workitems=[requirement, design, backend, testing],
+        artifacts=artifacts,
+    )
+
+    context = ContextBuilder(max_artifacts=2).build(state, testing)
+    rendered = "\n".join(context.artifacts)
+
+    assert context.artifact_ids == ["artifact-frozen-req", "artifact-frozen-design"]
+    assert "冻结需求" in rendered
+    assert "冻结设计" in rendered
+
+
 def test_context_builder_expands_explicit_artifact_lineage() -> None:
     design = WorkItem(id="workitem-design", description="design", stage="design", kind="design_overview")
     review = WorkItem(id="workitem-review", description="review", stage="design", kind="collaboration_review")

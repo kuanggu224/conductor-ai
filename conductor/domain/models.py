@@ -130,8 +130,11 @@ class TaskAssignment:
     blocked_reason: str | None = None
     claimed_at: str = ""
     last_heartbeat_at: str = ""
+    lease_seconds: int = 0
+    lease_expires_at: str = ""
     returned_at: str = ""
     prompt_file: str = ""
+    transition_history: list[dict[str, object]] = field(default_factory=list)
 
 
 @dataclass(slots=True)

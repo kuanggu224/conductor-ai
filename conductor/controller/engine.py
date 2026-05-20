@@ -56,7 +56,10 @@ class ConductorEngine:
         self.cli_selection_config = cli_selection_config or load_cli_selection_config()
         self.run_profile = run_profile.value if isinstance(run_profile, RunProfile) else str(run_profile)
         self.llm_harness_backend = llm_harness_backend
-        self._mock_without_explicit_llm = self.run_profile == RunProfile.MOCK.value and llm_harness_backend is None
+        self._mock_without_explicit_llm = self.run_profile in {
+            RunProfile.MOCK.value,
+            RunProfile.STATIC_WEB.value,
+        } and llm_harness_backend is None
         if self._mock_without_explicit_llm:
             self.llm_runtime_config = replace(
                 self.llm_runtime_config,
@@ -82,6 +85,7 @@ class ConductorEngine:
             llm_usage_policy=self.llm_runtime_config.usage,
             artifact_store=self.artifact_store,
             enable_tester_harness=True,
+            enable_static_web_delivery=self.run_profile == RunProfile.STATIC_WEB.value,
             cli_selection_config=self.cli_selection_config,
             runtime_stream_store=self.runtime_stream_store,
             require_real_design_outputs=require_real_design_outputs,
@@ -168,6 +172,10 @@ class ConductorEngine:
         state = self.get_project(project_id)
         step_count = 0
         while not self.is_terminal(state) and step_count < max_steps:
+            if self.controller.decide_next_action(state) == "human_hold":
+                state = self.controller.advance(state)
+                self._sync_logs(state)
+                break
             state = self.controller.advance(state)
             self._sync_logs(state)
             step_count += 1
@@ -189,7 +197,13 @@ class ConductorEngine:
         self._sync_logs(state)
         return self.log_store.write_project_report(state)
 
-    def write_run_manifest(self, project_id: str, report_path: str | Path) -> Path:
+    def write_run_manifest(
+        self,
+        project_id: str,
+        report_path: str | Path,
+        run_options: dict[str, object] | None = None,
+        pre_run_maintenance: dict[str, object] | None = None,
+    ) -> Path:
         """Write a run manifest for the current project state."""
         state = self.get_project(project_id)
         return self.manifest_writer.write(
@@ -198,6 +212,8 @@ class ConductorEngine:
             run_profile=self.run_profile,
             report_path=report_path,
             llm_runtime_config=self.llm_runtime_config,
+            run_options=run_options,
+            pre_run_maintenance=pre_run_maintenance,
         )
 
     def _sync_logs(self, state: SharedProjectState) -> None:

@@ -213,8 +213,13 @@ class FileStateStore(InMemoryStateStore):
             blocked_reason=data.get("blocked_reason"),
             claimed_at=data.get("claimed_at", ""),
             last_heartbeat_at=data.get("last_heartbeat_at", ""),
+            lease_seconds=int(data.get("lease_seconds", 0)),
+            lease_expires_at=data.get("lease_expires_at", ""),
             returned_at=data.get("returned_at", ""),
             prompt_file=data.get("prompt_file", ""),
+            transition_history=[
+                dict(item) for item in data.get("transition_history", []) if isinstance(item, dict)
+            ],
         )
 
     def _execution(self, data: dict[str, Any]) -> Execution:

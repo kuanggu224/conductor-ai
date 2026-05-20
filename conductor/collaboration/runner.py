@@ -19,6 +19,7 @@ from conductor.collaboration.models import (
 from conductor.collaboration.policy import CollaborationPolicy
 from conductor.collaboration.team import ReviewSeat, plan_requirement_review_team
 from conductor.config.cli import CLISelectionConfig
+from conductor.design_quality import DesignQualityResult, evaluate_design_document
 from conductor.domain.models import Artifact, WorkItem
 from conductor.harness.llm import LLMHarnessRequest, OpenAICompatibleLLMHarness
 from conductor.execution.runtime_stream import RuntimeStreamStore
@@ -97,6 +98,7 @@ class CollaborationRunner:
         ]
         status = CollaborationStatus.RUNNING
         requirement_quality = None
+        design_quality = None
         collaboration = Collaboration(
             id=collaboration_id,
             project_id=project_id,
@@ -254,15 +256,16 @@ class CollaborationRunner:
                     status = CollaborationStatus.MAX_ROUNDS_REACHED
             else:
                 feedback_coverage = self._review_feedback_resolution_coverage(draft, contributions)
-                design_quality_passed = self._draft_has_minimum_sections(draft, workitem)
+                design_quality = self._evaluate_design_quality(draft, workitem)
                 self.state_store.add_event(
                     project_id,
                     (
                         "Design final arbitration: "
-                        f"passed={design_quality_passed}, feedback_coverage={feedback_coverage}"
+                        f"score={design_quality.score}, passed={design_quality.passed}, "
+                        f"feedback_coverage={feedback_coverage}"
                     ),
                 )
-                if design_quality_passed and feedback_coverage >= 60 and len(draft_versions) > 1:
+                if design_quality.passed and feedback_coverage >= 60 and len(draft_versions) > 1:
                     status = CollaborationStatus.ACCEPTED
                 else:
                     status = CollaborationStatus.MAX_ROUNDS_REACHED
@@ -278,6 +281,18 @@ class CollaborationRunner:
                     project_id,
                     f"需求质量门禁未通过: {'; '.join(quality.findings) or 'score below threshold'}",
                 )
+        if status == CollaborationStatus.ACCEPTED and workitem.kind == "design_overview":
+            quality = design_quality or self._evaluate_design_quality(draft, workitem)
+            self.state_store.add_event(
+                project_id,
+                f"设计质量评分: score={quality.score}, passed={quality.passed}",
+            )
+            if not quality.passed:
+                status = CollaborationStatus.FAILED
+                self.state_store.add_event(
+                    project_id,
+                    f"设计质量门禁未通过: {'; '.join(quality.findings) or 'score below threshold'}",
+                )
 
         final_artifact = self._create_final_artifact(
             project_id=project_id,
@@ -291,6 +306,15 @@ class CollaborationRunner:
         )
         if status == CollaborationStatus.ACCEPTED and workitem.kind == "requirement_spec":
             self._create_frozen_requirement_artifact(
+                project_id=project_id,
+                workitem=workitem,
+                lead=lead,
+                draft=draft,
+                review_artifact=final_artifact,
+                project_root=project_root,
+            )
+        if status == CollaborationStatus.ACCEPTED and workitem.kind == "design_overview":
+            self._create_frozen_design_artifact(
                 project_id=project_id,
                 workitem=workitem,
                 lead=lead,
@@ -326,6 +350,18 @@ class CollaborationRunner:
         state = self.state_store.get_state(project_id)
         case = build_requirement_case_from_text(project_id, state.project.goal, name="project_requirement")
         return evaluate_requirement_document(draft, case)
+
+    def _evaluate_design_quality(self, draft: str, workitem: WorkItem):
+        """Evaluate whether an accepted design draft is good enough to freeze."""
+        if workitem.kind == "design_overview":
+            return evaluate_design_document(draft)
+        passed = self._draft_has_minimum_sections(draft, workitem)
+        return DesignQualityResult(
+            score=100 if passed else 0,
+            passed=passed,
+            findings=[] if passed else ["minimum sections missing"],
+            dimension_scores={"minimum_sections": 100 if passed else 0},
+        )
 
     def _draft_has_minimum_sections(self, draft: str, workitem: WorkItem) -> bool:
         """Return whether a revised non-requirement draft is complete enough to accept."""
@@ -952,6 +988,8 @@ class CollaborationRunner:
         """Build a structured mock revision."""
         if workitem.kind == "requirement_spec":
             return self._build_mock_requirement_revision(workitem, reviews, round_index)
+        if workitem.kind == "design_overview":
+            return self._build_mock_design_revision(workitem, draft, reviews, round_index)
         review_summary = "\n".join(f"- {review.role}: {review.decision.value}" for review in reviews)
         return (
             f"# 修订版协作草案 - {workitem.id}\n\n"
@@ -962,6 +1000,57 @@ class CollaborationRunner:
             "- 补充接口、页面、测试三类关注点，确保后续研发和测试有一致输入。\n"
             "- 明确主路径、异常路径、非目标范围和验收标准。\n"
             "- 将 reviewer 意见作为后续实现文档和测试文档的约束。\n"
+        )
+
+    def _build_mock_design_revision(
+        self,
+        workitem: WorkItem,
+        draft: str,
+        reviews: list[ReviewContribution],
+        round_index: int,
+    ) -> str:
+        """Build an actionable design baseline for offline smoke runs."""
+        review_summary = "\n".join(f"- {review.role}: {review.decision.value}" for review in reviews) or "- No review notes."
+        criteria = "\n".join(f"- {item}" for item in workitem.acceptance_criteria) or "- Preserve the frozen requirement and produce an implementable handoff."
+        return (
+            f"# Overall Design - {workitem.id}\n\n"
+            f"## Revision Round\n{round_index}\n\n"
+            "## Goal\n"
+            "Define a browser-only implementation plan that downstream development and testing agents can execute without adding unrelated scope.\n\n"
+            "## Requirement Understanding\n"
+            f"{workitem.description}\n\n"
+            "The user workflow is a local single-page experience with visible state updates, durable browser storage, validation feedback, filtering, deletion, and export where requested.\n\n"
+            "## Scope Boundary\n"
+            "- In scope: one static web page, semantic form controls, localStorage persistence, local CSV generation, delete action, filters, empty state, and validation errors.\n"
+            "- Out of scope / non-goals: backend services, server APIs, login/auth, accounts, cloud sync, payments, analytics, and remote storage.\n"
+            "- Constraint: keep all product data in the browser and avoid network dependencies.\n\n"
+            "## Solution\n"
+            "- Architecture: `index.html` defines form, toolbar filters, card/list region, empty state, and export control.\n"
+            "- Module: `app.js` owns state, validation, rendering, localStorage read/write, filtering, deletion, and CSV export.\n"
+            "- Component flow: load saved data -> render filters and list -> submit validated card -> persist -> rerender -> export current data.\n"
+            "- Interface boundary: use browser DOM and localStorage APIs only; no HTTP routes, server endpoint, or external service.\n\n"
+            "## Data And State\n"
+            "- Fields: id, question, answer, topic, status, createdAt.\n"
+            "- State: cards array, active topic filter, active status filter, validation error text, empty/list visibility.\n"
+            "- Storage: serialize cards to localStorage after create/delete/status updates and restore during initialization.\n"
+            "- CSV: escape commas, quotes, and newlines before creating a local Blob download.\n\n"
+            "## Acceptance And Test Plan\n"
+            f"{criteria}\n"
+            "- Test valid card creation updates the visible list and browser storage.\n"
+            "- Test empty required fields show validation errors and do not mutate state.\n"
+            "- Test topic/status filters change the visible card set without deleting data.\n"
+            "- Test delete removes one card and persists after reload.\n"
+            "- Test CSV export contains headers and all card fields.\n\n"
+            "## Risks And Assumptions\n"
+            "- Assumption: this is a single-user local browser tool.\n"
+            "- Risk: localStorage can be cleared by the browser, so persistence is best-effort.\n"
+            "- Risk: CSV escaping errors can corrupt exported answers that contain punctuation or line breaks.\n"
+            "- Open question: whether status is limited to new/learning/mastered or should be configurable.\n\n"
+            "## Review Resolution\n"
+            f"{review_summary}\n"
+            "- Reviewer concerns are resolved through explicit scope boundary, architecture, data/state, validation, acceptance tests, and risk notes.\n\n"
+            "## Previous Draft Summary\n"
+            f"{draft[:800]}\n"
         )
 
     def _build_mock_requirement_revision(
@@ -1097,6 +1186,44 @@ class CollaborationRunner:
         persisted = self.artifact_store.save_markdown(artifact, project_root=project_root)
         self.state_store.add_artifact(project_id, persisted)
         self.state_store.add_event(project_id, f"冻结需求规格 {persisted.id} 已创建，来源 WorkItem={workitem.id}")
+        return persisted
+
+    def _create_frozen_design_artifact(
+        self,
+        project_id: str,
+        workitem: WorkItem,
+        lead: Agent,
+        draft: str,
+        review_artifact: Artifact,
+        project_root: str,
+    ) -> Artifact:
+        """Persist the accepted design baseline for implementation and testing."""
+        artifact = Artifact(
+            id=f"artifact-frozen-design-{workitem.id}",
+            project_id=project_id,
+            workitem_id=workitem.id,
+            agent_id=lead.id,
+            kind="frozen_design_spec",
+            title=f"Frozen Design Spec - {workitem.id}",
+            content=(
+                f"# Frozen Design Spec - {workitem.id}\n\n"
+                "## Status\naccepted\n\n"
+                "## Baseline\n"
+                f"{draft}\n\n"
+                "## Downstream Contract\n"
+                "- 后续开发、测试必须以本冻结设计规格作为实现基线。\n"
+                "- 如需改变架构、接口或页面方案，必须创建新的设计修订或返工 WorkItem。\n"
+            ),
+            source_backend="collaboration",
+            parent_artifact_id=review_artifact.id,
+            derived_from=self._build_derived_from(project_id, workitem.id),
+            review_of=review_artifact.review_of,
+            version=1,
+            collaboration_session_id=f"collaboration-{workitem.id}",
+        )
+        persisted = self.artifact_store.save_markdown(artifact, project_root=project_root)
+        self.state_store.add_artifact(project_id, persisted)
+        self.state_store.add_event(project_id, f"冻结设计规格 {persisted.id} 已创建，来源 WorkItem={workitem.id}")
         return persisted
 
     def _find_previous_collaboration_artifact(self, project_id: str, workitem_id: str) -> str | None:

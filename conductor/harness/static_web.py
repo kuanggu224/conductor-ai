@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+import tempfile
 import threading
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
@@ -61,6 +62,10 @@ class BrowserExerciseResult:
     filter_interaction_changed: bool = False
     delete_interaction_removed: bool = False
     download_triggered: bool = False
+    file_input_exercised: bool = False
+    file_import_processed: bool = False
+    imported_file_values: list[str] = field(default_factory=list)
+    temporary_import_files: list[str] = field(default_factory=list)
 
 
 class _HTMLAssetParser(HTMLParser):
@@ -232,9 +237,13 @@ class StaticWebHarness(BaseHarness):
             if not body_text:
                 report.errors.append("Browser rendered an empty body")
             if exercise_result.attempted:
-                if not exercise_result.submitted:
+                if not exercise_result.submitted and not exercise_result.file_import_processed:
                     report.errors.append("Browser form exercise found a form but could not submit it")
-                elif not exercise_result.body_changed and not exercise_result.visible_values:
+                elif (
+                    not exercise_result.body_changed
+                    and not exercise_result.visible_values
+                    and not exercise_result.file_import_processed
+                ):
                     report.errors.append("Browser form submit did not change visible page state")
                 else:
                     details = ", ".join(exercise_result.visible_values) or "page body changed"
@@ -255,6 +264,8 @@ class StaticWebHarness(BaseHarness):
                     report.checks.append("Browser delete interaction removed visible item")
                 if exercise_result.download_triggered:
                     report.checks.append("Browser export/download action triggered")
+                if exercise_result.file_import_processed:
+                    report.checks.append("Browser file import processed sample file")
             if page_errors:
                 report.errors.append(f"Browser page errors: {' | '.join(page_errors[:3])}")
             if console_errors:
@@ -276,6 +287,9 @@ class StaticWebHarness(BaseHarness):
         form = forms.first
         inputs = form.locator("input, textarea, select")
         submitted_values: list[str] = []
+        before_body = page.locator("body").inner_text(timeout=5_000).strip()
+        before_storage = self._local_storage_snapshot(page)
+        self._populate_file_inputs(page, form, result)
         for index in range(inputs.count()):
             control = inputs.nth(index)
             tag = control.evaluate("el => el.tagName.toLowerCase()")
@@ -292,8 +306,6 @@ class StaticWebHarness(BaseHarness):
             value = self._sample_value(input_type, self._control_identity(control))
             control.fill(value)
             submitted_values.append(value)
-        before_body = page.locator("body").inner_text(timeout=5_000).strip()
-        before_storage = self._local_storage_snapshot(page)
         submit = form.locator("button[type=submit], input[type=submit], button").first
         if submit.count() > 0:
             submit.click(timeout=5_000)
@@ -303,7 +315,14 @@ class StaticWebHarness(BaseHarness):
         after_storage = self._local_storage_snapshot(page)
         result.body_changed = after_body != before_body
         result.local_storage_changed = after_storage != before_storage
-        result.visible_values = [value for value in submitted_values if self._value_visible(value, after_body)]
+        candidate_values = [*submitted_values, *result.imported_file_values]
+        result.visible_values = [value for value in candidate_values if self._value_visible(value, after_body)]
+        result.file_import_processed = result.file_input_exercised and (
+            result.body_changed
+            or result.local_storage_changed
+            or any(self._value_visible(value, after_body) for value in result.imported_file_values)
+        )
+        self._cleanup_import_files(result)
         result.selected_values = self._visible_select_values(page, submitted_values)
         if result.visible_values:
             page.reload(wait_until="domcontentloaded", timeout=10_000)
@@ -319,18 +338,20 @@ class StaticWebHarness(BaseHarness):
         inputs = page.locator(
             "input:not([type=button]):not([type=submit]):not([type=reset]):not([type=file]):not([type=hidden]), textarea"
         )
-        if inputs.count() < 1:
+        file_inputs = page.locator("input[type=file]")
+        if inputs.count() < 1 and file_inputs.count() < 1:
             return result
         result.attempted = True
         submitted_values: list[str] = []
+        before_body = page.locator("body").inner_text(timeout=5_000).strip()
+        before_storage = self._local_storage_snapshot(page)
+        self._populate_file_inputs(page, page, result)
         for index in range(inputs.count()):
             control = inputs.nth(index)
             input_type = control.get_attribute("type") or "text"
             value = self._sample_value(input_type, self._control_identity(control))
             control.fill(value)
             submitted_values.append(value)
-        before_body = page.locator("body").inner_text(timeout=5_000).strip()
-        before_storage = self._local_storage_snapshot(page)
         button = self._primary_action_button(page)
         if button is not None:
             button.click(timeout=5_000)
@@ -340,7 +361,14 @@ class StaticWebHarness(BaseHarness):
         after_storage = self._local_storage_snapshot(page)
         result.body_changed = after_body != before_body
         result.local_storage_changed = after_storage != before_storage
-        result.visible_values = [value for value in submitted_values if self._value_visible(value, after_body)]
+        candidate_values = [*submitted_values, *result.imported_file_values]
+        result.visible_values = [value for value in candidate_values if self._value_visible(value, after_body)]
+        result.file_import_processed = result.file_input_exercised and (
+            result.body_changed
+            or result.local_storage_changed
+            or any(self._value_visible(value, after_body) for value in result.imported_file_values)
+        )
+        self._cleanup_import_files(result)
         if result.visible_values:
             page.reload(wait_until="domcontentloaded", timeout=10_000)
             page.wait_for_timeout(300)
@@ -411,6 +439,40 @@ class StaticWebHarness(BaseHarness):
             fallback = control
         return fallback
 
+    def _populate_file_inputs(self, page, scope, result: BrowserExerciseResult) -> None:
+        """Attach a deterministic sample CSV to visible file inputs."""
+        file_inputs = scope.locator("input[type=file]")
+        if file_inputs.count() < 1:
+            return
+        result.imported_file_values = ["Imported Alpha", "conductor-import-sample.csv"]
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            suffix="-conductor-import-sample.csv",
+            delete=False,
+        ) as sample:
+            sample.write("title,amount\nImported Alpha,42\n")
+            sample_path = Path(sample.name)
+        result.temporary_import_files.append(str(sample_path))
+        for index in range(file_inputs.count()):
+            control = file_inputs.nth(index)
+            try:
+                control.set_input_files(str(sample_path))
+                result.file_input_exercised = True
+            except Exception:
+                continue
+        if result.file_input_exercised:
+            page.wait_for_timeout(500)
+
+    def _cleanup_import_files(self, result: BrowserExerciseResult) -> None:
+        """Remove temporary sample files used for browser file inputs."""
+        for path in result.temporary_import_files:
+            try:
+                Path(path).unlink(missing_ok=True)
+            except OSError:
+                continue
+        result.temporary_import_files = []
+
     def _check_delete_interaction(self, page, visible_values: list[str]) -> bool:
         """Click a likely delete/remove action and verify a visible item disappears."""
         if not visible_values:
@@ -476,8 +538,8 @@ class StaticWebHarness(BaseHarness):
         return fallback
 
     def _check_download_action(self, page, result: BrowserExerciseResult) -> None:
-        export_button = page.get_by_text(re.compile(r"CSV|Export|导出|下载", re.IGNORECASE)).first
-        if export_button.count() < 1:
+        export_button = self._download_action(page)
+        if export_button is None:
             return
         try:
             with page.expect_download(timeout=3_000):
@@ -488,6 +550,32 @@ class StaticWebHarness(BaseHarness):
             # paths in headless mode. Treat this as optional unless it raises a
             # page error captured by the main browser check.
             return
+
+    def _download_action(self, page):
+        """Return a likely export/download action while avoiding import/upload controls."""
+        actions = page.locator("button, input[type=button], input[type=submit], a[download], a[role=button]")
+        preferred = re.compile(r"export|download|导出|下载|csv", re.IGNORECASE)
+        excluded = re.compile(r"import|upload|导入|上传", re.IGNORECASE)
+        fallback = None
+        for index in range(actions.count()):
+            action = actions.nth(index)
+            label = " ".join(
+                [
+                    action.inner_text(timeout=1_000) if action.evaluate("el => el.tagName.toLowerCase()") != "input" else "",
+                    action.get_attribute("value") or "",
+                    action.get_attribute("aria-label") or "",
+                    action.get_attribute("title") or "",
+                    action.get_attribute("id") or "",
+                    action.get_attribute("class") or "",
+                ]
+            ).strip()
+            if excluded.search(label):
+                continue
+            if preferred.search(label):
+                return action
+            if fallback is None and not excluded.search(label):
+                fallback = action
+        return fallback
 
     def _control_identity(self, control) -> str:
         parts = [
