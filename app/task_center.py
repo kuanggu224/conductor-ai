@@ -232,6 +232,45 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Exit with code 3 when latest maintenance status is unhealthy or stale.",
     )
+
+    watchdog_parser = subparsers.add_parser(
+        "watchdog",
+        parents=[common],
+        help="Check latest maintenance status and refresh maintenance when it is stale or unhealthy.",
+    )
+    watchdog_parser.add_argument(
+        "--latest",
+        default=".conductor/maintenance/latest.json",
+        help="Latest-maintenance pointer JSON path to check. Relative paths use --project-root.",
+    )
+    watchdog_parser.add_argument(
+        "--max-age-seconds",
+        type=int,
+        default=0,
+        help="Optional maximum acceptable age for the latest pointer. Zero disables age checks.",
+    )
+    watchdog_parser.add_argument("--stale-after-seconds", type=int, default=DEFAULT_STALE_CLAIMED_AFTER_SECONDS)
+    watchdog_parser.add_argument("--expired-lease-release-reason", default="expired task lease")
+    watchdog_parser.add_argument("--stale-release-reason", default="stale claimed assignment")
+    watchdog_parser.add_argument(
+        "--output",
+        default=".conductor/maintenance/report.json",
+        help="Maintenance report path used when watchdog refreshes. Relative paths use --project-root.",
+    )
+    watchdog_parser.add_argument(
+        "--latest-output",
+        help="Latest pointer path used when watchdog refreshes. Defaults to --latest.",
+    )
+    watchdog_parser.add_argument(
+        "--check-only",
+        action="store_true",
+        help="Only inspect latest maintenance status; do not run maintenance.",
+    )
+    watchdog_parser.add_argument(
+        "--fail-on-unhealthy",
+        action="store_true",
+        help="Exit with code 3 when the final watchdog status is unhealthy.",
+    )
     return parser
 
 
@@ -239,7 +278,7 @@ def main(argv: list[str] | None = None) -> int:
     """Run the task-center command and print a JSON payload."""
     args = build_parser().parse_args(argv)
     store = FileStateStore(_resolve_state_dir(args))
-    multi_project_commands = {"audit-all", "maintenance", "maintenance-status", "sweep-all"}
+    multi_project_commands = {"audit-all", "maintenance", "maintenance-status", "sweep-all", "watchdog"}
     state = None if args.command in multi_project_commands else _resolve_state(store, args.project_id)
     max_bulk_claim_limit = getattr(args, "max_limit", DEFAULT_MAX_BULK_CLAIM_LIMIT)
     service = TaskCenterService(
@@ -301,6 +340,22 @@ def main(argv: list[str] | None = None) -> int:
             if not payload["exists"]:
                 exit_code = 2
             elif args.fail_on_findings and not payload["healthy"]:
+                exit_code = 3
+        elif args.command == "watchdog":
+            payload = _watchdog_payload(
+                store,
+                service,
+                project_root=args.project_root,
+                latest_path=args.latest,
+                max_age_seconds=args.max_age_seconds,
+                stale_after_seconds=args.stale_after_seconds,
+                expired_lease_release_reason=args.expired_lease_release_reason,
+                stale_release_reason=args.stale_release_reason,
+                report_path=args.output,
+                latest_output_path=args.latest_output or args.latest,
+                check_only=args.check_only,
+            )
+            if args.fail_on_unhealthy and not payload["healthy"]:
                 exit_code = 3
         else:
             assert state is not None
@@ -1013,6 +1068,141 @@ def _maintenance_status_payload(
         "report_path": str(latest.get("report_path", "")),
         "latest": latest,
     }
+
+
+def _watchdog_payload(
+    store: FileStateStore,
+    service: TaskCenterService,
+    *,
+    project_root: str,
+    latest_path: str,
+    max_age_seconds: int,
+    stale_after_seconds: int,
+    expired_lease_release_reason: str,
+    stale_release_reason: str,
+    report_path: str,
+    latest_output_path: str,
+    check_only: bool,
+) -> dict[str, object]:
+    before = _maintenance_status_payload(latest_path, project_root, max_age_seconds=max_age_seconds)
+    refresh_reason = _watchdog_refresh_reason(before)
+    should_refresh = not check_only and refresh_reason != "healthy"
+    maintenance_payload: dict[str, object] = {}
+    after = before
+    if should_refresh:
+        maintenance_payload = _maintenance_payload(
+            store,
+            service,
+            stale_after_seconds=stale_after_seconds,
+            expired_lease_release_reason=expired_lease_release_reason,
+            stale_release_reason=stale_release_reason,
+        )
+        _attach_maintenance_operator_hints(
+            maintenance_payload,
+            project_root=project_root,
+            stale_after_seconds=stale_after_seconds,
+            report_path=report_path,
+            latest_path=latest_output_path,
+            max_age_seconds=max_age_seconds,
+        )
+        output_path = _write_json_output(report_path, project_root, maintenance_payload)
+        maintenance_payload["output_path"] = str(output_path)
+        latest_output = _write_latest_maintenance_output(latest_output_path, project_root, maintenance_payload)
+        maintenance_payload["latest_output_path"] = str(latest_output)
+        after = _maintenance_status_payload(latest_output_path, project_root, max_age_seconds=max_age_seconds)
+    return {
+        "ok": bool(after.get("ok", False)),
+        "healthy": bool(after.get("healthy", False)),
+        "reason": _watchdog_status_reason(after),
+        "maintenance_ran": should_refresh,
+        "refresh_reason": refresh_reason,
+        "check_only": check_only,
+        "latest_path": str(_resolve_project_output_path(latest_path, project_root)),
+        "report_path": str(_resolve_project_output_path(report_path, project_root)),
+        "latest_output_path": str(_resolve_project_output_path(latest_output_path, project_root)),
+        "operator_guidance": _watchdog_operator_guidance(),
+        "operator_commands": _watchdog_operator_commands(
+            project_root=project_root,
+            latest_path=latest_path,
+            max_age_seconds=max_age_seconds,
+            stale_after_seconds=stale_after_seconds,
+            report_path=report_path,
+            latest_output_path=latest_output_path,
+        ),
+        "before": before,
+        "status": after,
+        "maintenance": maintenance_payload,
+    }
+
+
+def _watchdog_refresh_reason(status_payload: dict[str, object]) -> str:
+    if not status_payload.get("exists", False):
+        return "missing_latest"
+    if not status_payload.get("ok", False):
+        return "invalid_latest"
+    if status_payload.get("stale", False):
+        return "stale_latest"
+    if not status_payload.get("healthy", False):
+        return str(status_payload.get("reason", "")) or "unhealthy_latest"
+    return "healthy"
+
+
+def _watchdog_status_reason(status_payload: dict[str, object]) -> str:
+    reason = str(status_payload.get("reason", ""))
+    if reason:
+        return reason
+    error = str(status_payload.get("error", ""))
+    return error or "unknown"
+
+
+def _watchdog_operator_guidance() -> str:
+    return (
+        "Run watchdog from a scheduler; it refreshes maintenance when the latest pointer "
+        "is missing, stale, or unhealthy."
+    )
+
+
+def _watchdog_operator_commands(
+    *,
+    project_root: str,
+    latest_path: str,
+    max_age_seconds: int,
+    stale_after_seconds: int,
+    report_path: str,
+    latest_output_path: str,
+) -> list[str]:
+    watchdog = [
+        "python",
+        "-m",
+        "app.task_center",
+        "watchdog",
+        "--project-root",
+        _quote_cli_arg(project_root),
+        "--latest",
+        _quote_cli_arg(latest_path),
+        "--stale-after-seconds",
+        str(stale_after_seconds),
+        "--output",
+        _quote_cli_arg(report_path),
+        "--latest-output",
+        _quote_cli_arg(latest_output_path),
+    ]
+    status = [
+        "python",
+        "-m",
+        "app.task_center",
+        "maintenance-status",
+        "--project-root",
+        _quote_cli_arg(project_root),
+        "--latest",
+        _quote_cli_arg(latest_output_path),
+    ]
+    if max_age_seconds > 0:
+        watchdog.extend(["--max-age-seconds", str(max_age_seconds)])
+        status.extend(["--max-age-seconds", str(max_age_seconds)])
+    watchdog.append("--fail-on-unhealthy")
+    status.append("--fail-on-findings")
+    return [" ".join(watchdog), " ".join(status)]
 
 
 def _attach_maintenance_operator_hints(

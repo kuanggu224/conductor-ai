@@ -307,6 +307,7 @@ python -m app.task_center sweep-all --project-root <workspace-root> --stale-afte
 python -m app.task_center audit-all --project-root <workspace-root> --fail-on-findings
 python -m app.task_center maintenance --project-root <workspace-root> --fail-on-findings
 python -m app.task_center maintenance-status --project-root <workspace-root> --fail-on-findings
+python -m app.task_center watchdog --project-root <workspace-root> --max-age-seconds 7200 --fail-on-unhealthy
 ```
 
 多项目维护报告：
@@ -328,9 +329,18 @@ python -m app.task_center maintenance `
   --fail-on-findings `
   --output .conductor\maintenance\report.json `
   --latest-output .conductor\maintenance\latest.json
+
+python -m app.task_center watchdog `
+  --project-root <workspace-root> `
+  --latest .conductor\maintenance\latest.json `
+  --max-age-seconds 7200 `
+  --stale-after-seconds 3600 `
+  --output .conductor\maintenance\report.json `
+  --latest-output .conductor\maintenance\latest.json `
+  --fail-on-unhealthy
 ```
 
-这些报告适合后续接入 Windows Task Scheduler、cron 或独立守护进程。`sweep-all` 负责清理可恢复的过期任务，`audit-all` 负责发现仍需人工或 Controller 处理的状态异常，`maintenance` 则提供一个可直接定时运行的组合入口。多项目审计和维护报告会聚合 `attention_project_ids`、`finding_code_counts` 和去重后的 `recommendations`，让外部调度器或人类 operator 可以直接看到哪些项目需要处理、主要问题是什么、建议如何修复。`--latest-output` 会写出最近一次维护的轻量摘要，并保留同样的 rollup 字段，便于外部监控或 Board 直接读取最新状态。`maintenance`、latest 指针和 `maintenance-status` 还会输出 `operator_guidance` 与 `operator_commands`，提供可复制的定时维护和 watchdog 健康检查命令；旧 latest 文件缺少这些字段时，`maintenance-status` 会按当前参数生成兼容命令。
+这些报告适合后续接入 Windows Task Scheduler、cron 或独立守护进程。`sweep-all` 负责清理可恢复的过期任务，`audit-all` 负责发现仍需人工或 Controller 处理的状态异常，`maintenance` 则提供一个可直接定时运行的组合入口。`watchdog` 会先读取 latest 指针，并在 latest 缺失、过期或不健康时自动执行一次 `maintenance`，适合作为调度器或守护进程的单次检查入口；`--check-only` 可用于只读探测。多项目审计和维护报告会聚合 `attention_project_ids`、`finding_code_counts` 和去重后的 `recommendations`，让外部调度器或人类 operator 可以直接看到哪些项目需要处理、主要问题是什么、建议如何修复。`--latest-output` 会写出最近一次维护的轻量摘要，并保留同样的 rollup 字段，便于外部监控或 Board 直接读取最新状态。`maintenance`、latest 指针、`maintenance-status` 和 `watchdog` 还会输出 `operator_guidance` 与 `operator_commands`，提供可复制的定时维护和 watchdog 健康检查命令；旧 latest 文件缺少这些字段时，`maintenance-status` 会按当前参数生成兼容命令。
 
 检查最近一次维护状态：
 

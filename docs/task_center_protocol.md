@@ -349,6 +349,10 @@ Multi-project `audit-all` and `maintenance` reports include operator rollups:
 The compact `maintenance --latest-output` pointer and `maintenance-status`
 payload preserve the same rollups so a scheduler, watchdog, or Board surface can
 show which projects need attention without reading the full maintenance report.
+`watchdog` is a one-shot scheduler/watchdog entrypoint: it reads the latest
+pointer, runs `maintenance` when the pointer is missing, stale, invalid, or
+unhealthy, writes the refreshed report/latest files, and returns both the
+pre-check and final status payloads. Use `--check-only` for read-only probes.
 `maintenance`, the latest pointer, and `maintenance-status` also include:
 
 - `operator_guidance`: compact text describing how an operator/watchdog should

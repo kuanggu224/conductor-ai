@@ -310,6 +310,7 @@ python -m app.task_center fail <assignment-id> --project-root <project-root> --c
 python -m app.task_center release-stale --project-root <project-root> --stale-after-seconds 3600
 python -m app.task_center maintenance --project-root <workspace-root> --fail-on-findings
 python -m app.task_center maintenance-status --project-root <workspace-root> --fail-on-findings
+python -m app.task_center watchdog --project-root <workspace-root> --max-age-seconds 7200 --fail-on-unhealthy
 ```
 
 对动态激活的 Agent，推荐使用 `claim-for-agent --with-context --prompt-file`。这会在一次受审计的状态转换里完成任务领取、claim token 返回、匹配 Agent 席位记录、上下文渲染和 Markdown prompt 落盘，适合交给外部 CLI coding agent 直接执行。

@@ -1763,6 +1763,116 @@ def test_task_center_cli_maintenance_status_reports_missing_latest(tmp_path, cap
     assert payload["error"] == "latest maintenance file not found"
 
 
+def test_task_center_cli_watchdog_runs_maintenance_when_latest_missing(tmp_path, capsys) -> None:
+    project_root = tmp_path / "workspace"
+    state_store = FileStateStore(project_root / ".conductor" / "state")
+    engine = ConductorEngine(
+        log_dir=project_root / ".conductor" / "logs",
+        artifact_dir=project_root / ".conductor" / "artifacts",
+        state_store=state_store,
+    )
+    engine.create_project(requirement="Build a local reading list", project_root=str(project_root))
+
+    code = main(
+        [
+            "watchdog",
+            "--project-root",
+            str(project_root),
+            "--max-age-seconds",
+            "60",
+            "--stale-after-seconds",
+            "3600",
+            "--output",
+            "maintenance/report.json",
+            "--latest-output",
+            ".conductor/maintenance/latest.json",
+            "--fail-on-unhealthy",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+    report_path = project_root / "maintenance" / "report.json"
+    latest_path = project_root / ".conductor" / "maintenance" / "latest.json"
+
+    assert code == 0
+    assert payload["maintenance_ran"] is True
+    assert payload["refresh_reason"] == "missing_latest"
+    assert payload["before"]["exists"] is False
+    assert payload["healthy"] is True
+    assert payload["reason"] == "clean"
+    assert payload["status"]["healthy"] is True
+    assert payload["maintenance"]["project_count"] == 1
+    assert payload["maintenance"]["latest_output_path"] == str(latest_path)
+    assert report_path.exists()
+    assert latest_path.exists()
+    assert payload["operator_guidance"].startswith("Run watchdog from a scheduler")
+    assert payload["operator_commands"][0].startswith("python -m app.task_center watchdog")
+    assert f'--project-root "{project_root}"' in payload["operator_commands"][0]
+    assert '--output "maintenance/report.json"' in payload["operator_commands"][0]
+    assert '--latest-output ".conductor/maintenance/latest.json"' in payload["operator_commands"][0]
+    assert "--max-age-seconds 60" in payload["operator_commands"][0]
+    assert "--fail-on-unhealthy" in payload["operator_commands"][0]
+
+
+def test_task_center_cli_watchdog_check_only_does_not_write_when_latest_missing(tmp_path, capsys) -> None:
+    project_root = tmp_path / "workspace"
+
+    code = main(
+        [
+            "watchdog",
+            "--project-root",
+            str(project_root),
+            "--check-only",
+            "--fail-on-unhealthy",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert code == 3
+    assert payload["maintenance_ran"] is False
+    assert payload["check_only"] is True
+    assert payload["refresh_reason"] == "missing_latest"
+    assert payload["healthy"] is False
+    assert payload["before"]["exists"] is False
+    assert payload["maintenance"] == {}
+    assert not (project_root / ".conductor" / "maintenance" / "report.json").exists()
+    assert not (project_root / ".conductor" / "maintenance" / "latest.json").exists()
+
+
+def test_task_center_cli_watchdog_skips_fresh_healthy_latest(tmp_path, capsys) -> None:
+    project_root = tmp_path / "workspace"
+    latest_path = project_root / ".conductor" / "maintenance" / "latest.json"
+    latest_path.parent.mkdir(parents=True)
+    latest_path.write_text(
+        json.dumps(
+            {
+                "ok": True,
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "status": "clean",
+                "project_count": 2,
+                "released_count": 0,
+                "finding_count": 0,
+                "error_count": 0,
+                "warning_count": 0,
+                "report_path": str(project_root / ".conductor" / "maintenance" / "report.json"),
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    code = main(["watchdog", "--project-root", str(project_root), "--max-age-seconds", "60"])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert payload["maintenance_ran"] is False
+    assert payload["refresh_reason"] == "healthy"
+    assert payload["healthy"] is True
+    assert payload["reason"] == "clean"
+    assert payload["status"]["project_count"] == 2
+    assert payload["maintenance"] == {}
+
+
 def test_task_center_cli_claim_next_selects_available_role_task(tmp_path, capsys) -> None:
     project_root = tmp_path / "project"
     state_store = FileStateStore(project_root / ".conductor" / "state")
