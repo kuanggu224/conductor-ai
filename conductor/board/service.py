@@ -358,7 +358,12 @@ class BoardService:
         service = HumanControlService(_BoardStateStore(state))
         active = service.active_action(state)
         if active is None:
-            return BoardHumanControlView(action_count=len(state.human_control_actions))
+            return BoardHumanControlView(
+                available_actions=service.available_actions(state),
+                operator_guidance=service.operator_guidance(state),
+                operator_commands=service.operator_command_templates(state),
+                action_count=len(state.human_control_actions),
+            )
         action = active.action.value
         return BoardHumanControlView(
             active=True,
@@ -371,6 +376,9 @@ class BoardService:
             workitem_id=active.workitem_id or "",
             payload=dict(active.payload),
             created_at=active.created_at,
+            available_actions=service.available_actions(state),
+            operator_guidance=service.operator_guidance(state),
+            operator_commands=service.operator_command_templates(state),
             action_count=len(state.human_control_actions),
         )
 

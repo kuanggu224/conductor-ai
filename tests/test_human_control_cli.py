@@ -34,6 +34,8 @@ def test_human_control_cli_pause_resume_and_status(tmp_path, capsys) -> None:
     assert status_code == 0
     assert status_payload["project_id"] == state.project.id
     assert status_payload["active"] is False
+    assert status_payload["available_actions"] == ["pause", "request_approval"]
+    assert "not held" in status_payload["operator_guidance"]
 
     pause_code = main(
         [
@@ -53,6 +55,7 @@ def test_human_control_cli_pause_resume_and_status(tmp_path, capsys) -> None:
     assert pause_payload["active_action"]["action"] == "pause"
     assert pause_payload["active_action"]["actor"] == "operator"
     assert pause_payload["hold_reason"] == "human_paused: inspect delivery"
+    assert pause_payload["available_actions"] == ["resume", "override"]
 
     resume_code = main(
         [
@@ -96,6 +99,8 @@ def test_human_control_cli_approval_inherits_active_gate_payload(tmp_path, capsy
 
     assert request_code == 0
     assert request_payload["active"] is True
+    assert request_payload["available_actions"] == ["approve", "reject", "override"]
+    assert "Approval is pending" in request_payload["operator_guidance"]
     assert request_payload["active_action"]["payload"] == {
         "controller_action": "escalate_project",
         "stage": "development",

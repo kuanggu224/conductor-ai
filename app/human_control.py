@@ -171,6 +171,8 @@ def _status_payload(state: SharedProjectState, service: HumanControlService) -> 
         "active": active is not None,
         "hold_reason": service.controller_hold_reason(state) or "",
         "active_action": _action_payload(active) if active else {},
+        "available_actions": service.available_actions(state),
+        "operator_guidance": service.operator_guidance(state),
         "action_count": len(state.human_control_actions),
         "actions": [_action_payload(action) for action in state.human_control_actions],
     }

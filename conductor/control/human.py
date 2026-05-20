@@ -105,6 +105,47 @@ class HumanControlService:
                 return False
         return False
 
+    def available_actions(self, state: SharedProjectState) -> list[str]:
+        """Return operator actions that make sense for the current control state."""
+        active = self.active_action(state)
+        if active is None:
+            return ["pause", "request_approval"]
+        if active.action == HumanControlActionType.PAUSE:
+            return ["resume", "override"]
+        if active.action == HumanControlActionType.REQUEST_APPROVAL:
+            return ["approve", "reject", "override"]
+        if active.action == HumanControlActionType.REJECT:
+            return ["override", "resume"]
+        return ["pause", "request_approval"]
+
+    def operator_guidance(self, state: SharedProjectState) -> str:
+        """Return a compact next-step hint for CLI and Board operators."""
+        active = self.active_action(state)
+        if active is None:
+            return "Automation is not held. Use pause to inspect, or request_approval to create a gate."
+        if active.action == HumanControlActionType.PAUSE:
+            return "Project is paused. Use resume to continue, or override to record a manual decision."
+        if active.action == HumanControlActionType.REQUEST_APPROVAL:
+            return "Approval is pending. Use approve, reject, or override after reviewing the gate."
+        if active.action == HumanControlActionType.REJECT:
+            return "Gate was rejected. Use override or resume when the operator decides how to proceed."
+        return "Review human-control history before continuing."
+
+    def operator_command_templates(
+        self,
+        state: SharedProjectState,
+        *,
+        project_root: str | None = None,
+    ) -> list[str]:
+        """Return copyable CLI command templates for the current human-control state."""
+        root = project_root or state.project.project_root or "<project-root>"
+        active = self.active_action(state)
+        active_payload = dict(active.payload) if active and active.payload else {}
+        return [
+            self._operator_command_template(state, action, root, active_payload)
+            for action in self.available_actions(state)
+        ]
+
     def active_action(self, state: SharedProjectState) -> HumanControlAction | None:
         """Return the latest active hold action, or None if control is released."""
         active: HumanControlAction | None = None
@@ -123,6 +164,50 @@ class HumanControlService:
             }:
                 active = None
         return active
+
+    def _operator_command_template(
+        self,
+        state: SharedProjectState,
+        action: str,
+        project_root: str,
+        active_payload: dict[str, object],
+    ) -> str:
+        cli_action = action.replace("_", "-")
+        reason = {
+            "pause": "inspect delivery",
+            "request_approval": "requires approval",
+            "resume": "continue",
+            "approve": "approved after review",
+            "reject": "needs correction",
+            "override": "manual override",
+        }.get(action, "operator decision")
+        parts = [
+            "python",
+            "-m",
+            "app.human_control",
+            cli_action,
+            "--project-root",
+            self._quote_cli_arg(project_root),
+            "--project-id",
+            state.project.id,
+            "--actor",
+            "operator",
+            "--reason",
+            self._quote_cli_arg(reason),
+        ]
+        payload = active_payload if action in {"approve", "override"} else {}
+        if action == "request_approval":
+            payload = {"controller_action": "<controller-action>", "stage": state.current_stage or "<stage>"}
+        controller_action = str(payload.get("controller_action", ""))
+        stage = str(payload.get("stage", ""))
+        if controller_action:
+            parts.extend(["--controller-action", self._quote_cli_arg(controller_action)])
+        if stage:
+            parts.extend(["--stage", self._quote_cli_arg(stage)])
+        return " ".join(parts)
+
+    def _quote_cli_arg(self, value: object) -> str:
+        return '"' + str(value).replace('"', '\\"') + '"'
 
     def _append(
         self,

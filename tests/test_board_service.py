@@ -132,6 +132,8 @@ def test_board_service_exposes_active_human_control_state() -> None:
     assert snapshot.human_control.workitem_id == "workitem-risk"
     assert snapshot.human_control.payload == {"controller_action": "escalate_project", "stage": "testing"}
     assert snapshot.human_control.hold_reason == "human_approval_required: high risk escalation"
+    assert snapshot.human_control.available_actions == ["approve", "reject", "override"]
+    assert "Approval is pending" in snapshot.human_control.operator_guidance
     assert snapshot.human_control.action_count == 1
     assert summaries[0].human_control_active is True
     assert summaries[0].human_control_label == "等待人工审批"

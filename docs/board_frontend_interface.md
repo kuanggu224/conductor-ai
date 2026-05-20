@@ -269,11 +269,13 @@ type BoardHumanControlView = {
   workitem_id: string
   payload: Record<string, unknown>
   created_at: string
+  available_actions: Array<"pause" | "resume" | "request_approval" | "approve" | "reject" | "override">
+  operator_guidance: string
   action_count: number
 }
 ```
 
-`human_control.active=true` 表示 Controller 当前应停止自动推进，前端应突出展示 `hold_reason` 和 `action_label`。项目列表可直接使用 `human_control_active` 和 `human_control_label` 标记等待人工处理的项目。
+`human_control.active=true` 表示 Controller 当前应停止自动推进，前端应突出展示 `hold_reason` 和 `action_label`。`available_actions` 和 `operator_guidance` 给出当前 operator 可执行动作和下一步提示；项目列表可直接使用 `human_control_active` 和 `human_control_label` 标记等待人工处理的项目。
 
 ### 4.3 BoardWorkItemView
 

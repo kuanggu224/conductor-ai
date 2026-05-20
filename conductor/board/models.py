@@ -212,6 +212,9 @@ class BoardHumanControlView:
     workitem_id: str = ""
     payload: dict[str, object] = field(default_factory=dict)
     created_at: str = ""
+    available_actions: list[str] = field(default_factory=list)
+    operator_guidance: str = ""
+    operator_commands: list[str] = field(default_factory=list)
     action_count: int = 0
 
 
