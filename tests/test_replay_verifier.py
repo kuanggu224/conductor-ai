@@ -721,6 +721,7 @@ def test_manifest_verifier_rejects_inconsistent_agent_team_plan_specs(tmp_path) 
             "agents": [
                 {"agent_id": "agent-frontend-a"},
                 {"agent_id": "agent-frontend-b"},
+                {"agent_id": "agent-frontend-c"},
             ],
             "agent_team_plans": [
                 {
@@ -756,6 +757,15 @@ def test_manifest_verifier_rejects_inconsistent_agent_team_plan_specs(tmp_path) 
                             "parallel_safe": False,
                             "write_scope": [],
                         },
+                        {
+                            "role": "frontend_engineer",
+                            "agent_id": "agent-frontend-c",
+                            "instance_id": "overlap",
+                            "stage": "development",
+                            "collaboration_mode": "parallel_development",
+                            "parallel_safe": True,
+                            "write_scope": ["SRC/STATE.ts"],
+                        },
                     ],
                 }
             ],
@@ -769,6 +779,10 @@ def test_manifest_verifier_rejects_inconsistent_agent_team_plan_specs(tmp_path) 
     assert "agent_team_plans[0] contains duplicate agent_spec agent_id: agent-frontend-a" in result.errors
     assert "agent_team_plans[0].agent_specs[1].stage=testing does not match plan stage=development" in result.errors
     assert "agent_team_plans[0].agent_specs[2].agent_id must be non-empty" in result.errors
+    assert (
+        "agent_team_plans[0].agent_specs[3] parallel_development write_scope overlaps "
+        "with agent-frontend-a: SRC/STATE.ts"
+    ) in result.errors
 
 
 def test_manifest_verifier_warns_for_unpaired_tl_human_gate(tmp_path) -> None:

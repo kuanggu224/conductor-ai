@@ -1354,6 +1354,7 @@ class ManifestVerifier:
             self._verify_project_scoped_record("agent_team_plans", index, plan, project_id, plan_id, result)
             self._warn_non_list_fields(plan, f"agent_team_plans[{index}]", ("reasons", "agent_specs"), result)
             plan_agent_ids: set[str] = set()
+            parallel_write_scope_owner: dict[str, str] = {}
             for spec_index, spec in enumerate(self._list(plan.get("agent_specs", []))):
                 if not isinstance(spec, dict):
                     result.warnings.append(f"agent_team_plans[{index}].agent_specs[{spec_index}] must be an object")
@@ -1378,6 +1379,14 @@ class ManifestVerifier:
                         result.errors.append(
                             f"agent_team_plans[{index}].agent_specs[{spec_index}] parallel_development requires write_scope"
                         )
+                    self._verify_parallel_write_scope_disjoint(
+                        plan_index=index,
+                        spec_index=spec_index,
+                        spec_agent_id=spec_agent_id,
+                        write_scope=write_scope,
+                        parallel_write_scope_owner=parallel_write_scope_owner,
+                        result=result,
+                    )
                 self._warn_unknown_agent(
                     agent_ids,
                     spec_agent_id,
@@ -1417,6 +1426,30 @@ class ManifestVerifier:
             if "payload" in action and not isinstance(action.get("payload"), dict):
                 result.warnings.append(f"human_control_actions[{index}].payload must be an object")
             self._warn_human_gate_without_tl_decision(index, action, tl_decisions, result)
+
+    def _verify_parallel_write_scope_disjoint(
+        self,
+        *,
+        plan_index: int,
+        spec_index: int,
+        spec_agent_id: str,
+        write_scope: list[str],
+        parallel_write_scope_owner: dict[str, str],
+        result: ManifestVerificationResult,
+    ) -> None:
+        """Reject overlapping write scopes inside one parallel team plan."""
+        for raw_scope in dict.fromkeys(write_scope):
+            scope = raw_scope.strip().lower()
+            if not scope:
+                continue
+            owner = parallel_write_scope_owner.get(scope)
+            if owner is not None and owner != spec_agent_id:
+                result.errors.append(
+                    f"agent_team_plans[{plan_index}].agent_specs[{spec_index}] "
+                    f"parallel_development write_scope overlaps with {owner}: {raw_scope}"
+                )
+                continue
+            parallel_write_scope_owner[scope] = spec_agent_id
 
     def _warn_missing_human_gate_for_tl_decision(
         self,
