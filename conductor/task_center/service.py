@@ -17,9 +17,18 @@ DEFAULT_MAX_BULK_CLAIM_LIMIT = 5
 class TaskCenterError(Exception):
     """Expected Task Center transition failure."""
 
-    def __init__(self, message: str, status_code: int = 409) -> None:
+    def __init__(
+        self,
+        message: str,
+        status_code: int = 409,
+        *,
+        code: str = "task_center_error",
+        details: dict[str, object] | None = None,
+    ) -> None:
         super().__init__(message)
         self.status_code = status_code
+        self.code = code
+        self.details = details or {}
 
 
 @dataclass(frozen=True, slots=True)
@@ -1061,7 +1070,9 @@ class TaskCenterService:
         if conflicts:
             raise TaskCenterError(
                 "Task assignment write scope conflicts with claimed assignments: "
-                + ", ".join(conflicts)
+                + ", ".join(conflicts),
+                code="write_scope_conflict",
+                details={"write_scope_conflict_assignment_ids": list(conflicts)},
             )
         now = _utc_now()
         resolved_lease_seconds = max(0, lease_seconds)

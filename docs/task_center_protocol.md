@@ -101,6 +101,18 @@ write-scope conflicts, warnings, and guidance. Markdown prompts render the same
 summary under `## Handoff Safety`, so external workers can make a claim/no-claim
 decision from the prompt without separately querying Task Center.
 
+Expected CLI transition failures are emitted as machine-readable JSON on stderr:
+
+- `ok=false`
+- `error`
+- `error_code`
+- `status_code`
+- optional `details`
+
+For write-scope conflicts, `error_code=write_scope_conflict` and
+`details.write_scope_conflict_assignment_ids` lists the claimed assignments that
+must return or be released before the worker can safely claim the task.
+
 ## Board API
 
 Endpoints:

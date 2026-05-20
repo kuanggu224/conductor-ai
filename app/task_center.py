@@ -544,10 +544,10 @@ def main(argv: list[str] | None = None) -> int:
         else:
             raise AssertionError(f"Unsupported command: {args.command}")
     except TaskCenterError as error:
-        print(json.dumps({"ok": False, "error": str(error)}, ensure_ascii=False), file=sys.stderr)
+        print(json.dumps(_task_center_error_payload(error), ensure_ascii=False), file=sys.stderr)
         return 2
     except ValueError as error:
-        print(json.dumps({"ok": False, "error": str(error)}, ensure_ascii=False), file=sys.stderr)
+        print(json.dumps({"ok": False, "error": str(error), "status_code": 400}, ensure_ascii=False), file=sys.stderr)
         return 2
 
     if isinstance(payload, str):
@@ -555,6 +555,19 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
     return exit_code
+
+
+def _task_center_error_payload(error: TaskCenterError) -> dict[str, object]:
+    """Return a machine-readable CLI error payload for external workers."""
+    payload: dict[str, object] = {
+        "ok": False,
+        "error": str(error),
+        "error_code": error.code,
+        "status_code": error.status_code,
+    }
+    if error.details:
+        payload["details"] = dict(error.details)
+    return payload
 
 
 def _resolve_state_dir(args) -> Path:

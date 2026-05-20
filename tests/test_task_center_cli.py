@@ -768,6 +768,24 @@ def test_task_center_cli_context_exposes_write_scope_conflicts_for_dynamic_agent
     assert "claimable_for_agent=False" in markdown
     assert f"write_scope_conflicts={claimed_assignment.id}" in markdown
 
+    code = main(
+        [
+            "claim",
+            queued_assignment.id,
+            "--project-root",
+            str(project_root),
+            "--agent-id",
+            queued_activation.agent_id,
+        ]
+    )
+    error_payload = json.loads(capsys.readouterr().err)
+
+    assert code == 2
+    assert error_payload["ok"] is False
+    assert error_payload["error_code"] == "write_scope_conflict"
+    assert error_payload["status_code"] == 409
+    assert error_payload["details"]["write_scope_conflict_assignment_ids"] == [claimed_assignment.id]
+
 
 def test_task_center_cli_context_marks_rework_feedback_inputs(tmp_path, capsys) -> None:
     project_root = tmp_path / "project"
@@ -2126,4 +2144,7 @@ def test_task_center_cli_claim_next_returns_error_when_no_role_task(tmp_path, ca
     captured = capsys.readouterr()
 
     assert code == 2
-    assert "No queued task assignment available for role missing_role" in captured.err
+    error_payload = json.loads(captured.err)
+    assert error_payload["status_code"] == 404
+    assert error_payload["error_code"] == "task_center_error"
+    assert "No queued task assignment available for role missing_role" in error_payload["error"]
