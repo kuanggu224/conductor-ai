@@ -277,6 +277,13 @@ def main(argv: list[str] | None = None) -> int:
                 expired_lease_release_reason=args.expired_lease_release_reason,
                 stale_release_reason=args.stale_release_reason,
             )
+            _attach_maintenance_operator_hints(
+                payload,
+                project_root=args.project_root,
+                stale_after_seconds=args.stale_after_seconds,
+                report_path=args.output or ".conductor/maintenance/report.json",
+                latest_path=args.latest_output or ".conductor/maintenance/latest.json",
+            )
             if args.fail_on_findings and payload["audit"]["finding_count"]:
                 exit_code = 3
             if args.output:
@@ -911,6 +918,8 @@ def _write_latest_maintenance_output(path_arg: str, project_root: str, payload: 
         "attention_project_ids": _json_list_payload(payload.get("attention_project_ids")),
         "finding_code_counts": _json_dict_payload(payload.get("finding_code_counts")),
         "recommendations": _json_list_payload(payload.get("recommendations")),
+        "operator_guidance": str(payload.get("operator_guidance", "")),
+        "operator_commands": _json_list_payload(payload.get("operator_commands")),
         "report_path": str(payload.get("output_path", "")),
     }
     return _write_json_output(path_arg, project_root, latest)
@@ -923,12 +932,19 @@ def _maintenance_status_payload(
     max_age_seconds: int,
 ) -> dict[str, object]:
     latest_path = _resolve_project_output_path(latest_arg, project_root)
+    fallback_operator_commands = _maintenance_operator_commands(
+        project_root=project_root,
+        latest_path=latest_arg,
+        max_age_seconds=max_age_seconds,
+    )
     if not latest_path.exists():
         return {
             "ok": False,
             "exists": False,
             "healthy": False,
             "latest_path": str(latest_path),
+            "operator_guidance": _maintenance_operator_guidance(),
+            "operator_commands": fallback_operator_commands,
             "error": "latest maintenance file not found",
         }
     try:
@@ -939,6 +955,8 @@ def _maintenance_status_payload(
             "exists": True,
             "healthy": False,
             "latest_path": str(latest_path),
+            "operator_guidance": _maintenance_operator_guidance(),
+            "operator_commands": fallback_operator_commands,
             "error": f"latest maintenance file is not readable JSON: {error}",
         }
     if not isinstance(latest, dict):
@@ -947,6 +965,8 @@ def _maintenance_status_payload(
             "exists": True,
             "healthy": False,
             "latest_path": str(latest_path),
+            "operator_guidance": _maintenance_operator_guidance(),
+            "operator_commands": fallback_operator_commands,
             "error": "latest maintenance file must contain a JSON object",
         }
     age_seconds = _maintenance_latest_age_seconds(str(latest.get("generated_at", "")))
@@ -964,6 +984,12 @@ def _maintenance_status_payload(
         warning_count=warning_count,
     )
     healthy = status == "clean" and finding_count == 0 and error_count == 0 and warning_count == 0 and not stale
+    operator_commands = _json_list_payload(latest.get("operator_commands")) or _maintenance_operator_commands(
+        project_root=project_root,
+        report_path=str(latest.get("report_path", "")) or ".conductor/maintenance/report.json",
+        latest_path=latest_arg,
+        max_age_seconds=max_age_seconds,
+    )
     return {
         "ok": True,
         "exists": True,
@@ -982,9 +1008,79 @@ def _maintenance_status_payload(
         "attention_project_ids": _json_list_payload(latest.get("attention_project_ids")),
         "finding_code_counts": _json_dict_payload(latest.get("finding_code_counts")),
         "recommendations": _json_list_payload(latest.get("recommendations")),
+        "operator_guidance": str(latest.get("operator_guidance", "")) or _maintenance_operator_guidance(),
+        "operator_commands": operator_commands,
         "report_path": str(latest.get("report_path", "")),
         "latest": latest,
     }
+
+
+def _attach_maintenance_operator_hints(
+    payload: dict[str, object],
+    *,
+    project_root: str,
+    stale_after_seconds: int = DEFAULT_STALE_CLAIMED_AFTER_SECONDS,
+    report_path: str = ".conductor/maintenance/report.json",
+    latest_path: str = ".conductor/maintenance/latest.json",
+    max_age_seconds: int = 0,
+) -> None:
+    payload["operator_guidance"] = _maintenance_operator_guidance()
+    payload["operator_commands"] = _maintenance_operator_commands(
+        project_root=project_root,
+        stale_after_seconds=stale_after_seconds,
+        report_path=report_path,
+        latest_path=latest_path,
+        max_age_seconds=max_age_seconds,
+    )
+
+
+def _maintenance_operator_guidance() -> str:
+    return (
+        "Schedule the maintenance command, then have watchdogs call maintenance-status "
+        "against the latest pointer."
+    )
+
+
+def _maintenance_operator_commands(
+    *,
+    project_root: str,
+    stale_after_seconds: int = DEFAULT_STALE_CLAIMED_AFTER_SECONDS,
+    report_path: str = ".conductor/maintenance/report.json",
+    latest_path: str = ".conductor/maintenance/latest.json",
+    max_age_seconds: int = 0,
+) -> list[str]:
+    maintenance = [
+        "python",
+        "-m",
+        "app.task_center",
+        "maintenance",
+        "--project-root",
+        _quote_cli_arg(project_root),
+        "--stale-after-seconds",
+        str(stale_after_seconds),
+        "--output",
+        _quote_cli_arg(report_path),
+        "--latest-output",
+        _quote_cli_arg(latest_path),
+    ]
+    status = [
+        "python",
+        "-m",
+        "app.task_center",
+        "maintenance-status",
+        "--project-root",
+        _quote_cli_arg(project_root),
+        "--latest",
+        _quote_cli_arg(latest_path),
+    ]
+    if max_age_seconds > 0:
+        status.extend(["--max-age-seconds", str(max_age_seconds)])
+    status.append("--fail-on-findings")
+    return [" ".join(maintenance), " ".join(status)]
+
+
+def _quote_cli_arg(value: object) -> str:
+    return '"' + str(value).replace('"', '\\"') + '"'
 
 
 def _maintenance_health_reason(

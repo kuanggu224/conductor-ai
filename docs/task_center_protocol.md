@@ -349,6 +349,16 @@ Multi-project `audit-all` and `maintenance` reports include operator rollups:
 The compact `maintenance --latest-output` pointer and `maintenance-status`
 payload preserve the same rollups so a scheduler, watchdog, or Board surface can
 show which projects need attention without reading the full maintenance report.
+`maintenance`, the latest pointer, and `maintenance-status` also include:
+
+- `operator_guidance`: compact text describing how an operator/watchdog should
+  use the maintenance loop.
+- `operator_commands`: copyable CLI command templates for running scheduled
+  maintenance and checking the latest pointer with `maintenance-status`.
+
+When `maintenance-status` reads an older latest pointer without command hints, it
+generates compatible fallback commands from `--project-root`, `--latest`, and
+`--max-age-seconds`.
 
 ## Audit Outputs
 

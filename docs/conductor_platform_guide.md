@@ -330,7 +330,7 @@ python -m app.task_center maintenance `
   --latest-output .conductor\maintenance\latest.json
 ```
 
-这些报告适合后续接入 Windows Task Scheduler、cron 或独立守护进程。`sweep-all` 负责清理可恢复的过期任务，`audit-all` 负责发现仍需人工或 Controller 处理的状态异常，`maintenance` 则提供一个可直接定时运行的组合入口。多项目审计和维护报告会聚合 `attention_project_ids`、`finding_code_counts` 和去重后的 `recommendations`，让外部调度器或人类 operator 可以直接看到哪些项目需要处理、主要问题是什么、建议如何修复。`--latest-output` 会写出最近一次维护的轻量摘要，并保留同样的 rollup 字段，便于外部监控或 Board 直接读取最新状态。
+这些报告适合后续接入 Windows Task Scheduler、cron 或独立守护进程。`sweep-all` 负责清理可恢复的过期任务，`audit-all` 负责发现仍需人工或 Controller 处理的状态异常，`maintenance` 则提供一个可直接定时运行的组合入口。多项目审计和维护报告会聚合 `attention_project_ids`、`finding_code_counts` 和去重后的 `recommendations`，让外部调度器或人类 operator 可以直接看到哪些项目需要处理、主要问题是什么、建议如何修复。`--latest-output` 会写出最近一次维护的轻量摘要，并保留同样的 rollup 字段，便于外部监控或 Board 直接读取最新状态。`maintenance`、latest 指针和 `maintenance-status` 还会输出 `operator_guidance` 与 `operator_commands`，提供可复制的定时维护和 watchdog 健康检查命令；旧 latest 文件缺少这些字段时，`maintenance-status` 会按当前参数生成兼容命令。
 
 检查最近一次维护状态：
 
@@ -342,7 +342,7 @@ python -m app.task_center maintenance-status `
   --fail-on-findings
 ```
 
-`maintenance-status` 会返回 `healthy` 和 `reason` 字段，并透出 latest 指针里的 `attention_project_ids`、`finding_code_counts` 和 `recommendations`。常见 reason 包括 `clean`、`findings`、`stale`、`invalid_generated_at` 和 `status_not_clean`。
+`maintenance-status` 会返回 `healthy` 和 `reason` 字段，并透出 latest 指针里的 `attention_project_ids`、`finding_code_counts`、`recommendations`、`operator_guidance` 和 `operator_commands`。常见 reason 包括 `clean`、`findings`、`stale`、`invalid_generated_at` 和 `status_not_clean`。
 
 ## 8. Artifact、日志与 Manifest
 

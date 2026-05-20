@@ -1607,10 +1607,18 @@ def test_task_center_cli_maintenance_sweeps_then_audits_and_writes_report(tmp_pa
     assert payload["attention_project_ids"] == ["project-broken"]
     assert payload["finding_code_counts"]["missing_output_artifact"] == 1
     assert "Restore the output artifact records or rerun the worker return step." in payload["recommendations"]
+    assert payload["operator_guidance"].startswith("Schedule the maintenance command")
+    assert payload["operator_commands"][0].startswith("python -m app.task_center maintenance")
+    assert f'--project-root "{project_root}"' in payload["operator_commands"][0]
+    assert '--output "maintenance/report.json"' in payload["operator_commands"][0]
+    assert '--latest-output ".conductor/maintenance/latest.json"' in payload["operator_commands"][0]
+    assert payload["operator_commands"][1].startswith("python -m app.task_center maintenance-status")
+    assert "--fail-on-findings" in payload["operator_commands"][1]
     assert payload["sweep"]["released_count"] == 1
     assert payload["audit"]["passed"] is False
     assert report_payload["status"] == "needs_attention"
     assert report_payload["attention_project_ids"] == ["project-broken"]
+    assert report_payload["operator_commands"] == payload["operator_commands"]
     assert "output_path" not in report_payload
     assert latest_payload["ok"] is True
     assert latest_payload["generated_at"] == payload["generated_at"]
@@ -1623,6 +1631,8 @@ def test_task_center_cli_maintenance_sweeps_then_audits_and_writes_report(tmp_pa
     assert latest_payload["attention_project_ids"] == ["project-broken"]
     assert latest_payload["finding_code_counts"]["missing_output_artifact"] == 1
     assert "Restore the output artifact records or rerun the worker return step." in latest_payload["recommendations"]
+    assert latest_payload["operator_guidance"] == payload["operator_guidance"]
+    assert latest_payload["operator_commands"] == payload["operator_commands"]
     assert latest_payload["report_path"] == str(output_path)
 
     status_code = main(
@@ -1643,6 +1653,8 @@ def test_task_center_cli_maintenance_sweeps_then_audits_and_writes_report(tmp_pa
     assert status_payload["status"] == "needs_attention"
     assert status_payload["attention_project_ids"] == ["project-broken"]
     assert status_payload["finding_code_counts"]["missing_output_artifact"] == 1
+    assert status_payload["operator_guidance"] == payload["operator_guidance"]
+    assert status_payload["operator_commands"] == payload["operator_commands"]
     assert status_payload["report_path"] == str(output_path)
 
     reloaded = FileStateStore(project_root / ".conductor" / "state").get_state("project-recoverable")
@@ -1685,6 +1697,13 @@ def test_task_center_cli_maintenance_status_reads_clean_latest(tmp_path, capsys)
     assert payload["attention_project_ids"] == []
     assert payload["finding_code_counts"] == {}
     assert payload["recommendations"] == []
+    assert payload["operator_guidance"].startswith("Schedule the maintenance command")
+    assert payload["operator_commands"][0].startswith("python -m app.task_center maintenance")
+    assert f'--project-root "{project_root}"' in payload["operator_commands"][0]
+    assert '--latest-output ".conductor/maintenance/latest.json"' in payload["operator_commands"][0]
+    assert payload["operator_commands"][1].startswith("python -m app.task_center maintenance-status")
+    assert '--latest ".conductor/maintenance/latest.json"' in payload["operator_commands"][1]
+    assert "--fail-on-findings" in payload["operator_commands"][1]
 
 
 def test_task_center_cli_maintenance_status_reports_stale_latest(tmp_path, capsys) -> None:
@@ -1727,6 +1746,7 @@ def test_task_center_cli_maintenance_status_reports_stale_latest(tmp_path, capsy
     assert payload["stale"] is True
     assert payload["reason"] == "stale"
     assert payload["age_seconds"] >= 60
+    assert "--max-age-seconds 60" in payload["operator_commands"][1]
 
 
 def test_task_center_cli_maintenance_status_reports_missing_latest(tmp_path, capsys) -> None:
@@ -1738,6 +1758,8 @@ def test_task_center_cli_maintenance_status_reports_missing_latest(tmp_path, cap
     assert code == 2
     assert payload["exists"] is False
     assert payload["healthy"] is False
+    assert payload["operator_commands"][0].startswith("python -m app.task_center maintenance")
+    assert payload["operator_commands"][1].startswith("python -m app.task_center maintenance-status")
     assert payload["error"] == "latest maintenance file not found"
 
 
