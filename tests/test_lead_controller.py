@@ -830,6 +830,73 @@ def test_testing_failure_creates_development_feedback_rework() -> None:
     assert any("测试失败回流" in event for event in state.recent_events)
 
 
+def test_api_testing_failure_rework_requires_concrete_endpoint_evidence() -> None:
+    controller = build_controller()
+    state = controller.initialize_project("实现后端 API 接口，支持创建和查询条目")
+    design = state.workitems[0]
+    development = WorkItem(
+        id="workitem-api-dev",
+        description="已完成的 API 实现",
+        stage="development",
+        kind="api_implementation",
+        status=WorkItemStatus.DONE,
+        dependencies=[design.id],
+    )
+    failed_test = WorkItem(
+        id="workitem-api-test",
+        description="接口验证失败",
+        stage="testing",
+        kind="api_validation",
+        status=WorkItemStatus.FAILED,
+        dependencies=[development.id],
+        retry_count=0,
+        max_retries=0,
+        failure_type="validation_failed",
+        failure_summary="Requirement coverage missing: API endpoint behavior",
+        testing_checklist=[
+            {
+                "rule_id": "api_behavior",
+                "label": "API endpoint behavior",
+                "status": "pending",
+                "required_evidence_terms": ["api validation exercised endpoint behavior"],
+            }
+        ],
+    )
+    failed_test_artifact = Artifact(
+        id="artifact-failed-api-validation",
+        project_id=state.project.id,
+        workitem_id=failed_test.id,
+        agent_id="agent-tester",
+        kind="api_validation",
+        title="Failed API Validation",
+        content=(
+            "3 passed\n"
+            "## Requirement Coverage\n"
+            "- Status: `missing_coverage`\n"
+            "Requirement coverage missing: API endpoint behavior\n"
+        ),
+    )
+    state.workitems = [design, development, failed_test]
+    state.artifacts = [failed_test_artifact]
+    state.current_stage = "testing"
+    state.project.current_stage = "testing"
+    state.project_status = ProjectStatus.IN_PROGRESS
+    controller.state_store.save_state(state)
+
+    state = controller.advance(state)
+
+    rework = next(item for item in state.workitems if item.feedback_from == [failed_test.id])
+    assert rework.kind == "api_implementation"
+    assert "POST /api/items -> status_code=201 response payload" in rework.description
+    assert any(
+        "Address missing testing checklist `api_behavior` API endpoint behavior" in criterion
+        and "endpoint path" in criterion
+        and "HTTP status code" in criterion
+        and "response payload or body" in criterion
+        for criterion in rework.acceptance_criteria
+    )
+
+
 def test_feedback_rework_limits_next_testing_scope() -> None:
     controller = build_controller()
     state = controller.initialize_project("实现 API 和 UI 页面并测试")

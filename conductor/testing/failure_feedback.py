@@ -169,6 +169,7 @@ def _suggest_actions(*, text: str, failing_checks: list[str], missing_coverage: 
         suggestions.append("Check file selection, import/upload handlers, and CSV/text parsing so sample file content appears in the UI or local storage.")
     if "api endpoint behavior" in lowered or "api validation exercised" in lowered:
         suggestions.append("Check API route wiring, request/response payloads, status codes, and pytest/TestClient coverage for the expected endpoint behavior.")
+        suggestions.append("Expose concrete API validation output such as `POST /api/items -> status_code=201 response payload ...` before marking API coverage complete.")
     if "mojibake" in lowered or "corrupted utf-8" in lowered:
         suggestions.append("修复生成文件中的中文编码问题，确保 HTML/JS/CSS 均为 UTF-8。")
     if "missing" in lowered and ("asset" in lowered or "index.html" in lowered):
@@ -193,6 +194,15 @@ def _missing_checklist_items(workitem: WorkItem, missing_coverage: list[str]) ->
             continue
         copied = dict(checklist_item)
         copied["status"] = "missing"
+        if rule_id == "api_behavior":
+            copied["required_evidence_terms"] = _dedupe(
+                [
+                    *(str(value) for value in copied.get("required_evidence_terms", []) or []),
+                    "endpoint path",
+                    "HTTP status code",
+                    "response payload or body",
+                ]
+            )
         items.append(copied)
     return items
 

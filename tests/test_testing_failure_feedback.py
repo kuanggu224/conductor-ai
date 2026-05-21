@@ -190,8 +190,12 @@ def test_testing_failure_feedback_suggests_api_validation_fix() -> None:
 
     assert feedback.missing_coverage == ["API endpoint behavior"]
     assert feedback.missing_checklist_items[0]["rule_id"] == "api_behavior"
+    assert "endpoint path" in feedback.missing_checklist_items[0]["required_evidence_terms"]
+    assert "HTTP status code" in feedback.missing_checklist_items[0]["required_evidence_terms"]
+    assert "response payload or body" in feedback.missing_checklist_items[0]["required_evidence_terms"]
     assert "api validation exercised endpoint behavior" in markdown
     assert "Check API route wiring" in markdown
+    assert "POST /api/items -> status_code=201 response payload" in markdown
 
 
 def test_testing_feedback_for_rework_follows_feedback_from_testing_workitem() -> None:
