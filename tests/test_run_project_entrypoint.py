@@ -834,6 +834,9 @@ def test_run_project_can_run_task_center_maintenance_before_resume(tmp_path, cap
     assert maintenance_report["operator_commands"] == maintenance["operator_commands"]
     assert maintenance_latest["project_id"] == payload["project_id"]
     assert maintenance_latest["status"] == "clean"
+    assert maintenance_latest["attention_project_ids"] == []
+    assert maintenance_latest["finding_code_counts"] == {}
+    assert maintenance_latest["recommendations"] == []
     assert maintenance_latest["report_path"] == str(maintenance_report_path.resolve())
     assert maintenance_latest["operator_guidance"] == maintenance["operator_guidance"]
     assert maintenance_latest["operator_commands"] == maintenance["operator_commands"]
@@ -919,15 +922,27 @@ def test_run_project_maintenance_can_stop_before_resume_on_audit_findings(tmp_pa
     assert resumed_payload["pre_run_task_center_maintenance"]["fail_on_findings"] is True
     assert resumed_payload["pre_run_task_center_maintenance"]["status"] == "needs_attention"
     assert resumed_payload["pre_run_task_center_maintenance"]["audit"]["finding_count"] >= 1
+    assert resumed_payload["pre_run_task_center_maintenance"]["attention_project_ids"] == [payload["project_id"]]
+    assert resumed_payload["pre_run_task_center_maintenance"]["finding_code_counts"]["missing_output_artifact"] == 1
+    assert (
+        "Restore the output artifact records or rerun the worker return step."
+        in resumed_payload["pre_run_task_center_maintenance"]["recommendations"]
+    )
     assert resumed_payload["pre_run_task_center_maintenance"]["report_path"] == str(maintenance_report_path.resolve())
     assert resumed_payload["pre_run_task_center_maintenance"]["latest_path"] == str(maintenance_latest_path.resolve())
     assert maintenance_report["project_id"] == payload["project_id"]
     assert maintenance_report["fail_on_findings"] is True
     assert maintenance_report["status"] == "needs_attention"
     assert maintenance_report["audit"]["finding_count"] >= 1
+    assert maintenance_report["attention_project_ids"] == [payload["project_id"]]
+    assert maintenance_report["finding_code_counts"]["missing_output_artifact"] == 1
+    assert "Restore the output artifact records or rerun the worker return step." in maintenance_report["recommendations"]
     assert maintenance_latest["project_id"] == payload["project_id"]
     assert maintenance_latest["status"] == "needs_attention"
     assert maintenance_latest["finding_count"] >= 1
+    assert maintenance_latest["attention_project_ids"] == [payload["project_id"]]
+    assert maintenance_latest["finding_code_counts"]["missing_output_artifact"] == 1
+    assert "Restore the output artifact records or rerun the worker return step." in maintenance_latest["recommendations"]
     assert maintenance_latest["report_path"] == str(maintenance_report_path.resolve())
     assert maintenance_latest["operator_commands"]
     assert "--maintenance-fail-on-findings" in maintenance_latest["operator_commands"][0]

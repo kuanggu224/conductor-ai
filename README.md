@@ -71,7 +71,7 @@ python -m app.task_center watchdog --project-root <project-root> --interval-seco
 
 Task Center context 会暴露冻结需求、冻结设计、delivery contract、testing checklist、rework feedback、handoff safety，以及动态 Agent/write scope 风险。`handoff_safety.baseline_handoff` 会标记开发任务是否已经把需求/设计基线写入 acceptance criteria，方便外部 Agent 在明确边界内工作。
 
-`run_project --maintenance-task-center` 可在恢复项目前执行 Task Center 维护；输出的 report/latest 会包含 operator guidance 和可复制的维护/状态检查命令，便于长周期项目接入调度器。
+`run_project --maintenance-task-center` 可在恢复项目前执行 Task Center 维护；输出的 report/latest 会包含 `attention_project_ids`、`finding_code_counts`、`recommendations`、operator guidance 和可复制的维护/状态检查命令，便于长周期项目接入调度器。
 
 ## Manifest、Replay 和审计
 

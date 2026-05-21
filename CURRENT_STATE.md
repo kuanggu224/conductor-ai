@@ -4,8 +4,8 @@ Last updated: 2026-05-21
 
 ## Stable Checkpoint
 
-- Latest verified code checkpoint: current `dev` pre-run maintenance operator hints update.
-- Current full test result: `python -m pytest -q --basetemp C:\tmp\conductor_pytest_full_prerun_maintenance_hints` -> `683 passed in 123.88s`.
+- Latest verified code checkpoint: current `dev` pre-run maintenance audit rollup update.
+- Current full test result: `python -m pytest -q --basetemp C:\tmp\conductor_pytest_full_prerun_rollup` -> `683 passed in 124.35s`.
 - Current focus: backend orchestration, auditability, logs, manifest/replay, and task-center reliability.
 - Frontend Board exists, but visual redesign is intentionally not the current priority.
 
@@ -44,7 +44,7 @@ Last updated: 2026-05-21
 - TL dynamic team planning now adds a `rework_acceptance_guard` tester seat when development feedback rework carries explicit missing checklist evidence targets.
 - TL dynamic team planning now adds an `evidence_trace_guard` tester seat when testing WorkItems carry machine-readable checklist evidence contracts.
 - Task Center Board API now covers dynamic Agent task discovery/claiming, batch claim, explicit lease renewal, expired lease release, stale release, and combined sweep maintenance.
-- `run_project --maintenance-task-center` now writes operator guidance and copyable maintenance/status commands into pre-run maintenance reports and latest pointers.
+- `run_project --maintenance-task-center` now writes `attention_project_ids`, `finding_code_counts`, `recommendations`, operator guidance, and copyable maintenance/status commands into pre-run maintenance reports and latest pointers.
 - Manifest verification now validates execution delivery contracts and acceptance traces, including required input artifact references, list-shaped fields, trace status values, and evidence field types.
 - Manifest verification also validates WorkItem testing checklist structure so malformed checklist fields are surfaced before replay/resume.
 - Project reports render structured testing feedback under WorkItems, including failing checks, missing coverage, and suggested fixes.

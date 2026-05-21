@@ -314,6 +314,7 @@ def main(argv: list[str] | None = None) -> int:
             "expired_lease_released_count": released_expired_lease_task_count,
             "stale_released_count": released_stale_task_count,
             "stale_after_seconds": args.stale_after_seconds,
+            **_task_center_audit_rollup(maintenance_findings, project_id=state.project.id),
             "audit": _task_center_audit_payload(maintenance_findings),
         }
         _attach_pre_run_maintenance_operator_hints(
@@ -459,6 +460,24 @@ def _task_center_audit_payload(findings) -> dict[str, object]:
     }
 
 
+def _task_center_audit_rollup(findings, *, project_id: str) -> dict[str, object]:
+    """Return operator-focused rollups for one project's pre-run audit."""
+    finding_code_counts: dict[str, int] = {}
+    recommendations: list[str] = []
+    for finding in findings:
+        code = str(getattr(finding, "code", ""))
+        if code:
+            finding_code_counts[code] = finding_code_counts.get(code, 0) + 1
+        recommendation = str(getattr(finding, "recommendation", ""))
+        if recommendation and recommendation not in recommendations:
+            recommendations.append(recommendation)
+    return {
+        "attention_project_ids": [project_id] if findings and project_id else [],
+        "finding_code_counts": finding_code_counts,
+        "recommendations": recommendations,
+    }
+
+
 def _pre_run_maintenance_failure_payload(
     *,
     args,
@@ -523,6 +542,9 @@ def _pre_run_maintenance_latest_payload(pre_run_task_center_maintenance: dict[st
         "finding_count": int(audit.get("finding_count", 0)),
         "error_count": int(audit.get("error_count", 0)),
         "warning_count": int(audit.get("warning_count", 0)),
+        "attention_project_ids": _list_payload(pre_run_task_center_maintenance.get("attention_project_ids")),
+        "finding_code_counts": _dict_payload(pre_run_task_center_maintenance.get("finding_code_counts")),
+        "recommendations": _list_payload(pre_run_task_center_maintenance.get("recommendations")),
         "report_path": str(pre_run_task_center_maintenance.get("report_path", "")),
         "operator_guidance": str(pre_run_task_center_maintenance.get("operator_guidance", "")),
         "operator_commands": _list_payload(pre_run_task_center_maintenance.get("operator_commands")),
@@ -594,6 +616,10 @@ def _pre_run_maintenance_operator_commands(
 
 def _list_payload(value: object) -> list[object]:
     return value if isinstance(value, list) else []
+
+
+def _dict_payload(value: object) -> dict[str, object]:
+    return value if isinstance(value, dict) else {}
 
 
 def _quote_cli_arg(value: object) -> str:
