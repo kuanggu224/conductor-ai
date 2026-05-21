@@ -4,8 +4,8 @@ Last updated: 2026-05-21
 
 ## Stable Checkpoint
 
-- Latest verified code checkpoint: current `dev` Run Manifest schema 1.37 pending test scope verifier update.
-- Current full test result: `python -m pytest -q --basetemp C:\tmp\conductor_pytest_full_schema137_pending_scope_verifier` -> `691 passed in 146.07s`.
+- Latest verified code checkpoint: current `dev` Replay pending test scope visibility update.
+- Current full test result: `python -m pytest -q --basetemp C:\tmp\conductor_pytest_full_replay_pending_scope` -> `691 passed in 130.62s`.
 - Current focus: backend orchestration, auditability, logs, manifest/replay, and task-center reliability.
 - Frontend Board exists, but visual redesign is intentionally not the current priority.
 
@@ -52,6 +52,7 @@ Last updated: 2026-05-21
 - Manifest verification now validates `summary.pending_test_scope` shape, duplicates, and references to known testing WorkItem kinds.
 - Project reports render structured testing feedback under WorkItems, including failing checks, missing coverage, and suggested fixes.
 - Replay trace renders WorkItem rework lineage and structured testing feedback, so failed-test-to-rework chains are visible in read-only replay output.
+- Replay trace now renders summary `pending_test_scope` and resume cursor next pending WorkItems, making the retest target visible in read-only replay output.
 - Default ShellHarness validation skips real test commands when no project deliverables exist, especially when the project root is the Conductor source checkout.
 - Manifest verification accepts intentionally reclassified failed test WorkItems when their failures have been flowed back into development rework.
 - Platform diagnostics now expose structured UTF-8 readiness, LLM timeout status, timeout warnings, CLI auth status, CLI auth recovery recommendations, LLM provider failure categories, and block model probing when an enabled backend has an invalid timeout.

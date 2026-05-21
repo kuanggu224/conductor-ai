@@ -649,4 +649,4 @@ POST /api/projects/{project_id}/human-control/override
 
 ## 16. 当前平台一句话状态
 
-Conductor 目前已经不是最小 demo，而是一个具备真实项目执行雏形的多 Agent 编排平台；它最强的部分是需求协作、状态审计、任务中心和可追踪性，下一阶段应把设计、开发、测试闭环提升到同等质量，并补齐 TL Agent、人类接管和并行开发协议。
+Conductor 目前已经不是最小 demo，而是一个具备真实项目执行雏形的多 Agent 编排平台；它最强的部分是需求协作、状态审计、任务中心和可追踪性。Run Manifest、Verifier 和 Replay 已能保留并呈现返工后的 pending retest scope，下一阶段应继续把设计、开发、测试闭环提升到同等质量，并补齐 TL Agent、人类接管和并行开发协议。

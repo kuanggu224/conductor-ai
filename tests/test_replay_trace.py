@@ -196,11 +196,13 @@ def test_replay_trace_includes_artifact_lineage(tmp_path) -> None:
 def test_replay_trace_includes_rework_and_testing_feedback(tmp_path) -> None:
     manifest_path = _write_manifest(tmp_path)
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    payload["schema_version"] = "1.37"
     payload["status"] = "in_progress"
     payload["final_status"] = "in_progress"
     payload["summary"]["final_status"] = "in_progress"
     payload["summary"]["workitem_count"] = 2
     payload["summary"]["execution_count"] = 0
+    payload["summary"]["pending_test_scope"] = ["ui_validation"]
     payload["executions"] = []
     payload["workitems"] = [
         {
@@ -241,13 +243,20 @@ def test_replay_trace_includes_rework_and_testing_feedback(tmp_path) -> None:
     manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
     trace = build_manifest_replay_trace(manifest_path)
+    project_event = next(event for event in trace.events if event.event_type == "project")
     rework_event = next(event for event in trace.events if event.workitem_id == "workitem-ui-rework")
+    terminal_event = next(event for event in trace.events if event.event_type == "terminal")
     markdown = trace.to_markdown()
 
     assert trace.passed is True
+    assert project_event.metadata["pending_test_scope"] == ["ui_validation"]
     assert rework_event.metadata["feedback_from"] == ["workitem-ui-test"]
     assert rework_event.metadata["rework_of"] == "workitem-ui-implementation"
     assert rework_event.metadata["testing_feedback"][0]["workitem_id"] == "workitem-ui-test"
+    assert terminal_event.metadata["pending_test_scope"] == ["ui_validation"]
+    assert terminal_event.metadata["next_pending_workitem_ids"] == ["workitem-ui-rework"]
+    assert "pending_test_scope=ui_validation" in markdown
+    assert "next_pending_workitems=workitem-ui-rework" in markdown
     assert "feedback_from=workitem-ui-test" in markdown
     assert "rework_of=workitem-ui-implementation" in markdown
     assert "testing_feedback[workitem-ui-test]=Validation exit_code=1" in markdown

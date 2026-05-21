@@ -91,6 +91,7 @@ class ManifestReplayTrace:
                 _event_lineage_detail(event),
                 _event_rework_detail(event),
                 _event_testing_feedback_detail(event),
+                _event_pending_test_scope_detail(event),
             ]
             detail_text = ", ".join(item for item in details if item)
             lines.append(f"{event.index}. {event.message}")
@@ -150,6 +151,7 @@ class ManifestReplayTraceBuilder:
         return events
 
     def _append_project_event(self, events: list[ReplayTraceEvent], payload: dict[str, Any]) -> None:
+        summary = payload.get("summary", {}) if isinstance(payload.get("summary", {}), dict) else {}
         events.append(
             ReplayTraceEvent(
                 index=len(events) + 1,
@@ -161,6 +163,7 @@ class ManifestReplayTraceBuilder:
                     "run_id": str(payload.get("run_id", "")),
                     "run_profile": str(payload.get("run_profile", "")),
                     "project_root": str(payload.get("project_root", "")),
+                    "pending_test_scope": self._string_list(summary.get("pending_test_scope", [])),
                 },
             )
         )
@@ -258,6 +261,7 @@ class ManifestReplayTraceBuilder:
 
     def _append_terminal_event(self, events: list[ReplayTraceEvent], payload: dict[str, Any]) -> None:
         cursor = payload.get("resume_cursor", {}) if isinstance(payload.get("resume_cursor", {}), dict) else {}
+        summary = payload.get("summary", {}) if isinstance(payload.get("summary", {}), dict) else {}
         events.append(
             ReplayTraceEvent(
                 index=len(events) + 1,
@@ -269,6 +273,8 @@ class ManifestReplayTraceBuilder:
                     "next_action": str(cursor.get("next_action", "")),
                     "blocked": bool(cursor.get("blocked", False)),
                     "terminal": bool(cursor.get("terminal", False)),
+                    "pending_test_scope": self._string_list(summary.get("pending_test_scope", [])),
+                    "next_pending_workitem_ids": self._string_list(cursor.get("next_pending_workitem_ids", [])),
                 },
             )
         )
@@ -359,6 +365,18 @@ def _event_testing_feedback_detail(event: ReplayTraceEvent) -> str:
             detail = f"{detail}; validation_command={command}" if detail else f"validation_command={command}"
         if workitem_id or detail:
             parts.append(f"testing_feedback[{workitem_id or '-'}]={detail or '-'}")
+    return "; ".join(parts)
+
+
+def _event_pending_test_scope_detail(event: ReplayTraceEvent) -> str:
+    """Render pending retest scope and queued work from summary/cursor metadata."""
+    pending_scope = _string_list(event.metadata.get("pending_test_scope", []))
+    next_workitems = _string_list(event.metadata.get("next_pending_workitem_ids", []))
+    parts = []
+    if pending_scope:
+        parts.append(f"pending_test_scope={', '.join(pending_scope)}")
+    if next_workitems:
+        parts.append(f"next_pending_workitems={', '.join(next_workitems)}")
     return "; ".join(parts)
 
 

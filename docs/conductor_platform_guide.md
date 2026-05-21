@@ -504,7 +504,7 @@ python -m app.verify_manifest <manifest-path>
 python -m app.replay_manifest <manifest-path> --format markdown
 ```
 
-Replay 只读取 Manifest，不重新执行 Agent。
+Replay 只读取 Manifest，不重新执行 Agent。Markdown replay 会渲染 WorkItem rework lineage、structured testing feedback、summary `pending_test_scope` 和 resume cursor 中的 next pending WorkItems，便于只读复盘时看到失败测试回流后应优先复跑的验证范围。
 
 ## 10. 常用运行方式
 
