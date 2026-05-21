@@ -826,6 +826,10 @@ def test_run_project_can_run_task_center_maintenance_before_resume(tmp_path, cap
     assert maintenance["released_count"] == 1
     assert maintenance["expired_lease_released_count"] == 1
     assert maintenance["audit"]["finding_count"] == 0
+    assert maintenance["pending_retest_project_ids"] == []
+    assert maintenance["pending_retest_scopes"] == {}
+    assert maintenance["human_control_project_ids"] == []
+    assert maintenance["active_human_control_actions"] == []
     assert maintenance["report_path"] == str(maintenance_report_path.resolve())
     assert maintenance["latest_path"] == str(maintenance_latest_path.resolve())
     assert maintenance["operator_guidance"].startswith("Run pre-run Task Center maintenance")
@@ -843,6 +847,10 @@ def test_run_project_can_run_task_center_maintenance_before_resume(tmp_path, cap
     assert maintenance_latest["attention_project_ids"] == []
     assert maintenance_latest["finding_code_counts"] == {}
     assert maintenance_latest["recommendations"] == []
+    assert maintenance_latest["pending_retest_project_ids"] == []
+    assert maintenance_latest["pending_retest_scopes"] == {}
+    assert maintenance_latest["human_control_project_ids"] == []
+    assert maintenance_latest["active_human_control_actions"] == []
     assert maintenance_latest["report_path"] == str(maintenance_report_path.resolve())
     assert maintenance_latest["operator_guidance"] == maintenance["operator_guidance"]
     assert maintenance_latest["operator_commands"] == maintenance["operator_commands"]
@@ -894,7 +902,13 @@ def test_run_project_maintenance_can_stop_before_resume_on_audit_findings(tmp_pa
             state,
             workitems=[*state.workitems, broken_workitem],
             task_assignments=[*state.task_assignments, broken_assignment],
+            pending_test_scope=["api_validation"],
         )
+    )
+    HumanControlService(store).pause(
+        payload["project_id"],
+        actor="operator",
+        reason="inspect missing output artifact",
     )
 
     resumed_exit = run_project.main(
@@ -930,6 +944,16 @@ def test_run_project_maintenance_can_stop_before_resume_on_audit_findings(tmp_pa
     assert resumed_payload["pre_run_task_center_maintenance"]["audit"]["finding_count"] >= 1
     assert resumed_payload["pre_run_task_center_maintenance"]["attention_project_ids"] == [payload["project_id"]]
     assert resumed_payload["pre_run_task_center_maintenance"]["finding_code_counts"]["missing_output_artifact"] == 1
+    assert resumed_payload["pre_run_task_center_maintenance"]["pending_retest_project_ids"] == [payload["project_id"]]
+    assert resumed_payload["pre_run_task_center_maintenance"]["pending_retest_scopes"] == {
+        payload["project_id"]: ["api_validation"]
+    }
+    assert resumed_payload["pre_run_task_center_maintenance"]["human_control_project_ids"] == [payload["project_id"]]
+    assert resumed_payload["pre_run_task_center_maintenance"]["active_human_control_actions"][0]["action"] == "pause"
+    assert (
+        resumed_payload["pre_run_task_center_maintenance"]["active_human_control_actions"][0]["reason"]
+        == "inspect missing output artifact"
+    )
     assert (
         "Restore the output artifact records or rerun the worker return step."
         in resumed_payload["pre_run_task_center_maintenance"]["recommendations"]
@@ -942,12 +966,18 @@ def test_run_project_maintenance_can_stop_before_resume_on_audit_findings(tmp_pa
     assert maintenance_report["audit"]["finding_count"] >= 1
     assert maintenance_report["attention_project_ids"] == [payload["project_id"]]
     assert maintenance_report["finding_code_counts"]["missing_output_artifact"] == 1
+    assert maintenance_report["pending_retest_project_ids"] == [payload["project_id"]]
+    assert maintenance_report["human_control_project_ids"] == [payload["project_id"]]
     assert "Restore the output artifact records or rerun the worker return step." in maintenance_report["recommendations"]
     assert maintenance_latest["project_id"] == payload["project_id"]
     assert maintenance_latest["status"] == "needs_attention"
     assert maintenance_latest["finding_count"] >= 1
     assert maintenance_latest["attention_project_ids"] == [payload["project_id"]]
     assert maintenance_latest["finding_code_counts"]["missing_output_artifact"] == 1
+    assert maintenance_latest["pending_retest_project_ids"] == [payload["project_id"]]
+    assert maintenance_latest["pending_retest_scopes"] == {payload["project_id"]: ["api_validation"]}
+    assert maintenance_latest["human_control_project_ids"] == [payload["project_id"]]
+    assert maintenance_latest["active_human_control_actions"][0]["action"] == "pause"
     assert "Restore the output artifact records or rerun the worker return step." in maintenance_latest["recommendations"]
     assert maintenance_latest["report_path"] == str(maintenance_report_path.resolve())
     assert maintenance_latest["operator_commands"]

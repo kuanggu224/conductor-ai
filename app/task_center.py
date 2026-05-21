@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from conductor.artifacts.store import ArtifactStore
+from conductor.control.human import HumanControlService
 from conductor.domain.models import SharedProjectState, TaskAssignment, TaskAssignmentStatus
 from conductor.io.encoding import configure_utf8_stdio
 from conductor.task_center.artifacts import create_task_return_artifact
@@ -739,23 +740,26 @@ def _audit_all_payload(
     project_results: list[dict[str, object]] = []
     total_errors = 0
     total_warnings = 0
+    human_control = HumanControlService(service.state_store)
     for state in store.list_states():
         findings = service.audit(state, stale_after_seconds=stale_after_seconds)
         error_count = sum(1 for finding in findings if finding.severity == "error")
         warning_count = sum(1 for finding in findings if finding.severity == "warning")
         total_errors += error_count
         total_warnings += warning_count
-        project_results.append(
-            {
-                "project_id": state.project.id,
-                "passed": not findings,
-                "finding_count": len(findings),
-                "error_count": error_count,
-                "warning_count": warning_count,
-                "summary": service.summary(state, stale_after_seconds=stale_after_seconds),
-                "findings": [asdict(finding) for finding in findings],
-            }
-        )
+        active_human_control = human_control.active_action(state)
+        project_result: dict[str, object] = {
+            "project_id": state.project.id,
+            "passed": not findings,
+            "finding_count": len(findings),
+            "error_count": error_count,
+            "warning_count": warning_count,
+            "summary": service.summary(state, stale_after_seconds=stale_after_seconds),
+            "pending_test_scope": list(state.pending_test_scope),
+            "active_human_control_action": _human_control_action_payload(active_human_control),
+            "findings": [asdict(finding) for finding in findings],
+        }
+        project_results.append(project_result)
     rollup = _audit_project_rollup(project_results)
     return {
         "ok": True,
@@ -776,11 +780,23 @@ def _audit_project_rollup(project_results: list[dict[str, object]]) -> dict[str,
     attention_project_ids: list[str] = []
     finding_code_counts: dict[str, int] = {}
     recommendations: list[str] = []
+    pending_retest_project_ids: list[str] = []
+    pending_retest_scopes: dict[str, list[object]] = {}
+    human_control_project_ids: list[str] = []
+    active_human_control_actions: list[dict[str, object]] = []
     for project in project_results:
+        project_id = str(project.get("project_id", ""))
+        pending_scope = _json_list_payload(project.get("pending_test_scope"))
+        if project_id and pending_scope:
+            pending_retest_project_ids.append(project_id)
+            pending_retest_scopes[project_id] = pending_scope
+        active_human_control = project.get("active_human_control_action")
+        if project_id and isinstance(active_human_control, dict) and active_human_control:
+            human_control_project_ids.append(project_id)
+            active_human_control_actions.append(active_human_control)
         findings = project.get("findings", [])
         if not isinstance(findings, list) or not findings:
             continue
-        project_id = str(project.get("project_id", ""))
         if project_id:
             attention_project_ids.append(project_id)
         for finding in findings:
@@ -796,6 +812,26 @@ def _audit_project_rollup(project_results: list[dict[str, object]]) -> dict[str,
         "attention_project_ids": attention_project_ids,
         "finding_code_counts": finding_code_counts,
         "recommendations": recommendations,
+        "pending_retest_project_ids": pending_retest_project_ids,
+        "pending_retest_scopes": pending_retest_scopes,
+        "human_control_project_ids": human_control_project_ids,
+        "active_human_control_actions": active_human_control_actions,
+    }
+
+
+def _human_control_action_payload(action) -> dict[str, object]:
+    if action is None:
+        return {}
+    return {
+        "id": action.id,
+        "project_id": action.project_id,
+        "action": action.action.value,
+        "actor": action.actor,
+        "reason": action.reason,
+        "stage": action.stage,
+        "workitem_id": action.workitem_id or "",
+        "payload": dict(action.payload),
+        "created_at": action.created_at,
     }
 
 
@@ -954,6 +990,10 @@ def _maintenance_payload(
         "attention_project_ids": audit_payload.get("attention_project_ids", []),
         "finding_code_counts": audit_payload.get("finding_code_counts", {}),
         "recommendations": audit_payload.get("recommendations", []),
+        "pending_retest_project_ids": audit_payload.get("pending_retest_project_ids", []),
+        "pending_retest_scopes": audit_payload.get("pending_retest_scopes", {}),
+        "human_control_project_ids": audit_payload.get("human_control_project_ids", []),
+        "active_human_control_actions": audit_payload.get("active_human_control_actions", []),
         "sweep": sweep_payload,
         "audit": audit_payload,
     }
@@ -986,6 +1026,10 @@ def _write_latest_maintenance_output(path_arg: str, project_root: str, payload: 
         "attention_project_ids": _json_list_payload(payload.get("attention_project_ids")),
         "finding_code_counts": _json_dict_payload(payload.get("finding_code_counts")),
         "recommendations": _json_list_payload(payload.get("recommendations")),
+        "pending_retest_project_ids": _json_list_payload(payload.get("pending_retest_project_ids")),
+        "pending_retest_scopes": _json_dict_payload(payload.get("pending_retest_scopes")),
+        "human_control_project_ids": _json_list_payload(payload.get("human_control_project_ids")),
+        "active_human_control_actions": _json_list_payload(payload.get("active_human_control_actions")),
         "operator_guidance": str(payload.get("operator_guidance", "")),
         "operator_commands": _json_list_payload(payload.get("operator_commands")),
         "report_path": str(payload.get("output_path", "")),
@@ -1076,6 +1120,10 @@ def _maintenance_status_payload(
         "attention_project_ids": _json_list_payload(latest.get("attention_project_ids")),
         "finding_code_counts": _json_dict_payload(latest.get("finding_code_counts")),
         "recommendations": _json_list_payload(latest.get("recommendations")),
+        "pending_retest_project_ids": _json_list_payload(latest.get("pending_retest_project_ids")),
+        "pending_retest_scopes": _json_dict_payload(latest.get("pending_retest_scopes")),
+        "human_control_project_ids": _json_list_payload(latest.get("human_control_project_ids")),
+        "active_human_control_actions": _json_list_payload(latest.get("active_human_control_actions")),
         "operator_guidance": str(latest.get("operator_guidance", "")) or _maintenance_operator_guidance(),
         "operator_commands": operator_commands,
         "report_path": str(latest.get("report_path", "")),
@@ -1133,6 +1181,10 @@ def _watchdog_payload(
         "latest_path": str(_resolve_project_output_path(latest_path, project_root)),
         "report_path": str(_resolve_project_output_path(report_path, project_root)),
         "latest_output_path": str(_resolve_project_output_path(latest_output_path, project_root)),
+        "pending_retest_project_ids": _json_list_payload(after.get("pending_retest_project_ids")),
+        "pending_retest_scopes": _json_dict_payload(after.get("pending_retest_scopes")),
+        "human_control_project_ids": _json_list_payload(after.get("human_control_project_ids")),
+        "active_human_control_actions": _json_list_payload(after.get("active_human_control_actions")),
         "operator_guidance": _watchdog_operator_guidance(),
         "operator_commands": _watchdog_operator_commands(
             project_root=project_root,

@@ -345,7 +345,7 @@ python -m app.task_center watchdog `
   --fail-on-unhealthy
 ```
 
-这些报告适合后续接入 Windows Task Scheduler、cron 或独立守护进程。`sweep-all` 负责清理可恢复的过期任务，`audit-all` 负责发现仍需人工或 Controller 处理的状态异常，`maintenance` 则提供一个可直接定时运行的组合入口。`watchdog` 会先读取 latest 指针，并在 latest 缺失、过期或不健康时自动执行一次 `maintenance`，适合作为调度器或守护进程的单次检查入口；`--check-only` 可用于只读探测。多项目审计和维护报告会聚合 `attention_project_ids`、`finding_code_counts` 和去重后的 `recommendations`，让外部调度器或人类 operator 可以直接看到哪些项目需要处理、主要问题是什么、建议如何修复。`--latest-output` 会写出最近一次维护的轻量摘要，并保留同样的 rollup 字段，便于外部监控或 Board 直接读取最新状态。`maintenance`、latest 指针、`maintenance-status` 和 `watchdog` 还会输出 `operator_guidance` 与 `operator_commands`，提供可复制的定时维护和 watchdog 健康检查命令；旧 latest 文件缺少这些字段时，`maintenance-status` 会按当前参数生成兼容命令。
+这些报告适合后续接入 Windows Task Scheduler、cron 或独立守护进程。`sweep-all` 负责清理可恢复的过期任务，`audit-all` 负责发现仍需人工或 Controller 处理的状态异常，`maintenance` 则提供一个可直接定时运行的组合入口。`watchdog` 会先读取 latest 指针，并在 latest 缺失、过期或不健康时自动执行一次 `maintenance`，适合作为调度器或守护进程的单次检查入口；`--check-only` 可用于只读探测。多项目审计和维护报告会聚合 `attention_project_ids`、`finding_code_counts`、去重后的 `recommendations`、`pending_retest_project_ids`、`pending_retest_scopes`、`human_control_project_ids` 和 `active_human_control_actions`，让外部调度器或人类 operator 可以直接看到哪些项目需要处理、主要问题是什么、建议如何修复、哪些项目修复后要优先复验，以及哪些项目正被人工暂停或审批 gate hold 住。`--latest-output` 会写出最近一次维护的轻量摘要，并保留同样的 rollup 字段，便于外部监控或 Board 直接读取最新状态。`maintenance`、latest 指针、`maintenance-status` 和 `watchdog` 还会输出 `operator_guidance` 与 `operator_commands`，提供可复制的定时维护和 watchdog 健康检查命令；旧 latest 文件缺少这些字段时，`maintenance-status` 会按当前参数生成兼容命令。
 
 检查最近一次维护状态：
 
@@ -357,7 +357,7 @@ python -m app.task_center maintenance-status `
   --fail-on-findings
 ```
 
-`maintenance-status` 会返回 `healthy` 和 `reason` 字段，并透出 latest 指针里的 `attention_project_ids`、`finding_code_counts`、`recommendations`、`operator_guidance` 和 `operator_commands`。常见 reason 包括 `clean`、`findings`、`stale`、`invalid_generated_at` 和 `status_not_clean`。
+`maintenance-status` 会返回 `healthy` 和 `reason` 字段，并透出 latest 指针里的 `attention_project_ids`、`finding_code_counts`、`recommendations`、`pending_retest_project_ids`、`pending_retest_scopes`、`human_control_project_ids`、`active_human_control_actions`、`operator_guidance` 和 `operator_commands`。常见 reason 包括 `clean`、`findings`、`stale`、`invalid_generated_at` 和 `status_not_clean`。
 
 ## 8. Artifact、日志与 Manifest
 
@@ -551,7 +551,7 @@ python -m app.run_project `
   --stale-after-seconds 3600
 ```
 
-该入口会在正式推进项目前释放过期 lease 和 stale claim，并把维护后的审计摘要写入输出字段 `pre_run_task_center_maintenance`。如果启用 `--maintenance-fail-on-findings`，维护审计发现错误或警告时会在推进项目前返回退出码 `3`，避免带着坏状态继续运行。`--maintenance-report-output` 会把同一份维护摘要落成 JSON 文件，便于定时任务或外部调度器留存证据；`--maintenance-latest-output` 会写出轻量 latest 指针，便于外部工具读取最近一次恢复前维护状态。恢复前维护 report 和 latest 指针也会包含 `attention_project_ids`、`finding_code_counts`、`recommendations`、`operator_guidance` 与 `operator_commands`，提供需要处理的项目、问题类型、修复建议，以及可复制的 resume-with-maintenance 和 maintenance-status 命令。
+该入口会在正式推进项目前释放过期 lease 和 stale claim，并把维护后的审计摘要写入输出字段 `pre_run_task_center_maintenance`。如果启用 `--maintenance-fail-on-findings`，维护审计发现错误或警告时会在推进项目前返回退出码 `3`，避免带着坏状态继续运行。`--maintenance-report-output` 会把同一份维护摘要落成 JSON 文件，便于定时任务或外部调度器留存证据；`--maintenance-latest-output` 会写出轻量 latest 指针，便于外部工具读取最近一次恢复前维护状态。恢复前维护 report 和 latest 指针也会包含 `attention_project_ids`、`finding_code_counts`、`recommendations`、pending retest scope、active human-control holds、`operator_guidance` 与 `operator_commands`，提供需要处理的项目、问题类型、修复建议、人工接管状态，以及可复制的 resume-with-maintenance 和 maintenance-status 命令。
 
 只做运行前检查：
 

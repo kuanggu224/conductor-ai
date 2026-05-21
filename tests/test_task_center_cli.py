@@ -11,6 +11,8 @@ from conductor.domain.models import (
     Artifact,
     Execution,
     ExecutionStatus,
+    HumanControlAction,
+    HumanControlActionType,
     Project,
     ProjectStatus,
     SharedProjectState,
@@ -1793,6 +1795,19 @@ def test_task_center_cli_maintenance_sweeps_then_audits_and_writes_report(tmp_pa
                 lease_expires_at=expired_time,
             )
         ],
+        pending_test_scope=["ui_validation"],
+        human_control_actions=[
+            HumanControlAction(
+                id="human-action-pause",
+                project_id="project-recoverable",
+                action=HumanControlActionType.PAUSE,
+                actor="operator",
+                reason="inspect failed UI validation",
+                stage="testing",
+                workitem_id="workitem-expired",
+                created_at=old_time,
+            )
+        ],
     )
     broken_state = SharedProjectState(
         project=Project(id="project-broken", goal="Broken", project_root=str(project_root)),
@@ -1845,6 +1860,11 @@ def test_task_center_cli_maintenance_sweeps_then_audits_and_writes_report(tmp_pa
     assert payload["attention_project_ids"] == ["project-broken"]
     assert payload["finding_code_counts"]["missing_output_artifact"] == 1
     assert "Restore the output artifact records or rerun the worker return step." in payload["recommendations"]
+    assert payload["pending_retest_project_ids"] == ["project-recoverable"]
+    assert payload["pending_retest_scopes"] == {"project-recoverable": ["ui_validation"]}
+    assert payload["human_control_project_ids"] == ["project-recoverable"]
+    assert payload["active_human_control_actions"][0]["action"] == "pause"
+    assert payload["active_human_control_actions"][0]["reason"] == "inspect failed UI validation"
     assert payload["operator_guidance"].startswith("Schedule the maintenance command")
     assert payload["operator_commands"][0].startswith("python -m app.task_center maintenance")
     assert f'--project-root "{project_root}"' in payload["operator_commands"][0]
@@ -1856,6 +1876,8 @@ def test_task_center_cli_maintenance_sweeps_then_audits_and_writes_report(tmp_pa
     assert payload["audit"]["passed"] is False
     assert report_payload["status"] == "needs_attention"
     assert report_payload["attention_project_ids"] == ["project-broken"]
+    assert report_payload["pending_retest_project_ids"] == ["project-recoverable"]
+    assert report_payload["human_control_project_ids"] == ["project-recoverable"]
     assert report_payload["operator_commands"] == payload["operator_commands"]
     assert "output_path" not in report_payload
     assert latest_payload["ok"] is True
@@ -1869,6 +1891,10 @@ def test_task_center_cli_maintenance_sweeps_then_audits_and_writes_report(tmp_pa
     assert latest_payload["attention_project_ids"] == ["project-broken"]
     assert latest_payload["finding_code_counts"]["missing_output_artifact"] == 1
     assert "Restore the output artifact records or rerun the worker return step." in latest_payload["recommendations"]
+    assert latest_payload["pending_retest_project_ids"] == ["project-recoverable"]
+    assert latest_payload["pending_retest_scopes"] == {"project-recoverable": ["ui_validation"]}
+    assert latest_payload["human_control_project_ids"] == ["project-recoverable"]
+    assert latest_payload["active_human_control_actions"][0]["action"] == "pause"
     assert latest_payload["operator_guidance"] == payload["operator_guidance"]
     assert latest_payload["operator_commands"] == payload["operator_commands"]
     assert latest_payload["report_path"] == str(output_path)
@@ -1891,6 +1917,10 @@ def test_task_center_cli_maintenance_sweeps_then_audits_and_writes_report(tmp_pa
     assert status_payload["status"] == "needs_attention"
     assert status_payload["attention_project_ids"] == ["project-broken"]
     assert status_payload["finding_code_counts"]["missing_output_artifact"] == 1
+    assert status_payload["pending_retest_project_ids"] == ["project-recoverable"]
+    assert status_payload["pending_retest_scopes"] == {"project-recoverable": ["ui_validation"]}
+    assert status_payload["human_control_project_ids"] == ["project-recoverable"]
+    assert status_payload["active_human_control_actions"][0]["action"] == "pause"
     assert status_payload["operator_guidance"] == payload["operator_guidance"]
     assert status_payload["operator_commands"] == payload["operator_commands"]
     assert status_payload["report_path"] == str(output_path)
@@ -1935,6 +1965,10 @@ def test_task_center_cli_maintenance_status_reads_clean_latest(tmp_path, capsys)
     assert payload["attention_project_ids"] == []
     assert payload["finding_code_counts"] == {}
     assert payload["recommendations"] == []
+    assert payload["pending_retest_project_ids"] == []
+    assert payload["pending_retest_scopes"] == {}
+    assert payload["human_control_project_ids"] == []
+    assert payload["active_human_control_actions"] == []
     assert payload["operator_guidance"].startswith("Schedule the maintenance command")
     assert payload["operator_commands"][0].startswith("python -m app.task_center maintenance")
     assert f'--project-root "{project_root}"' in payload["operator_commands"][0]

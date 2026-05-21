@@ -4,8 +4,8 @@ Last updated: 2026-05-21
 
 ## Stable Checkpoint
 
-- Latest verified code checkpoint: current `dev` audit bundle human control summary update.
-- Current full test result: `python -m pytest -q --basetemp C:\tmp\conductor_pytest_full_audit_bundle_human_control` -> `696 passed in 111.39s`.
+- Latest verified code checkpoint: current `dev` Task Center maintenance control rollup update.
+- Current full test result: `python -m pytest -q --basetemp C:\tmp\conductor_pytest_full_maintenance_control_rollups` -> `696 passed in 113.16s`.
 - Current focus: backend orchestration, auditability, logs, manifest/replay, and task-center reliability.
 - Frontend Board exists, but visual redesign is intentionally not the current priority.
 
@@ -46,7 +46,7 @@ Last updated: 2026-05-21
 - TL dynamic team planning now adds an `evidence_trace_guard` tester seat when testing WorkItems carry machine-readable checklist evidence contracts.
 - TL dynamic team planning now adds an `implementation_coordination_guard` solution designer seat when development scope is broad enough to require explicit multi-Agent write-scope, dependency, handoff, and merge-risk review.
 - Task Center Board API now covers dynamic Agent task discovery/claiming, batch claim, explicit lease renewal, expired lease release, stale release, and combined sweep maintenance.
-- `run_project --maintenance-task-center` now writes `attention_project_ids`, `finding_code_counts`, `recommendations`, operator guidance, and copyable maintenance/status commands into pre-run maintenance reports and latest pointers.
+- `run_project --maintenance-task-center` now writes `attention_project_ids`, `finding_code_counts`, `recommendations`, pending retest scope rollups, active human-control hold rollups, operator guidance, and copyable maintenance/status commands into pre-run maintenance reports and latest pointers.
 - Manifest verification now validates execution delivery contracts and acceptance traces, including required input artifact references, list-shaped fields, trace status values, and evidence field types.
 - Manifest verification also validates WorkItem testing checklist structure so malformed checklist fields are surfaced before replay/resume.
 - Manifest verification now validates `summary.pending_test_scope` shape, duplicates, and references to known testing WorkItem kinds.

@@ -15,6 +15,7 @@ from conductor.config.execution import RunProfile, resolve_run_profile
 from conductor.config.llm import load_llm_runtime_config
 from conductor.config.system import SystemConfig
 from conductor.controller.engine import ConductorEngine
+from conductor.control.human import HumanControlService
 from conductor.diagnostics import build_platform_diagnostics, build_requirement_llm_preflight_probe
 from conductor.execution_readiness import evaluate_execution_readiness
 from conductor.io.encoding import configure_utf8_stdio
@@ -315,6 +316,7 @@ def main(argv: list[str] | None = None) -> int:
             "stale_released_count": released_stale_task_count,
             "stale_after_seconds": args.stale_after_seconds,
             **_task_center_audit_rollup(maintenance_findings, project_id=state.project.id),
+            **_task_center_control_rollup(state, task_center_service),
             "audit": _task_center_audit_payload(maintenance_findings),
         }
         _attach_pre_run_maintenance_operator_hints(
@@ -478,6 +480,36 @@ def _task_center_audit_rollup(findings, *, project_id: str) -> dict[str, object]
     }
 
 
+def _task_center_control_rollup(state, service: TaskCenterService) -> dict[str, object]:
+    """Return non-finding Task Center signals that still matter to operators."""
+    active_human_control = HumanControlService(service.state_store).active_action(state)
+    pending_test_scope = list(state.pending_test_scope)
+    return {
+        "pending_retest_project_ids": [state.project.id] if pending_test_scope else [],
+        "pending_retest_scopes": {state.project.id: pending_test_scope} if pending_test_scope else {},
+        "human_control_project_ids": [state.project.id] if active_human_control else [],
+        "active_human_control_actions": [_human_control_action_payload(active_human_control)]
+        if active_human_control
+        else [],
+    }
+
+
+def _human_control_action_payload(action) -> dict[str, object]:
+    if action is None:
+        return {}
+    return {
+        "id": action.id,
+        "project_id": action.project_id,
+        "action": action.action.value,
+        "actor": action.actor,
+        "reason": action.reason,
+        "stage": action.stage,
+        "workitem_id": action.workitem_id or "",
+        "payload": dict(action.payload),
+        "created_at": action.created_at,
+    }
+
+
 def _pre_run_maintenance_failure_payload(
     *,
     args,
@@ -545,6 +577,12 @@ def _pre_run_maintenance_latest_payload(pre_run_task_center_maintenance: dict[st
         "attention_project_ids": _list_payload(pre_run_task_center_maintenance.get("attention_project_ids")),
         "finding_code_counts": _dict_payload(pre_run_task_center_maintenance.get("finding_code_counts")),
         "recommendations": _list_payload(pre_run_task_center_maintenance.get("recommendations")),
+        "pending_retest_project_ids": _list_payload(pre_run_task_center_maintenance.get("pending_retest_project_ids")),
+        "pending_retest_scopes": _dict_payload(pre_run_task_center_maintenance.get("pending_retest_scopes")),
+        "human_control_project_ids": _list_payload(pre_run_task_center_maintenance.get("human_control_project_ids")),
+        "active_human_control_actions": _list_payload(
+            pre_run_task_center_maintenance.get("active_human_control_actions")
+        ),
         "report_path": str(pre_run_task_center_maintenance.get("report_path", "")),
         "operator_guidance": str(pre_run_task_center_maintenance.get("operator_guidance", "")),
         "operator_commands": _list_payload(pre_run_task_center_maintenance.get("operator_commands")),

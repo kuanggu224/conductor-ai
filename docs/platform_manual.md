@@ -484,7 +484,7 @@ python -m app.run_project `
   --stale-after-seconds 3600
 ```
 
-恢复前维护模式可同时释放过期 lease / stale claim、写出维护报告和 latest 指针；报告与 latest 会包含 `attention_project_ids`、`finding_code_counts`、`recommendations`、`operator_guidance` 和 `operator_commands`，便于调度器或人工 operator 判断需要处理的项目、问题类型、修复建议，并直接复制 resume-with-maintenance 和 maintenance-status 命令。
+恢复前维护模式可同时释放过期 lease / stale claim、写出维护报告和 latest 指针；报告与 latest 会包含 `attention_project_ids`、`finding_code_counts`、`recommendations`、pending retest scope、active human-control holds、`operator_guidance` 和 `operator_commands`，便于调度器或人工 operator 判断需要处理的项目、问题类型、修复建议、人工接管状态，并直接复制 resume-with-maintenance 和 maintenance-status 命令。
 
 ### 11.5 运行诊断
 
