@@ -207,6 +207,8 @@ Conductor 的多 Agent 不是多人闲聊，而是结构化职责协作。
 
 并行开发席位必须声明 `write_scope`。Run Manifest Verifier 会校验同一个 `agent_team_plan` 内的 `parallel_development` 席位写入范围不能重叠；如果两个并行 Agent 声称写同一 scope，审计会直接失败，避免把冲突留到归并阶段才发现。
 
+Run Manifest Verifier 也会检查 Development WorkItem 的 handoff 约束：如果开发任务引用冻结需求或冻结设计输入，却没有在 `acceptance_criteria` 中显式要求保持需求/设计基线，会产生 warning，避免基线只作为隐含输入存在。
+
 ## 6. 执行后端
 
 ### 6.1 LLMHarness

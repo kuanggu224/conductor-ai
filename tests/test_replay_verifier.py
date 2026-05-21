@@ -3959,6 +3959,117 @@ def test_manifest_verifier_warns_for_malformed_workitem_relationship_lists(tmp_p
     assert "workitem workitem-1 testing_feedback must be a list" in result.warnings
 
 
+def test_manifest_verifier_warns_when_development_workitem_lacks_requirement_handoff_contract(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "workitems": [
+                {
+                    "id": "workitem-1",
+                    "stage": "development",
+                    "kind": "api_implementation",
+                    "status": "done",
+                    "input_artifact_ids": ["artifact-1"],
+                    "acceptance_criteria": ["接口行为可运行"],
+                }
+            ],
+            "artifacts": [
+                {
+                    "id": "artifact-1",
+                    "project_id": "project-1",
+                    "workitem_id": "workitem-1",
+                    "title": "Frozen Requirement",
+                    "kind": "frozen_requirement_spec",
+                    "agent_id": "agent-1",
+                    "path": str(tmp_path / "project" / ".conductor" / "artifacts" / "artifact-1.md"),
+                }
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert (
+        "development workitem workitem-1 references requirement baseline artifacts "
+        "but acceptance_criteria does not require preserving the requirement baseline"
+    ) in result.warnings
+
+
+def test_manifest_verifier_warns_when_development_workitem_lacks_design_handoff_contract(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "workitems": [
+                {
+                    "id": "workitem-1",
+                    "stage": "development",
+                    "kind": "api_implementation",
+                    "status": "done",
+                    "input_artifact_ids": ["artifact-1"],
+                    "acceptance_criteria": ["接口行为可运行"],
+                }
+            ],
+            "artifacts": [
+                {
+                    "id": "artifact-1",
+                    "project_id": "project-1",
+                    "workitem_id": "workitem-1",
+                    "title": "Frozen Design",
+                    "kind": "frozen_design_spec",
+                    "agent_id": "agent-1",
+                    "path": str(tmp_path / "project" / ".conductor" / "artifacts" / "artifact-1.md"),
+                }
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert (
+        "development workitem workitem-1 references design baseline artifacts "
+        "but acceptance_criteria does not require preserving the design baseline"
+    ) in result.warnings
+
+
+def test_manifest_verifier_accepts_development_handoff_contract_acceptance_criteria(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "workitems": [
+                {
+                    "id": "workitem-1",
+                    "stage": "development",
+                    "kind": "api_implementation",
+                    "status": "done",
+                    "input_artifact_ids": ["artifact-1"],
+                    "acceptance_criteria": [
+                        "遵守输入产物中的冻结需求/需求基线范围、非目标和验收标准",
+                        "遵守输入产物中的冻结设计/设计约束，必要偏离必须显式说明",
+                    ],
+                }
+            ],
+            "artifacts": [
+                {
+                    "id": "artifact-1",
+                    "project_id": "project-1",
+                    "workitem_id": "workitem-1",
+                    "title": "Frozen Design",
+                    "kind": "frozen_design_spec",
+                    "agent_id": "agent-1",
+                    "path": str(tmp_path / "project" / ".conductor" / "artifacts" / "artifact-1.md"),
+                }
+            ],
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert not any("development workitem workitem-1 references" in warning for warning in result.warnings)
+
+
 def test_manifest_verifier_rejects_unknown_testing_feedback_workitem(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,

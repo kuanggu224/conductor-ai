@@ -945,6 +945,16 @@ class ManifestVerifier:
             for item in workitems
             if isinstance(item, dict) and str(item.get("id", ""))
         }
+        artifact_by_id = {
+            str(artifact.get("id", "")): artifact
+            for artifact in artifacts
+            if isinstance(artifact, dict) and str(artifact.get("id", ""))
+        }
+        design_workitem_ids = {
+            str(item.get("id", ""))
+            for item in workitems
+            if isinstance(item, dict) and str(item.get("stage", "")) == "design" and str(item.get("id", ""))
+        }
         workitem_blocked_reasons = {
             str(item.get("id", "")): str(item.get("blocked_reason", ""))
             for item in workitems
@@ -979,6 +989,7 @@ class ManifestVerifier:
                     "input_artifact_ids",
                     "output_artifact_ids",
                     "feedback_from",
+                    "acceptance_criteria",
                     "testing_feedback",
                     "testing_checklist",
                 ),
@@ -1008,6 +1019,7 @@ class ManifestVerifier:
                 f"workitem {workitem_id}.testing_checklist",
                 result,
             )
+            self._verify_development_handoff_contract(workitem, artifact_by_id, design_workitem_ids, result)
 
         for execution in executions:
             workitem_id = str(execution.get("workitem_id", "")) if isinstance(execution, dict) else ""
@@ -1644,6 +1656,53 @@ class ManifestVerifier:
             result.warnings.append(
                 f"task assignment {assignment_id} status {assignment_status} references WorkItem {workitem_id} "
                 f"with status {actual_status}, expected {expected_status}"
+            )
+
+    def _verify_development_handoff_contract(
+        self,
+        workitem: dict[str, Any],
+        artifact_by_id: dict[str, dict[str, Any]],
+        design_workitem_ids: set[str],
+        result: ManifestVerificationResult,
+    ) -> None:
+        """Warn when development WorkItems carry baselines without explicit acceptance constraints."""
+        workitem_id = str(workitem.get("id", ""))
+        if str(workitem.get("stage", "")) != "development":
+            return
+        acceptance_criteria = self._string_list(workitem.get("acceptance_criteria", []))
+        input_artifacts = [
+            artifact_by_id[artifact_id]
+            for artifact_id in self._string_list(workitem.get("input_artifact_ids", []))
+            if artifact_id in artifact_by_id
+        ]
+        if not input_artifacts:
+            return
+        has_requirement_baseline = any(
+            str(artifact.get("kind", "")) in {"frozen_requirement_spec", "requirement_spec"}
+            for artifact in input_artifacts
+        )
+        has_design_baseline = any(
+            str(artifact.get("kind", "")) in {"frozen_design_spec", "design_overview", "ui_design", "api_design", "test_design"}
+            or str(artifact.get("workitem_id", "")) in design_workitem_ids
+            for artifact in input_artifacts
+        )
+        criteria_text = "\n".join(acceptance_criteria)
+        if has_requirement_baseline and not (
+            "冻结需求" in criteria_text or "需求基线" in criteria_text or "frozen requirement" in criteria_text.lower()
+        ):
+            result.warnings.append(
+                f"development workitem {workitem_id} references requirement baseline artifacts "
+                "but acceptance_criteria does not require preserving the requirement baseline"
+            )
+        if has_design_baseline and not (
+            "冻结设计" in criteria_text
+            or "设计约束" in criteria_text
+            or "design baseline" in criteria_text.lower()
+            or "design constraint" in criteria_text.lower()
+        ):
+            result.warnings.append(
+                f"development workitem {workitem_id} references design baseline artifacts "
+                "but acceptance_criteria does not require preserving the design baseline"
             )
 
     def _warn_non_list_fields(

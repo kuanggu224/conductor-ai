@@ -548,6 +548,8 @@ TL Agent 会在阶段开始、运行时失败、反馈返工等节点生成 `age
 
 并行开发席位必须声明 `write_scope`。Run Manifest Verifier 会拒绝同一个 `agent_team_plan` 内重叠的 `parallel_development` 写入范围，作为外部 CLI Agent 并行领取任务前后的冲突审计边界。
 
+Run Manifest Verifier 也会检查 Development WorkItem 的 handoff 约束：如果开发任务引用冻结需求或冻结设计输入，却没有在 `acceptance_criteria` 中显式要求保持需求/设计基线，会产生 warning。
+
 Task Center context 会把每个 eligible dynamic Agent 的 `claimable_for_agent` 和 `write_scope_conflict_assignment_ids` 写入 JSON 与 Markdown prompt。外部 CLI Agent 在 prompt 里看到 `claimable_for_agent=false` 时，应先等待或释放冲突 assignment，而不是直接开始修改文件。
 
 Context 顶层还会输出 `handoff_safety`，汇总 `ready_for_handoff`、依赖阻塞、写入范围冲突、warnings 和 guidance；Markdown prompt 同步渲染 `## Handoff Safety`，让外部 worker 在领取和开工前就能判断当前任务是否安全。
