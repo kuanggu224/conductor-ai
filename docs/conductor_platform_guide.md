@@ -506,7 +506,7 @@ python -m app.replay_manifest <manifest-path> --format markdown
 
 Replay 只读取 Manifest，不重新执行 Agent。Markdown replay 会渲染 WorkItem rework lineage、structured testing feedback、Human Control actions、summary `pending_test_scope` 和 resume cursor 中的 next pending WorkItems，便于只读复盘时看到人工暂停/审批/override 决策，以及失败测试回流后应优先复跑的验证范围。
 
-Audit bundle schema `1.1` 会在 bundle summary 中保存 Manifest schema、最终状态和 `pending_test_scope`，`verify_audit_bundle` 会重新读取 Manifest 并交叉校验这些摘要字段，避免最终审计包与 Manifest 里的返工复验范围不一致。
+Audit bundle schema `1.2` 会在 bundle summary 中保存 Manifest schema、最终状态、`pending_test_scope`、human control action count 和 active human hold，`verify_audit_bundle` 会重新读取 Manifest 并交叉校验这些摘要字段，避免最终审计包与 Manifest 里的返工复验范围或人工接管状态不一致。
 
 ## 10. 常用运行方式
 

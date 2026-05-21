@@ -104,7 +104,7 @@ def test_audit_bundle_verifier_warns_for_non_current_schema(tmp_path, capsys) ->
     result = verify_audit_bundle(bundle_path)
 
     assert result.passed is True
-    assert "audit bundle schema_version 0.1 differs from current 1.1" in result.warnings
+    assert "audit bundle schema_version 0.1 differs from current 1.2" in result.warnings
 
 
 def test_audit_bundle_verifier_rejects_pending_test_scope_mismatch(tmp_path, capsys) -> None:
@@ -136,6 +136,59 @@ def test_audit_bundle_verifier_rejects_manifest_summary_mismatch(tmp_path, capsy
     assert result.passed is False
     assert "summary.manifest_schema_version does not match manifest.schema_version" in result.errors
     assert "summary.manifest_final_status does not match manifest.final_status" in result.errors
+
+
+def test_audit_bundle_verifier_rejects_human_control_summary_mismatch(tmp_path, capsys) -> None:
+    _, bundle_path = _write_project_audit_bundle(tmp_path, capsys)
+    bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+    manifest_path = Path(bundle["files"]["manifest"])
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    human_action = {
+        "id": "human-action-pause",
+        "project_id": manifest["project_id"],
+        "action": "pause",
+        "actor": "operator",
+        "reason": "inspect delivery",
+        "stage": manifest["current_stage"],
+        "workitem_id": "",
+        "payload": {},
+        "created_at": "2026-01-01T00:00:00+00:00",
+    }
+    manifest["human_control_actions"] = [human_action]
+    manifest["summary"]["human_control_action_count"] = 1
+    manifest["resume_cursor"]["next_action"] = "human_hold"
+    manifest["resume_cursor"]["blocked"] = True
+    manifest["resume_cursor"]["terminal"] = False
+    manifest["resume_cursor"]["blockers"] = ["human_paused: inspect delivery"]
+    manifest["resume_cursor"]["active_human_control_action"] = human_action
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    bundle["summary"]["human_control_action_count"] = 0
+    bundle["summary"]["active_human_control_action"] = {}
+    bundle_path.write_text(json.dumps(bundle, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    result = verify_audit_bundle(bundle_path)
+
+    assert result.passed is False
+    assert "checksums.manifest does not match file content" in result.errors
+    assert "summary.human_control_action_count does not match manifest summary.human_control_action_count" in result.errors
+    assert (
+        "summary.active_human_control_action does not match manifest resume_cursor.active_human_control_action"
+        in result.errors
+    )
+
+
+def test_audit_bundle_verifier_rejects_malformed_human_control_summary(tmp_path, capsys) -> None:
+    _, bundle_path = _write_project_audit_bundle(tmp_path, capsys)
+    bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+    bundle["summary"]["human_control_action_count"] = "many"
+    bundle["summary"]["active_human_control_action"] = "human-action-pause"
+    bundle_path.write_text(json.dumps(bundle, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    result = verify_audit_bundle(bundle_path)
+
+    assert result.passed is False
+    assert "summary.human_control_action_count must be an integer" in result.errors
+    assert "summary.active_human_control_action must be an object" in result.errors
 
 
 def test_audit_bundle_verifier_reruns_manifest_verification(tmp_path, capsys) -> None:
@@ -272,7 +325,7 @@ def test_verify_audit_bundle_cli_can_fail_on_manifest_warnings(tmp_path, capsys)
     assert exit_code == 2
     payload = json.loads(captured.out)
     assert payload["passed"] is True
-    assert any("audit bundle schema_version 0.1 differs from current 1.1" in warning for warning in payload["warnings"])
+    assert any("audit bundle schema_version 0.1 differs from current 1.2" in warning for warning in payload["warnings"])
 
 
 def test_verify_audit_bundle_cli_exits_two_for_invalid_bundle(tmp_path, capsys) -> None:

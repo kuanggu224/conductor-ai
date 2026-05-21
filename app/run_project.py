@@ -690,10 +690,12 @@ def _manifest_audit_summary(manifest_path: Path) -> dict[str, object]:
     try:
         payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
-        return {"manifest_schema_version": "", "manifest_final_status": "", "pending_test_scope": []}
+        return _empty_manifest_audit_summary()
     if not isinstance(payload, dict):
-        return {"manifest_schema_version": "", "manifest_final_status": "", "pending_test_scope": []}
+        return _empty_manifest_audit_summary()
     summary = payload.get("summary", {}) if isinstance(payload.get("summary", {}), dict) else {}
+    resume_cursor = payload.get("resume_cursor", {}) if isinstance(payload.get("resume_cursor", {}), dict) else {}
+    active_human_control = resume_cursor.get("active_human_control_action", {})
     return {
         "manifest_schema_version": str(payload.get("schema_version", "")),
         "manifest_final_status": str(payload.get("final_status", payload.get("status", ""))),
@@ -704,7 +706,32 @@ def _manifest_audit_summary(manifest_path: Path) -> dict[str, object]:
         ]
         if isinstance(summary.get("pending_test_scope", []), list)
         else [],
+        "human_control_action_count": _safe_int(summary.get("human_control_action_count")),
+        "active_human_control_action": dict(active_human_control) if isinstance(active_human_control, dict) else {},
     }
+
+
+def _empty_manifest_audit_summary() -> dict[str, object]:
+    return {
+        "manifest_schema_version": "",
+        "manifest_final_status": "",
+        "pending_test_scope": [],
+        "human_control_action_count": 0,
+        "active_human_control_action": {},
+    }
+
+
+def _safe_int(value: object) -> int:
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return 0
+    return 0
 
 
 def _verify_audit_bundle_if_written(audit_bundle_payload: dict[str, object]) -> dict[str, object]:

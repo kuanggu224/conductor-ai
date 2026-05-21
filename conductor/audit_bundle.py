@@ -10,7 +10,7 @@ from typing import Any
 
 from conductor.replay_verifier import verify_manifest
 
-AUDIT_BUNDLE_SCHEMA_VERSION = "1.1"
+AUDIT_BUNDLE_SCHEMA_VERSION = "1.2"
 
 
 @dataclass(slots=True)
@@ -146,6 +146,10 @@ class AuditBundleVerifier:
             for index, item in enumerate(summary.get("pending_test_scope", [])):
                 if not isinstance(item, str) or not item.strip():
                     result.errors.append(f"summary.pending_test_scope[{index}] must be a non-empty string")
+        if "human_control_action_count" in summary and self._as_int(summary.get("human_control_action_count")) is None:
+            result.errors.append("summary.human_control_action_count must be an integer")
+        if "active_human_control_action" in summary and not isinstance(summary.get("active_human_control_action"), dict):
+            result.errors.append("summary.active_human_control_action must be an object")
 
     def _verify_files(self, bundle_path: Path, payload: dict[str, Any], result: AuditBundleVerificationResult) -> None:
         files = payload.get("files")
@@ -232,7 +236,14 @@ class AuditBundleVerifier:
         if not isinstance(summary, dict):
             return
         manifest_summary = manifest.get("summary", {}) if isinstance(manifest.get("summary", {}), dict) else {}
+        resume_cursor = manifest.get("resume_cursor", {}) if isinstance(manifest.get("resume_cursor", {}), dict) else {}
         expected_scope = self._string_list(manifest_summary.get("pending_test_scope", []))
+        expected_human_count = self._as_int(manifest_summary.get("human_control_action_count"))
+        expected_active_human = (
+            dict(resume_cursor.get("active_human_control_action", {}))
+            if isinstance(resume_cursor.get("active_human_control_action", {}), dict)
+            else {}
+        )
 
         if "manifest_schema_version" in summary and str(summary.get("manifest_schema_version", "")) != str(
             manifest.get("schema_version", "")
@@ -244,6 +255,16 @@ class AuditBundleVerifier:
             result.errors.append("summary.manifest_final_status does not match manifest.final_status")
         if "pending_test_scope" in summary and self._string_list(summary.get("pending_test_scope", [])) != expected_scope:
             result.errors.append("summary.pending_test_scope does not match manifest summary.pending_test_scope")
+        if "human_control_action_count" in summary:
+            actual_human_count = self._as_int(summary.get("human_control_action_count"))
+            if actual_human_count != expected_human_count:
+                result.errors.append(
+                    "summary.human_control_action_count does not match manifest summary.human_control_action_count"
+                )
+        if "active_human_control_action" in summary and summary.get("active_human_control_action") != expected_active_human:
+            result.errors.append(
+                "summary.active_human_control_action does not match manifest resume_cursor.active_human_control_action"
+            )
 
     def _verify_checksums(
         self,
@@ -284,6 +305,18 @@ class AuditBundleVerifier:
         if not isinstance(value, list):
             return []
         return [str(item).strip() for item in value if str(item).strip()]
+
+    def _as_int(self, value: Any) -> int | None:
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str):
+            try:
+                return int(value)
+            except ValueError:
+                return None
+        return None
 
 
 def verify_audit_bundle(bundle_path: str | Path, *, check_files: bool = True) -> AuditBundleVerificationResult:

@@ -4,8 +4,8 @@ Last updated: 2026-05-21
 
 ## Stable Checkpoint
 
-- Latest verified code checkpoint: current `dev` Replay human control visibility update.
-- Current full test result: `python -m pytest -q --basetemp C:\tmp\conductor_pytest_full_replay_human_control_rerun` -> `694 passed in 115.17s`.
+- Latest verified code checkpoint: current `dev` audit bundle human control summary update.
+- Current full test result: `python -m pytest -q --basetemp C:\tmp\conductor_pytest_full_audit_bundle_human_control` -> `696 passed in 111.39s`.
 - Current focus: backend orchestration, auditability, logs, manifest/replay, and task-center reliability.
 - Frontend Board exists, but visual redesign is intentionally not the current priority.
 
@@ -54,7 +54,7 @@ Last updated: 2026-05-21
 - Replay trace renders WorkItem rework lineage and structured testing feedback, so failed-test-to-rework chains are visible in read-only replay output.
 - Replay trace now renders summary `pending_test_scope` and resume cursor next pending WorkItems, making the retest target visible in read-only replay output.
 - Replay trace now renders human control actions, so pause/resume/approval/override decisions are visible in read-only replay output.
-- Audit bundle schema is now `1.1`; bundle summaries copy Manifest schema, final status, and pending test scope, and bundle verification cross-checks those fields against the Manifest.
+- Audit bundle schema is now `1.2`; bundle summaries copy Manifest schema, final status, pending test scope, human control action count, and active human hold, and bundle verification cross-checks those fields against the Manifest.
 - Default ShellHarness validation skips real test commands when no project deliverables exist, especially when the project root is the Conductor source checkout.
 - Manifest verification accepts intentionally reclassified failed test WorkItems when their failures have been flowed back into development rework.
 - Platform diagnostics now expose structured UTF-8 readiness, LLM timeout status, timeout warnings, CLI auth status, CLI auth recovery recommendations, LLM provider failure categories, and block model probing when an enabled backend has an invalid timeout.
