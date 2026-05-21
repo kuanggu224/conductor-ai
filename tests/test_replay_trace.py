@@ -263,6 +263,66 @@ def test_replay_trace_includes_rework_and_testing_feedback(tmp_path) -> None:
     assert "validation_command=python -m conductor.harness.static_web_cli" in markdown
 
 
+def test_replay_trace_includes_human_control_actions(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "summary": {
+                "final_status": "completed",
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 0,
+                "artifact_file_count": 0,
+                "task_prompt_file_count": 0,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "human_control_action_count": 2,
+                "changed_file_count": 0,
+                "changed_files": [],
+            },
+            "human_control_actions": [
+                {
+                    "id": "human-action-pause",
+                    "project_id": "project-1",
+                    "action": "pause",
+                    "actor": "operator",
+                    "reason": "inspect delivery",
+                    "stage": "testing",
+                    "workitem_id": "",
+                    "payload": {},
+                    "created_at": "2026-01-01T00:00:00+00:00",
+                },
+                {
+                    "id": "human-action-resume",
+                    "project_id": "project-1",
+                    "action": "resume",
+                    "actor": "operator",
+                    "reason": "continue after review",
+                    "stage": "testing",
+                    "workitem_id": "",
+                    "payload": {"controller_action": "execute_workitem"},
+                    "created_at": "2026-01-01T00:01:00+00:00",
+                },
+            ],
+        },
+    )
+
+    trace = build_manifest_replay_trace(manifest_path)
+    human_events = [event for event in trace.events if event.event_type == "human_control"]
+    markdown = trace.to_markdown()
+
+    assert trace.passed is True
+    assert [event.status for event in human_events] == ["pause", "resume"]
+    assert human_events[0].metadata["actor"] == "operator"
+    assert human_events[1].metadata["payload"]["controller_action"] == "execute_workitem"
+    assert "HumanControl human-action-pause recorded pause" in markdown
+    assert "actor=operator" in markdown
+    assert "reason=continue after review" in markdown
+    assert "controller_action=execute_workitem" in markdown
+
+
 def test_replay_trace_refuses_invalid_manifest(tmp_path) -> None:
     manifest_path = _write_manifest(tmp_path, {"project_id": ""})
 

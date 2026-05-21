@@ -92,6 +92,7 @@ class ManifestReplayTrace:
                 _event_rework_detail(event),
                 _event_testing_feedback_detail(event),
                 _event_pending_test_scope_detail(event),
+                _event_human_control_detail(event),
             ]
             detail_text = ", ".join(item for item in details if item)
             lines.append(f"{event.index}. {event.message}")
@@ -138,6 +139,9 @@ class ManifestReplayTraceBuilder:
     def _events(self, payload: dict[str, Any]) -> list[ReplayTraceEvent]:
         events: list[ReplayTraceEvent] = []
         self._append_project_event(events, payload)
+        for action in self._list(payload.get("human_control_actions")):
+            if isinstance(action, dict):
+                self._append_human_control_event(events, action)
         for workitem in self._list(payload.get("workitems")):
             if isinstance(workitem, dict):
                 self._append_workitem_event(events, workitem)
@@ -164,6 +168,26 @@ class ManifestReplayTraceBuilder:
                     "run_profile": str(payload.get("run_profile", "")),
                     "project_root": str(payload.get("project_root", "")),
                     "pending_test_scope": self._string_list(summary.get("pending_test_scope", [])),
+                },
+            )
+        )
+
+    def _append_human_control_event(self, events: list[ReplayTraceEvent], action: dict[str, Any]) -> None:
+        events.append(
+            ReplayTraceEvent(
+                index=len(events) + 1,
+                event_type="human_control",
+                message=f"HumanControl {action.get('id', '')} recorded {action.get('action', '')}",
+                stage=str(action.get("stage", "")),
+                workitem_id=str(action.get("workitem_id", "")),
+                status=str(action.get("action", "")),
+                metadata={
+                    "action_id": str(action.get("id", "")),
+                    "action": str(action.get("action", "")),
+                    "actor": str(action.get("actor", "")),
+                    "reason": str(action.get("reason", "")),
+                    "payload": action.get("payload", {}) if isinstance(action.get("payload", {}), dict) else {},
+                    "created_at": str(action.get("created_at", "")),
                 },
             )
         )
@@ -377,6 +401,25 @@ def _event_pending_test_scope_detail(event: ReplayTraceEvent) -> str:
         parts.append(f"pending_test_scope={', '.join(pending_scope)}")
     if next_workitems:
         parts.append(f"next_pending_workitems={', '.join(next_workitems)}")
+    return "; ".join(parts)
+
+
+def _event_human_control_detail(event: ReplayTraceEvent) -> str:
+    """Render compact human control decision metadata for Markdown traces."""
+    if event.event_type != "human_control":
+        return ""
+    payload = event.metadata.get("payload", {})
+    payload = payload if isinstance(payload, dict) else {}
+    parts = []
+    actor = str(event.metadata.get("actor", ""))
+    reason = str(event.metadata.get("reason", ""))
+    controller_action = str(payload.get("controller_action", ""))
+    if actor:
+        parts.append(f"actor={actor}")
+    if reason:
+        parts.append(f"reason={reason}")
+    if controller_action:
+        parts.append(f"controller_action={controller_action}")
     return "; ".join(parts)
 
 

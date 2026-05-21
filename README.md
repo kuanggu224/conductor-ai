@@ -99,6 +99,7 @@ python -m app.verify_audit_bundle <project-root>\.conductor\replay\<project-id>.
 ```
 
 Manifest verifier 会检查 schema、Project/WorkItem/Execution/Artifact/TaskAssignment 链接、delivery contract、acceptance trace、testing checklist、敏感凭据泄露、引用文件和 replay/audit 一致性。
+Replay trace 会渲染返工 lineage、testing feedback、pending retest scope 和 Human Control actions，便于只读复盘项目为何暂停、审批、恢复或 override。
 Audit bundle schema `1.1` 会把 Manifest schema、最终状态和 `summary.pending_test_scope` 写入 bundle summary，并在 `verify_audit_bundle` 中与 Manifest 内容交叉校验，确保返工后的复验范围进入最终审计包。
 
 ## 真实 LLM 配置
