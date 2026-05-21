@@ -525,8 +525,98 @@ def test_task_center_cli_auto_includes_frozen_design_for_development_context(tmp
     assert payload["frozen_design_baseline"]["id"] == frozen_design.id
     assert "frozen_design_spec" in payload["delivery_contract"]["required_input_kinds"]
     assert "Frozen design coverage" in payload["delivery_contract"]["verification_focus"]
+    assert payload["handoff_safety"]["baseline_handoff"]["status"] == "needs_attention"
+    assert payload["handoff_safety"]["baseline_handoff"]["requirement_baseline_artifact_ids"] == [
+        frozen_requirement.id
+    ]
+    assert payload["handoff_safety"]["baseline_handoff"]["design_baseline_artifact_ids"] == [frozen_design.id]
+    assert payload["handoff_safety"]["baseline_handoff"]["missing_contracts"] == [
+        "requirement_baseline",
+        "design_baseline",
+    ]
+    assert (
+        "development acceptance criteria do not explicitly preserve the requirement baseline"
+        in payload["handoff_safety"]["warnings"]
+    )
     assert "Frozen Design Baseline" in payload["execution_brief"]
+    assert "Baseline Contract: needs_attention" in payload["execution_brief"]
     assert "Implementation baseline" in payload["input_artifacts"][1]["content"]
+
+    code = main(["context", assignment.id, "--project-root", str(project_root), "--format", "markdown"])
+    markdown = capsys.readouterr().out
+
+    assert code == 0
+    assert "- Baseline Contract: needs_attention" in markdown
+    assert "- Missing Baseline Contracts: requirement_baseline, design_baseline" in markdown
+
+
+def test_task_center_cli_marks_development_baseline_handoff_covered(tmp_path, capsys) -> None:
+    project_root = tmp_path / "project"
+    state_store = FileStateStore(project_root / ".conductor" / "state")
+    engine = ConductorEngine(
+        log_dir=project_root / ".conductor" / "logs",
+        artifact_dir=project_root / ".conductor" / "artifacts",
+        state_store=state_store,
+    )
+    state = engine.create_project(requirement="Build a local reading list with CSV export", project_root=str(project_root))
+    frozen_requirement = engine.artifact_store.save_markdown(
+        Artifact(
+            id="artifact-frozen-req-covered",
+            project_id=state.project.id,
+            workitem_id="workitem-requirement",
+            agent_id="agent-requirement",
+            kind="frozen_requirement_spec",
+            title="Frozen Requirement",
+            content="Acceptance: add book, persist refresh, export CSV.",
+        ),
+        project_root=state.project.project_root,
+    )
+    frozen_design = engine.artifact_store.save_markdown(
+        Artifact(
+            id="artifact-frozen-design-covered",
+            project_id=state.project.id,
+            workitem_id="workitem-design",
+            agent_id="agent-designer",
+            kind="frozen_design_spec",
+            title="Frozen Design",
+            content="Implementation baseline: static HTML, localStorage, CSV export button.",
+        ),
+        project_root=state.project.project_root,
+    )
+    downstream = WorkItem(
+        id="workitem-dev-baseline-covered",
+        description="Implement downstream work",
+        stage="development",
+        kind="ui_implementation",
+        acceptance_criteria=[
+            "\u9075\u5b88\u8f93\u5165\u4ea7\u7269\u4e2d\u7684\u51bb\u7ed3\u9700\u6c42/"
+            "\u9700\u6c42\u57fa\u7ebf\u8303\u56f4\u3001\u975e\u76ee\u6807\u548c"
+            "\u9a8c\u6536\u6807\u51c6",
+            "\u9075\u5b88\u8f93\u5165\u4ea7\u7269\u4e2d\u7684\u51bb\u7ed3\u8bbe\u8ba1/"
+            "\u8bbe\u8ba1\u7ea6\u675f\uff0c\u5fc5\u8981\u504f\u79bb\u5fc5\u987b"
+            "\u663e\u5f0f\u8bf4\u660e",
+        ],
+    )
+    assignment = TaskAssignment(
+        id="assignment-dev-baseline-covered",
+        workitem_id=downstream.id,
+        role="frontend_engineer",
+    )
+    state = replace(
+        state,
+        workitems=[*state.workitems, downstream],
+        task_assignments=[*state.task_assignments, assignment],
+        artifacts=[*state.artifacts, frozen_requirement, frozen_design],
+    )
+    state_store.save_state(state)
+
+    code = main(["context", assignment.id, "--project-root", str(project_root)])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert payload["handoff_safety"]["baseline_handoff"]["status"] == "covered"
+    assert payload["handoff_safety"]["baseline_handoff"]["missing_contracts"] == []
+    assert payload["handoff_safety"]["warnings"] == []
 
 
 def test_task_center_cli_context_exposes_eligible_dynamic_agents(tmp_path, capsys) -> None:

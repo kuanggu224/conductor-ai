@@ -4,8 +4,8 @@ Last updated: 2026-05-21
 
 ## Stable Checkpoint
 
-- Latest verified code checkpoint: `979e23e` (`Map testing failures to checklist feedback`).
-- Current full test result: `python -m pytest -q` -> `623 passed in 66.38s`.
+- Latest verified code checkpoint: current `dev` handoff-safety update.
+- Current full test result: `python -m pytest -q --basetemp C:\tmp\conductor_pytest_full_task_handoff` -> `680 passed in 123.78s`.
 - Current focus: backend orchestration, auditability, logs, manifest/replay, and task-center reliability.
 - Frontend Board exists, but visual redesign is intentionally not the current priority.
 
@@ -32,6 +32,7 @@ Last updated: 2026-05-21
 - The same delivery contract is shared by direct Runner prompts for Agent CLI document/code execution, keeping internal execution and external Task Center handoff aligned.
 - Development WorkItems now promote frozen requirement/design input artifacts into explicit acceptance criteria, so implementation agents must preserve baseline scope and explain design deviations.
 - Manifest verification now warns when development WorkItems reference frozen requirement/design baselines without explicit handoff acceptance criteria.
+- Task Center `handoff_safety` now exposes `baseline_handoff`, so external workers can see whether development acceptance criteria explicitly preserve requirement/design baselines before starting work.
 - Code execution reports, project reports, and manifest execution records now include acceptance trace evidence that maps WorkItem acceptance criteria to validation status and changed files.
 - Testing WorkItems now carry a machine-readable `testing_checklist` derived from frozen requirement coverage rules, including rule ids, labels, requirement signals, and required evidence terms.
 - Structured testing feedback now maps missing coverage back to `missing_checklist_items`, so development rework prompts can cite the exact checklist `rule_id` and required evidence that failed.

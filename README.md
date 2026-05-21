@@ -69,7 +69,7 @@ python -m app.task_center maintenance --project-root <project-root> --stale-afte
 python -m app.task_center watchdog --project-root <project-root> --interval-seconds 60
 ```
 
-Task Center context 会暴露冻结需求、冻结设计、delivery contract、testing checklist、rework feedback、handoff safety，以及动态 Agent/write scope 风险，方便外部 Agent 在明确边界内工作。
+Task Center context 会暴露冻结需求、冻结设计、delivery contract、testing checklist、rework feedback、handoff safety，以及动态 Agent/write scope 风险。`handoff_safety.baseline_handoff` 会标记开发任务是否已经把需求/设计基线写入 acceptance criteria，方便外部 Agent 在明确边界内工作。
 
 ## Manifest、Replay 和审计
 

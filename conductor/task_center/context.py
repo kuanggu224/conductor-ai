@@ -11,6 +11,23 @@ from conductor.task_center.service import TaskCenterError, TaskCenterService
 from conductor.testing.failure_feedback import build_testing_feedback_for_workitem
 
 
+_REQUIREMENT_BASELINE_KINDS = {"frozen_requirement_spec", "requirement_spec"}
+_DESIGN_BASELINE_KINDS = {"frozen_design_spec", "design_overview", "ui_design", "api_design", "test_design"}
+_REQUIREMENT_BASELINE_TERMS = (
+    "frozen requirement",
+    "requirement baseline",
+    "\u51bb\u7ed3\u9700\u6c42",
+    "\u9700\u6c42\u57fa\u7ebf",
+)
+_DESIGN_BASELINE_TERMS = (
+    "frozen design",
+    "design baseline",
+    "design constraint",
+    "\u51bb\u7ed3\u8bbe\u8ba1",
+    "\u8bbe\u8ba1\u7ea6\u675f",
+)
+
+
 class TaskContextBuilder:
     """Build the readable context an external agent needs for one assignment."""
 
@@ -55,7 +72,14 @@ class TaskContextBuilder:
         frozen_requirement_baseline = self._frozen_requirement_baseline(input_artifacts)
         frozen_design_baseline = self._frozen_design_baseline(input_artifacts)
         eligible_agent_activations = self._eligible_agent_activations(state, assignment, workitem, task_center)
-        handoff_safety = self._handoff_safety(task_center, state, assignment, eligible_agent_activations)
+        handoff_safety = self._handoff_safety(
+            task_center,
+            state,
+            assignment,
+            workitem,
+            input_artifacts,
+            eligible_agent_activations,
+        )
         rework_context = self._rework_context(state, workitem, input_artifacts)
         delivery_contract = self._delivery_contract(workitem, assignment, input_artifacts, rework_context)
         output_artifacts = [
@@ -288,11 +312,14 @@ class TaskContextBuilder:
         task_center: TaskCenterService,
         state: SharedProjectState,
         assignment: TaskAssignment,
+        workitem: object,
+        input_artifacts: list[dict[str, object]],
         eligible_agent_activations: list[dict[str, object]],
     ) -> dict[str, object]:
         """Return a compact safety summary for external Agent handoff."""
         unmet_dependency_ids = task_center.unmet_dependency_ids(state, assignment)
         assignment_conflicts = task_center.write_scope_conflicts(state, assignment)
+        baseline_handoff = self._development_baseline_handoff(state, workitem, input_artifacts)
         activation_conflicts = [
             str(conflict_id)
             for activation in eligible_agent_activations
@@ -316,6 +343,7 @@ class TaskContextBuilder:
             warnings.append("write scope conflicts with claimed assignments")
         if eligible_agent_activations and not has_claimable_dynamic_agent:
             warnings.append("no eligible dynamic agent can safely claim this assignment now")
+        warnings.extend(str(warning) for warning in _list_payload(baseline_handoff.get("warnings")))
         return {
             "ready_for_handoff": ready_for_handoff,
             "status": "ready" if ready_for_handoff else "blocked",
@@ -324,6 +352,7 @@ class TaskContextBuilder:
             "blocked_agent_count": blocked_agent_count,
             "unmet_dependency_ids": unmet_dependency_ids,
             "write_scope_conflict_assignment_ids": write_scope_conflicts,
+            "baseline_handoff": baseline_handoff,
             "warnings": warnings,
             "guidance": self._handoff_guidance(
                 ready_for_handoff=ready_for_handoff,
@@ -331,6 +360,54 @@ class TaskContextBuilder:
                 write_scope_conflicts=write_scope_conflicts,
                 eligible_agent_activations=eligible_agent_activations,
             ),
+        }
+
+    def _development_baseline_handoff(
+        self,
+        state: SharedProjectState,
+        workitem: object,
+        input_artifacts: list[dict[str, object]],
+    ) -> dict[str, object]:
+        """Return whether development acceptance criteria preserve baseline inputs."""
+        workitem_payload = asdict(workitem)
+        if str(workitem_payload.get("stage") or "") != "development":
+            return {
+                "status": "not_applicable",
+                "requirement_baseline_artifact_ids": [],
+                "design_baseline_artifact_ids": [],
+                "missing_contracts": [],
+                "warnings": [],
+            }
+        design_workitem_ids = {item.id for item in state.workitems if item.stage == "design"}
+        requirement_baseline_ids = [
+            str(artifact.get("id", ""))
+            for artifact in input_artifacts
+            if str(artifact.get("kind", "")) in _REQUIREMENT_BASELINE_KINDS
+        ]
+        design_baseline_ids = [
+            str(artifact.get("id", ""))
+            for artifact in input_artifacts
+            if str(artifact.get("kind", "")) in _DESIGN_BASELINE_KINDS
+            or str(artifact.get("workitem_id", "")) in design_workitem_ids
+        ]
+        criteria_text = "\n".join(
+            str(item) for item in _list_payload(workitem_payload.get("acceptance_criteria"))
+        ).lower()
+        missing_contracts: list[str] = []
+        warnings: list[str] = []
+        if requirement_baseline_ids and not _contains_any(criteria_text, _REQUIREMENT_BASELINE_TERMS):
+            missing_contracts.append("requirement_baseline")
+            warnings.append("development acceptance criteria do not explicitly preserve the requirement baseline")
+        if design_baseline_ids and not _contains_any(criteria_text, _DESIGN_BASELINE_TERMS):
+            missing_contracts.append("design_baseline")
+            warnings.append("development acceptance criteria do not explicitly preserve the design baseline")
+        has_baseline_inputs = bool(requirement_baseline_ids or design_baseline_ids)
+        return {
+            "status": "needs_attention" if missing_contracts else ("covered" if has_baseline_inputs else "not_applicable"),
+            "requirement_baseline_artifact_ids": requirement_baseline_ids,
+            "design_baseline_artifact_ids": design_baseline_ids,
+            "missing_contracts": missing_contracts,
+            "warnings": warnings,
         }
 
     def _rework_context(
@@ -525,6 +602,7 @@ class TaskContextBuilder:
 
     def _handoff_safety_markdown(self, safety: dict[str, object]) -> list[str]:
         """Render external worker handoff readiness."""
+        baseline_handoff = _dict_payload(safety.get("baseline_handoff"))
         return [
             f"- Status: {safety.get('status', 'unknown')}",
             f"- Ready For Handoff: {safety.get('ready_for_handoff', False)}",
@@ -536,6 +614,20 @@ class TaskContextBuilder:
                 "- Write Scope Conflicts: "
                 f"{_join_or_none(_list_payload(safety.get('write_scope_conflict_assignment_ids')))}"
             ),
+            f"- Baseline Contract: {baseline_handoff.get('status', 'not_applicable')}",
+            (
+                "- Requirement Baseline Artifacts: "
+                f"{_join_or_none(_list_payload(baseline_handoff.get('requirement_baseline_artifact_ids')))}"
+            ),
+            (
+                "- Design Baseline Artifacts: "
+                f"{_join_or_none(_list_payload(baseline_handoff.get('design_baseline_artifact_ids')))}"
+            ),
+            (
+                "- Missing Baseline Contracts: "
+                f"{_join_or_none(_list_payload(baseline_handoff.get('missing_contracts')))}"
+            ),
+            f"- Warnings: {_join_or_none(_list_payload(safety.get('warnings')))}",
             f"- Guidance: {safety.get('guidance', '')}",
         ]
 
@@ -756,6 +848,10 @@ def _bullet_lines(items: list[object]) -> list[str]:
 
 def _join_or_none(items: list[object]) -> str:
     return ", ".join(str(item) for item in items) if items else "None"
+
+
+def _contains_any(text: str, terms: tuple[str, ...]) -> bool:
+    return any(term.lower() in text for term in terms)
 
 
 def _fenced(content: str) -> str:

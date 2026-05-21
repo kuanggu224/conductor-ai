@@ -552,7 +552,7 @@ Run Manifest Verifier 也会检查 Development WorkItem 的 handoff 约束：如
 
 Task Center context 会把每个 eligible dynamic Agent 的 `claimable_for_agent` 和 `write_scope_conflict_assignment_ids` 写入 JSON 与 Markdown prompt。外部 CLI Agent 在 prompt 里看到 `claimable_for_agent=false` 时，应先等待或释放冲突 assignment，而不是直接开始修改文件。
 
-Context 顶层还会输出 `handoff_safety`，汇总 `ready_for_handoff`、依赖阻塞、写入范围冲突、warnings 和 guidance；Markdown prompt 同步渲染 `## Handoff Safety`，让外部 worker 在领取和开工前就能判断当前任务是否安全。
+Context 顶层还会输出 `handoff_safety`，汇总 `ready_for_handoff`、依赖阻塞、写入范围冲突、warnings 和 guidance；其中 `baseline_handoff` 会标记 Development 任务引用的冻结需求/设计基线是否已经进入 `acceptance_criteria`。Markdown prompt 同步渲染 `## Handoff Safety`，让外部 worker 在领取和开工前就能判断当前任务是否安全。
 
 Task Center CLI 的预期失败会在 stderr 输出机器可读 JSON，包含 `error_code`、`status_code` 和可选 `details`。例如写入范围冲突会返回 `error_code=write_scope_conflict`，并在 `details.write_scope_conflict_assignment_ids` 中列出阻塞当前领取的已声明 assignment。
 
