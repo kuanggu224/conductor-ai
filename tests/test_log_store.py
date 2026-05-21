@@ -13,6 +13,8 @@ from conductor.domain.models import (
     Project,
     ProjectStatus,
     SharedProjectState,
+    TaskAssignment,
+    TaskAssignmentStatus,
     WorkItem,
     WorkItemStatus,
 )
@@ -81,6 +83,40 @@ def test_project_log_store_writes_structured_state_events_and_report(tmp_path) -
     assert "## Delivery Readiness" in report
     assert "- Status:" in report
     assert "## Event Timeline" in report
+
+
+def test_project_report_includes_task_center_audit_artifact_links(tmp_path) -> None:
+    store = ProjectLogStore(tmp_path)
+    state = SharedProjectState(
+        project=Project(id="project-task-audit-report", goal="repair task center", current_stage="development"),
+        project_status=ProjectStatus.IN_PROGRESS,
+        current_stage="development",
+        workitems=[
+            WorkItem(
+                id="workitem-implementation",
+                description="Implement feature",
+                stage="development",
+                kind="implementation",
+            )
+        ],
+        task_assignments=[
+            TaskAssignment(
+                id="assignment-implementation",
+                workitem_id="workitem-implementation",
+                role="backend_engineer",
+                status=TaskAssignmentStatus.QUEUED,
+                input_artifact_ids=["artifact-missing-input"],
+            )
+        ],
+    )
+
+    report = store.render_project_report(state, [])
+
+    assert "- Audit: finding_count=1 | errors=0 | warnings=1" in report
+    assert "missing_input_artifact | severity=warning" in report
+    assert "assignment=assignment-implementation" in report
+    assert "missing_artifacts=artifact-missing-input" in report
+    assert "Restore the input artifact files or regenerate task context." in report
 
 
 def test_project_report_includes_requirement_coverage_traceability(tmp_path) -> None:

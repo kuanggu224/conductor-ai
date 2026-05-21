@@ -4,8 +4,8 @@ Last updated: 2026-05-22
 
 ## Stable Checkpoint
 
-- Latest verified code checkpoint: current `dev` Task Center missing artifact trace update.
-- Current full test result: `python -m pytest -q --basetemp C:\tmp\conductor_pytest_full_missing_artifact_ids` -> `700 passed in 127.65s`.
+- Latest verified code checkpoint: current `dev` Task Center audit report/replay display update.
+- Current full test result: `python -m pytest -q --basetemp C:\tmp\conductor_pytest_full_report_replay_audit` -> `702 passed in 121.26s`.
 - Current focus: backend orchestration, auditability, logs, manifest/replay, and task-center reliability.
 - Frontend Board exists, but visual redesign is intentionally not the current priority.
 
@@ -37,6 +37,7 @@ Last updated: 2026-05-22
 - Task Center audit/maintenance now reports historical `task_center/external` artifacts that are not referenced by any assignment output as `orphan_external_artifact`.
 - Task Center audit findings now expose `related_artifact_ids`, and Manifest verification validates those artifact references.
 - Task Center audit findings now expose `missing_artifact_ids` for absent input/output artifacts, keeping repair targets machine-readable.
+- Project Reports and Replay traces now render Task Center audit related/missing Artifact ids, keeping repair targets human-readable during read-only review.
 - The same delivery contract is shared by direct Runner prompts for Agent CLI document/code execution, keeping internal execution and external Task Center handoff aligned.
 - Development WorkItems now promote frozen requirement/design input artifacts into explicit acceptance criteria, so implementation agents must preserve baseline scope and explain design deviations.
 - Manifest verification now warns when development WorkItems reference frozen requirement/design baselines without explicit handoff acceptance criteria.

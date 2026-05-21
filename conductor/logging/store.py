@@ -204,10 +204,7 @@ class ProjectLogStore:
                 lines.append(f"  - acceptance: {criterion}")
 
         lines.extend(["", "## Task Center"])
-        if state.task_assignments:
-            lines.extend(self._task_center_lines(state))
-        else:
-            lines.append("- None")
+        lines.extend(self._task_center_lines(state))
 
         lines.extend(["", "## Executions"])
         if state.executions:
@@ -255,19 +252,24 @@ class ProjectLogStore:
         """Render Task Center assignment readiness for human reports."""
         task_center = TaskCenterService(_ReportStateStore(state))
         summary = task_center.summary(state)
+        audit_findings = task_center.audit(state)
         lines: list[str] = [
             "- Summary: "
             f"total={summary['total']} | queued={summary['queued']} | claimed={summary['claimed']} | "
             f"completed={summary['completed']} | failed={summary['failed']} | "
             f"claimable={summary['claimable']} | blocked_by_dependencies={summary['blocked_by_dependencies']}"
         ]
+        if state.task_assignments:
+            lines.append("- Assignments:")
+        else:
+            lines.append("- Assignments: none")
         for assignment in state.task_assignments:
             unmet = task_center.unmet_dependency_ids(state, assignment)
             unmet_text = ", ".join(unmet) if unmet else "-"
             claimed_age_seconds = task_center.claimed_age_seconds(assignment)
             claimed_age_text = str(claimed_age_seconds) if claimed_age_seconds is not None else "-"
             lines.append(
-                f"- {assignment.id} | workitem={assignment.workitem_id} | role={assignment.role} | "
+                f"  - {assignment.id} | workitem={assignment.workitem_id} | role={assignment.role} | "
                 f"status={assignment.status.value} | agent={assignment.assigned_agent_id or '-'} | "
                 f"claimable={str(task_center.claimable(state, assignment)).lower()} | unmet_dependencies={unmet_text} | "
                 f"input_artifacts={self._join_or_dash(assignment.input_artifact_ids)} | "
@@ -280,6 +282,22 @@ class ProjectLogStore:
                 f"stale_claimed={str(task_center.stale_claimed(assignment)).lower()} | "
                 f"prompt_file={assignment.prompt_file or '-'}"
             )
+        lines.append(
+            f"- Audit: finding_count={len(audit_findings)} | "
+            f"errors={sum(1 for finding in audit_findings if finding.severity == 'error')} | "
+            f"warnings={sum(1 for finding in audit_findings if finding.severity == 'warning')}"
+        )
+        for finding in audit_findings:
+            lines.append(
+                f"  - {finding.code} | severity={finding.severity} | "
+                f"assignment={finding.assignment_id or '-'} | workitem={finding.workitem_id or '-'} | "
+                f"related_assignments={self._join_or_dash(finding.related_assignment_ids)} | "
+                f"related_artifacts={self._join_or_dash(finding.related_artifact_ids)} | "
+                f"missing_artifacts={self._join_or_dash(finding.missing_artifact_ids)} | "
+                f"message={finding.message}"
+            )
+            if finding.recommendation:
+                lines.append(f"    - recommendation: {finding.recommendation}")
         return lines
 
     def _execution_lines(self, state: SharedProjectState) -> list[str]:

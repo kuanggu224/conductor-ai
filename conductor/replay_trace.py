@@ -93,6 +93,7 @@ class ManifestReplayTrace:
                 _event_testing_feedback_detail(event),
                 _event_pending_test_scope_detail(event),
                 _event_human_control_detail(event),
+                _event_task_center_audit_detail(event),
             ]
             detail_text = ", ".join(item for item in details if item)
             lines.append(f"{event.index}. {event.message}")
@@ -151,6 +152,9 @@ class ManifestReplayTraceBuilder:
                     self._append_execution_event(events, execution)
                 for artifact in self._artifacts_for_workitem(payload, str(workitem.get("id", ""))):
                     self._append_artifact_event(events, artifact)
+        for finding in self._list(payload.get("task_center_audit")):
+            if isinstance(finding, dict):
+                self._append_task_center_audit_event(events, finding)
         self._append_terminal_event(events, payload)
         return events
 
@@ -279,6 +283,31 @@ class ManifestReplayTraceBuilder:
                     "derived_from": self._string_list(artifact.get("derived_from", [])),
                     "review_of": str(artifact.get("review_of", "")),
                     "collaboration_session_id": str(artifact.get("collaboration_session_id", "")),
+                },
+            )
+        )
+
+    def _append_task_center_audit_event(self, events: list[ReplayTraceEvent], finding: dict[str, Any]) -> None:
+        code = str(finding.get("code", ""))
+        assignment_id = str(finding.get("assignment_id", ""))
+        workitem_id = str(finding.get("workitem_id", ""))
+        target = assignment_id or workitem_id or "project"
+        events.append(
+            ReplayTraceEvent(
+                index=len(events) + 1,
+                event_type="task_center_audit",
+                message=f"TaskCenterAudit {code or 'finding'} for {target}",
+                workitem_id=workitem_id,
+                status=str(finding.get("severity", "")),
+                artifact_ids=self._string_list(finding.get("related_artifact_ids", [])),
+                metadata={
+                    "code": code,
+                    "assignment_id": assignment_id,
+                    "related_assignment_ids": self._string_list(finding.get("related_assignment_ids", [])),
+                    "related_artifact_ids": self._string_list(finding.get("related_artifact_ids", [])),
+                    "missing_artifact_ids": self._string_list(finding.get("missing_artifact_ids", [])),
+                    "recommendation": str(finding.get("recommendation", "")),
+                    "message": str(finding.get("message", "")),
                 },
             )
         )
@@ -420,6 +449,32 @@ def _event_human_control_detail(event: ReplayTraceEvent) -> str:
         parts.append(f"reason={reason}")
     if controller_action:
         parts.append(f"controller_action={controller_action}")
+    return "; ".join(parts)
+
+
+def _event_task_center_audit_detail(event: ReplayTraceEvent) -> str:
+    """Render compact Task Center audit metadata for Markdown traces."""
+    if event.event_type != "task_center_audit":
+        return ""
+    parts = []
+    assignment_id = str(event.metadata.get("assignment_id", ""))
+    related_assignments = _string_list(event.metadata.get("related_assignment_ids", []))
+    related_artifacts = _string_list(event.metadata.get("related_artifact_ids", []))
+    missing_artifacts = _string_list(event.metadata.get("missing_artifact_ids", []))
+    recommendation = str(event.metadata.get("recommendation", ""))
+    message = str(event.metadata.get("message", ""))
+    if assignment_id:
+        parts.append(f"assignment={assignment_id}")
+    if related_assignments:
+        parts.append(f"related_assignments={', '.join(related_assignments)}")
+    if related_artifacts:
+        parts.append(f"related_artifacts={', '.join(related_artifacts)}")
+    if missing_artifacts:
+        parts.append(f"missing_artifacts={', '.join(missing_artifacts)}")
+    if recommendation:
+        parts.append(f"recommendation={recommendation}")
+    if message:
+        parts.append(f"message={message}")
     return "; ".join(parts)
 
 

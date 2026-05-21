@@ -323,6 +323,65 @@ def test_replay_trace_includes_human_control_actions(tmp_path) -> None:
     assert "controller_action=execute_workitem" in markdown
 
 
+def test_replay_trace_includes_task_center_audit_artifact_links(tmp_path) -> None:
+    manifest_path = _write_manifest(tmp_path)
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    payload["summary"]["artifact_count"] = 1
+    payload["summary"]["task_center_audit_finding_count"] = 2
+    payload["summary"]["task_center_audit_error_count"] = 1
+    payload["summary"]["task_center_audit_warning_count"] = 1
+    payload["artifacts"] = [
+        {
+            "id": "artifact-orphan-external",
+            "project_id": "project-1",
+            "workitem_id": "workitem-1",
+            "title": "Orphan external output",
+            "kind": "task_center/external",
+            "agent_id": "agent-worker",
+        }
+    ]
+    payload["task_center_audit"] = [
+        {
+            "code": "missing_input_artifact",
+            "severity": "error",
+            "assignment_id": "assignment-1",
+            "workitem_id": "workitem-1",
+            "message": "Task assignment references missing input artifacts: artifact-missing-input",
+            "recommendation": "Repair or regenerate the missing input Artifact before assignment execution.",
+            "related_assignment_ids": [],
+            "related_artifact_ids": [],
+            "missing_artifact_ids": ["artifact-missing-input"],
+        },
+        {
+            "code": "orphan_external_artifact",
+            "severity": "warning",
+            "assignment_id": "",
+            "workitem_id": "workitem-1",
+            "message": "Task Center external artifact is not referenced by any assignment output.",
+            "recommendation": "Link the artifact to the returning assignment or archive it before resume.",
+            "related_assignment_ids": [],
+            "related_artifact_ids": ["artifact-orphan-external"],
+            "missing_artifact_ids": [],
+        },
+    ]
+    manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    trace = build_manifest_replay_trace(manifest_path)
+    audit_events = [event for event in trace.events if event.event_type == "task_center_audit"]
+    markdown = trace.to_markdown()
+
+    assert trace.passed is True
+    assert [event.metadata["code"] for event in audit_events] == [
+        "missing_input_artifact",
+        "orphan_external_artifact",
+    ]
+    assert audit_events[0].metadata["missing_artifact_ids"] == ["artifact-missing-input"]
+    assert audit_events[1].metadata["related_artifact_ids"] == ["artifact-orphan-external"]
+    assert "TaskCenterAudit missing_input_artifact for assignment-1" in markdown
+    assert "missing_artifacts=artifact-missing-input" in markdown
+    assert "related_artifacts=artifact-orphan-external" in markdown
+
+
 def test_replay_trace_refuses_invalid_manifest(tmp_path) -> None:
     manifest_path = _write_manifest(tmp_path, {"project_id": ""})
 

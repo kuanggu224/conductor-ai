@@ -487,12 +487,16 @@ Run Manifest schema `1.37` records:
 - `platform_diagnostics`
 - `executions[].input_artifact_ids`
 
-Project reports include a `## Task Center` section with summary counts and one
-line per assignment.
+Project reports include a `## Task Center` section with summary counts, one
+line per assignment, and an audit rollup. Audit findings render
+`related_assignment_ids`, `related_artifact_ids`, and `missing_artifact_ids`
+when present, so repair targets are visible without opening raw JSON.
 
 Use `python -m app.verify_manifest <manifest>` for read-only manifest
 self-consistency checks. Use `python -m app.replay_manifest <manifest>` to build
 a read-only replay trace from archived Project/WorkItem/Execution/Artifact facts.
+Replay traces also render Task Center audit findings and their related/missing
+artifact ids.
 
 Board snapshots expose readiness through `BoardTaskAssignmentView.claimable`,
 `BoardTaskAssignmentView.unmet_dependency_ids`,
