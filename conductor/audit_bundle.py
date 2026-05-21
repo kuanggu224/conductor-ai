@@ -10,7 +10,7 @@ from typing import Any
 
 from conductor.replay_verifier import verify_manifest
 
-AUDIT_BUNDLE_SCHEMA_VERSION = "1.0"
+AUDIT_BUNDLE_SCHEMA_VERSION = "1.1"
 
 
 @dataclass(slots=True)
@@ -24,6 +24,7 @@ class AuditBundleVerificationResult:
     warnings: list[str] = field(default_factory=list)
     files: dict[str, str] = field(default_factory=dict)
     checksums: dict[str, str] = field(default_factory=dict)
+    summary: dict[str, object] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -36,6 +37,7 @@ class AuditBundleVerificationResult:
             "warnings": list(self.warnings),
             "files": dict(self.files),
             "checksums": dict(self.checksums),
+            "summary": dict(self.summary),
         }
 
 
@@ -56,6 +58,7 @@ class AuditBundleVerifier:
         result.project_id = str(payload.get("project_id", ""))
         result.files = self._file_index(payload, path)
         result.checksums = self._checksum_index(payload)
+        result.summary = self._summary_index(payload)
         self._verify_required_fields(payload, result)
         self._verify_summary(payload, result)
         if check_files:
@@ -98,6 +101,10 @@ class AuditBundleVerifier:
             if str(checksums.get(field_name, ""))
         }
 
+    def _summary_index(self, payload: dict[str, Any]) -> dict[str, object]:
+        summary = payload.get("summary")
+        return dict(summary) if isinstance(summary, dict) else {}
+
     def _verify_required_fields(self, payload: dict[str, Any], result: AuditBundleVerificationResult) -> None:
         for field_name in self.REQUIRED_TOP_LEVEL_FIELDS:
             if field_name not in payload:
@@ -129,6 +136,16 @@ class AuditBundleVerifier:
             result.errors.append("summary.manifest_verification_passed must be true")
         if summary.get("replay_trace_passed") is not True:
             result.errors.append("summary.replay_trace_passed must be true")
+        if "manifest_schema_version" in summary and not isinstance(summary.get("manifest_schema_version"), str):
+            result.errors.append("summary.manifest_schema_version must be a string")
+        if "manifest_final_status" in summary and not isinstance(summary.get("manifest_final_status"), str):
+            result.errors.append("summary.manifest_final_status must be a string")
+        if "pending_test_scope" in summary and not isinstance(summary.get("pending_test_scope"), list):
+            result.errors.append("summary.pending_test_scope must be a list")
+        elif isinstance(summary.get("pending_test_scope"), list):
+            for index, item in enumerate(summary.get("pending_test_scope", [])):
+                if not isinstance(item, str) or not item.strip():
+                    result.errors.append(f"summary.pending_test_scope[{index}] must be a non-empty string")
 
     def _verify_files(self, bundle_path: Path, payload: dict[str, Any], result: AuditBundleVerificationResult) -> None:
         files = payload.get("files")
@@ -147,6 +164,7 @@ class AuditBundleVerifier:
                 result.errors.append("manifest.project_id does not match audit bundle project_id")
             result.errors.extend(f"manifest verification: {error}" for error in manifest_result.errors)
             result.warnings.extend(f"manifest verification: {warning}" for warning in manifest_result.warnings)
+            self._verify_manifest_summary(manifest_path, payload, result)
 
         verification_path = self._resolve_component_path(str(files.get("manifest_verification", "")), bundle_path)
         if verification_path.exists():
@@ -196,6 +214,37 @@ class AuditBundleVerifier:
         if "- Verification: `passed`" not in text:
             result.errors.append("replay_trace verification marker must be passed")
 
+    def _verify_manifest_summary(
+        self,
+        manifest_path: Path,
+        bundle_payload: dict[str, Any],
+        result: AuditBundleVerificationResult,
+    ) -> None:
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            result.errors.append(f"manifest is not valid JSON for audit summary check: {exc}")
+            return
+        if not isinstance(manifest, dict):
+            result.errors.append("manifest root must be a JSON object for audit summary check")
+            return
+        summary = bundle_payload.get("summary")
+        if not isinstance(summary, dict):
+            return
+        manifest_summary = manifest.get("summary", {}) if isinstance(manifest.get("summary", {}), dict) else {}
+        expected_scope = self._string_list(manifest_summary.get("pending_test_scope", []))
+
+        if "manifest_schema_version" in summary and str(summary.get("manifest_schema_version", "")) != str(
+            manifest.get("schema_version", "")
+        ):
+            result.errors.append("summary.manifest_schema_version does not match manifest.schema_version")
+        if "manifest_final_status" in summary and str(summary.get("manifest_final_status", "")) != str(
+            manifest.get("final_status", manifest.get("status", ""))
+        ):
+            result.errors.append("summary.manifest_final_status does not match manifest.final_status")
+        if "pending_test_scope" in summary and self._string_list(summary.get("pending_test_scope", [])) != expected_scope:
+            result.errors.append("summary.pending_test_scope does not match manifest summary.pending_test_scope")
+
     def _verify_checksums(
         self,
         bundle_path: Path,
@@ -230,6 +279,11 @@ class AuditBundleVerifier:
             for chunk in iter(lambda: file.read(1024 * 1024), b""):
                 digest.update(chunk)
         return digest.hexdigest()
+
+    def _string_list(self, value: Any) -> list[str]:
+        if not isinstance(value, list):
+            return []
+        return [str(item).strip() for item in value if str(item).strip()]
 
 
 def verify_audit_bundle(bundle_path: str | Path, *, check_files: bool = True) -> AuditBundleVerificationResult:

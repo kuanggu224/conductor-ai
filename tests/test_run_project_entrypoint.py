@@ -480,7 +480,7 @@ def test_run_project_can_write_audit_bundle(tmp_path, capsys) -> None:
     assert payload["audit_bundle_verification"]["project_id"] == payload["project_id"]
     assert verification_path.exists()
     assert trace_path.exists()
-    assert bundle["schema_version"] == "1.0"
+    assert bundle["schema_version"] == "1.1"
     assert bundle["files"]["manifest"] == payload["manifest_path"]
     assert bundle["files"]["report"] == payload["report_path"]
     assert bundle["files"]["manifest_verification"] == str(verification_path)
@@ -489,6 +489,10 @@ def test_run_project_can_write_audit_bundle(tmp_path, capsys) -> None:
     assert len(bundle["checksums"]["report"]) == 64
     assert len(bundle["checksums"]["manifest_verification"]) == 64
     assert len(bundle["checksums"]["replay_trace"]) == 64
+    assert bundle["summary"]["manifest_schema_version"] == "1.37"
+    assert bundle["summary"]["manifest_final_status"] == payload["status"]
+    assert bundle["summary"]["pending_test_scope"] == []
+    assert payload["audit_bundle"]["pending_test_scope"] == []
 
 
 def test_run_project_returns_two_when_audit_bundle_verification_fails(monkeypatch, tmp_path, capsys) -> None:

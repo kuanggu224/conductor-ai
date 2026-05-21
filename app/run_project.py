@@ -646,6 +646,7 @@ def _write_audit_bundle_index_if_requested(
         else _default_audit_bundle_path(project_root, project_id)
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_summary = _manifest_audit_summary(manifest_path)
     payload = {
         "schema_version": AUDIT_BUNDLE_SCHEMA_VERSION,
         "project_id": project_id,
@@ -667,6 +668,7 @@ def _write_audit_bundle_index_if_requested(
         "summary": {
             "manifest_verification_passed": bool(manifest_verification_payload.get("passed")),
             "replay_trace_passed": bool(replay_trace_payload.get("passed")),
+            **manifest_summary,
         },
     }
     output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -675,11 +677,34 @@ def _write_audit_bundle_index_if_requested(
         "format": "json",
         "manifest_verification_passed": payload["summary"]["manifest_verification_passed"],
         "replay_trace_passed": payload["summary"]["replay_trace_passed"],
+        "pending_test_scope": payload["summary"].get("pending_test_scope", []),
     }
 
 
 def _default_audit_bundle_path(project_root: Path, project_id: str) -> Path:
     return project_root / ".conductor" / "replay" / f"{project_id}.audit.json"
+
+
+def _manifest_audit_summary(manifest_path: Path) -> dict[str, object]:
+    """Return compact manifest facts copied into the audit bundle index."""
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {"manifest_schema_version": "", "manifest_final_status": "", "pending_test_scope": []}
+    if not isinstance(payload, dict):
+        return {"manifest_schema_version": "", "manifest_final_status": "", "pending_test_scope": []}
+    summary = payload.get("summary", {}) if isinstance(payload.get("summary", {}), dict) else {}
+    return {
+        "manifest_schema_version": str(payload.get("schema_version", "")),
+        "manifest_final_status": str(payload.get("final_status", payload.get("status", ""))),
+        "pending_test_scope": [
+            str(item).strip()
+            for item in summary.get("pending_test_scope", [])
+            if str(item).strip()
+        ]
+        if isinstance(summary.get("pending_test_scope", []), list)
+        else [],
+    }
 
 
 def _verify_audit_bundle_if_written(audit_bundle_payload: dict[str, object]) -> dict[str, object]:

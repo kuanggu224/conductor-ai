@@ -401,6 +401,7 @@ Run Manifest 是每次运行的审计清单，记录：
 - report path
 
 Manifest 是后续 resume、replay、audit、benchmark 和任务中心持久化的基础。
+Audit bundle schema `1.1` 会把 Manifest schema、最终状态和 `summary.pending_test_scope` 复制到 bundle summary；验证 audit bundle 时会重新读取 Manifest 交叉校验这些字段，使返工后的复验范围在最终交付审计包中也可追踪。
 
 ## 10. 配置与环境
 

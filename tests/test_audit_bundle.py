@@ -40,6 +40,7 @@ def test_audit_bundle_verifier_accepts_run_project_bundle(tmp_path, capsys) -> N
     assert result.project_id == payload["project_id"]
     assert result.files == bundle["files"]
     assert result.checksums == bundle["checksums"]
+    assert result.summary == bundle["summary"]
 
 
 def test_audit_bundle_verifier_resolves_relative_component_paths(tmp_path, capsys) -> None:
@@ -103,7 +104,38 @@ def test_audit_bundle_verifier_warns_for_non_current_schema(tmp_path, capsys) ->
     result = verify_audit_bundle(bundle_path)
 
     assert result.passed is True
-    assert "audit bundle schema_version 0.1 differs from current 1.0" in result.warnings
+    assert "audit bundle schema_version 0.1 differs from current 1.1" in result.warnings
+
+
+def test_audit_bundle_verifier_rejects_pending_test_scope_mismatch(tmp_path, capsys) -> None:
+    _, bundle_path = _write_project_audit_bundle(tmp_path, capsys)
+    bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+    manifest_path = Path(bundle["files"]["manifest"])
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["summary"]["pending_test_scope"] = ["ui_validation"]
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    bundle["summary"]["pending_test_scope"] = ["api_validation"]
+    bundle_path.write_text(json.dumps(bundle, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    result = verify_audit_bundle(bundle_path)
+
+    assert result.passed is False
+    assert "checksums.manifest does not match file content" in result.errors
+    assert "summary.pending_test_scope does not match manifest summary.pending_test_scope" in result.errors
+
+
+def test_audit_bundle_verifier_rejects_manifest_summary_mismatch(tmp_path, capsys) -> None:
+    _, bundle_path = _write_project_audit_bundle(tmp_path, capsys)
+    bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+    bundle["summary"]["manifest_schema_version"] = "0.0"
+    bundle["summary"]["manifest_final_status"] = "blocked"
+    bundle_path.write_text(json.dumps(bundle, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    result = verify_audit_bundle(bundle_path)
+
+    assert result.passed is False
+    assert "summary.manifest_schema_version does not match manifest.schema_version" in result.errors
+    assert "summary.manifest_final_status does not match manifest.final_status" in result.errors
 
 
 def test_audit_bundle_verifier_reruns_manifest_verification(tmp_path, capsys) -> None:
@@ -240,7 +272,7 @@ def test_verify_audit_bundle_cli_can_fail_on_manifest_warnings(tmp_path, capsys)
     assert exit_code == 2
     payload = json.loads(captured.out)
     assert payload["passed"] is True
-    assert any("audit bundle schema_version 0.1 differs from current 1.0" in warning for warning in payload["warnings"])
+    assert any("audit bundle schema_version 0.1 differs from current 1.1" in warning for warning in payload["warnings"])
 
 
 def test_verify_audit_bundle_cli_exits_two_for_invalid_bundle(tmp_path, capsys) -> None:
