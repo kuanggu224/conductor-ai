@@ -4,8 +4,8 @@ Last updated: 2026-05-21
 
 ## Stable Checkpoint
 
-- Latest verified code checkpoint: current `dev` TL development coordination guard update.
-- Current full test result: `python -m pytest -q --basetemp C:\tmp\conductor_pytest_full_tl_coordination` -> `684 passed in 124.33s`.
+- Latest verified code checkpoint: current `dev` testing feedback execution evidence update.
+- Current full test result: `python -m pytest -q --basetemp C:\tmp\conductor_pytest_full_feedback_execution` -> `685 passed in 124.06s`.
 - Current focus: backend orchestration, auditability, logs, manifest/replay, and task-center reliability.
 - Frontend Board exists, but visual redesign is intentionally not the current priority.
 
@@ -25,7 +25,7 @@ Last updated: 2026-05-21
 - API validation failure feedback now promotes concrete endpoint/status/response evidence requirements into development rework prompts and acceptance criteria.
 - Testing-stage feedback rework has a project-level cap, preventing infinite development/testing loops.
 - Testing-stage feedback rework now persists explicit inputs on the rework WorkItem and Task Center assignment: failed test artifacts, original implementation artifacts, frozen requirement, and design artifacts.
-- Testing-stage feedback rework now embeds structured failure feedback extracted from failed test reports: failure signals, missing requirement coverage, exit code, and suggested fix directions.
+- Testing-stage feedback rework now embeds structured failure feedback extracted from failed test reports and execution records: failure signals, missing requirement coverage, exit code, validation command, validation exit code, and suggested fix directions.
 - Task Center context now exposes the same structured testing feedback under `rework_context.testing_feedback` and renders it in Markdown prompts for external CLI/Agent workers.
 - Structured testing feedback lookup is centralized in `conductor.testing.failure_feedback`, reducing drift across Task Center, manifest, project report, and replay outputs.
 - Task Center context now includes a machine-readable `delivery_contract` and renders it into CLI prompts, making each external Agent's expected outputs, guardrails, and verification focus explicit.

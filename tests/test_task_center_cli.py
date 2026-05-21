@@ -9,6 +9,8 @@ from conductor.controller.engine import ConductorEngine
 from conductor.domain.models import (
     AgentActivation,
     Artifact,
+    Execution,
+    ExecutionStatus,
     Project,
     ProjectStatus,
     SharedProjectState,
@@ -953,6 +955,17 @@ def test_task_center_cli_context_marks_rework_feedback_inputs(tmp_path, capsys) 
         workitems=[*state.workitems, failed_workitem, rework],
         task_assignments=[*state.task_assignments, assignment],
         artifacts=[*state.artifacts, failed_artifact, original_artifact],
+        executions=[
+            *state.executions,
+            Execution(
+                workitem_id=failed_workitem.id,
+                agent_id="agent-tester",
+                result="UI validation failed",
+                status=ExecutionStatus.FAILED,
+                validation_command=["python", "-m", "conductor.harness.static_web_cli"],
+                validation_exit_code=1,
+            ),
+        ],
     )
     state_store.save_state(state)
 
@@ -966,6 +979,12 @@ def test_task_center_cli_context_marks_rework_feedback_inputs(tmp_path, capsys) 
     assert payload["rework_context"]["feedback_artifacts"][0]["id"] == failed_artifact.id
     assert payload["rework_context"]["original_artifacts"][0]["id"] == original_artifact.id
     assert payload["rework_context"]["testing_feedback"][0]["workitem_id"] == failed_workitem.id
+    assert payload["rework_context"]["testing_feedback"][0]["validation_command"] == [
+        "python",
+        "-m",
+        "conductor.harness.static_web_cli",
+    ]
+    assert payload["rework_context"]["testing_feedback"][0]["validation_exit_code"] == "1"
     assert "Browser form submit did not change visible page state" in payload["rework_context"]["testing_feedback"][0]["failing_checks"]
     assert any(
         "检查表单/按钮事件绑定" in action
@@ -974,6 +993,7 @@ def test_task_center_cli_context_marks_rework_feedback_inputs(tmp_path, capsys) 
     assert "browser form interaction updated visible state" in payload["execution_brief"]
     assert "Rework Context" in payload["execution_brief"]
     assert "Structured Testing Feedback" in payload["execution_brief"]
+    assert "Validation Command: python, -m, conductor.harness.static_web_cli" in payload["execution_brief"]
 
     code = main(["context", assignment.id, "--project-root", str(project_root), "--format", "markdown"])
     output = capsys.readouterr().out
@@ -981,6 +1001,8 @@ def test_task_center_cli_context_marks_rework_feedback_inputs(tmp_path, capsys) 
     assert code == 0
     assert "## Rework Context" in output
     assert "Feedback From: workitem-failed-ui-test" in output
+    assert "validation_exit_code=1" in output
+    assert "Validation Command: python, -m, conductor.harness.static_web_cli" in output
     assert "artifact-failed-ui-test" in output
     assert "Original Artifacts" in output
     assert "artifact-original-ui" in output

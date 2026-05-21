@@ -1,6 +1,6 @@
 """Structured testing failure feedback tests."""
 
-from conductor.domain.models import Artifact, Project, ProjectStatus, SharedProjectState, WorkItem
+from conductor.domain.models import Artifact, Execution, ExecutionStatus, Project, ProjectStatus, SharedProjectState, WorkItem
 from conductor.testing.failure_feedback import build_testing_failure_feedback, build_testing_feedback_for_workitem
 
 
@@ -235,3 +235,53 @@ def test_testing_feedback_for_rework_follows_feedback_from_testing_workitem() ->
 
     assert [item.workitem_id for item in feedback] == [failed_test.id]
     assert "Browser form submit did not change visible page state" in feedback[0].failing_checks
+
+
+def test_testing_feedback_includes_latest_validation_execution_evidence() -> None:
+    failed_test = WorkItem(
+        id="workitem-api-test",
+        description="Validate API",
+        stage="testing",
+        kind="api_validation",
+        failure_type="validation_failed",
+        failure_summary="Requirement coverage missing: API endpoint behavior",
+    )
+    rework = WorkItem(
+        id="workitem-api-rework",
+        description="Fix API",
+        stage="development",
+        kind="api_implementation",
+        feedback_from=[failed_test.id],
+    )
+    state = SharedProjectState(
+        project=Project(id="project-api", goal="Build API", current_stage="development"),
+        project_status=ProjectStatus.IN_PROGRESS,
+        current_stage="development",
+        workitems=[failed_test, rework],
+        executions=[
+            Execution(
+                workitem_id=failed_test.id,
+                agent_id="agent-tester",
+                result="older failed run",
+                status=ExecutionStatus.FAILED,
+                validation_command=["python", "-m", "pytest", "tests/test_old.py"],
+                validation_exit_code=2,
+            ),
+            Execution(
+                workitem_id=failed_test.id,
+                agent_id="agent-tester",
+                result="latest failed run",
+                status=ExecutionStatus.FAILED,
+                validation_command=["python", "-m", "pytest", "tests/test_api.py", "-q"],
+                validation_exit_code=1,
+            ),
+        ],
+    )
+
+    feedback = build_testing_feedback_for_workitem(state, rework)[0]
+    markdown = feedback.render_markdown()
+
+    assert feedback.exit_code == "1"
+    assert feedback.validation_exit_code == "1"
+    assert feedback.validation_command == ["python", "-m", "pytest", "tests/test_api.py", "-q"]
+    assert "Validation Command: `python -m pytest tests/test_api.py -q`" in markdown

@@ -279,6 +279,16 @@ def test_project_report_includes_structured_testing_feedback_for_rework(tmp_path
         project_status=ProjectStatus.IN_PROGRESS,
         current_stage="development",
         workitems=[failed_test, rework],
+        executions=[
+            Execution(
+                workitem_id=failed_test.id,
+                agent_id="agent-tester",
+                result="UI validation failed",
+                status=ExecutionStatus.FAILED,
+                validation_command=["python", "-m", "conductor.harness.static_web_cli"],
+                validation_exit_code=1,
+            )
+        ],
         artifacts=[
             Artifact(
                 id="artifact-ui-test",
@@ -299,6 +309,8 @@ def test_project_report_includes_structured_testing_feedback_for_rework(tmp_path
     report = store.render_project_report(state, [])
 
     assert "structured_testing_feedback: source=workitem-ui-test" in report
+    assert "validation_exit_code=1" in report
+    assert "validation_command=python, -m, conductor.harness.static_web_cli" in report
     assert "Browser form submit did not change visible page state" in report
     assert "检查表单/按钮事件绑定" in report
 

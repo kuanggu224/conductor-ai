@@ -18,7 +18,7 @@ Conductor 是一个 AI Native 的项目执行系统：它把 AI 组织成一个�
 - 需求阶段：支持需求评审、修订、质量门禁、冻结需求规格和需求返工。
 - 设计阶段：基于冻结需求生成设计产物，冻结设计会进入开发、测试和 Task Center 上下文。
 - 开发阶段：支持 mock、ShellHarness、StaticWebHarness、LLMHarness、CLI Agent 等执行路径。
-- 测试阶段：支持命令测试、静态 Web smoke、需求覆盖检查、testing checklist 证据契约、API 行为证据和失败回流返工。
+- 测试阶段：支持命令测试、静态 Web smoke、需求覆盖检查、testing checklist 证据契约、API 行为证据和失败回流返工，返工反馈会携带验证命令和退出码证据。
 - Task Center：支持外部 Agent 领取、续租、归还、失败、释放、批量领取、stale sweep 和上下文 prompt 生成。
 - TL Agent：支持动态团队规划，并按运行失败、历史风险、开发范围复杂度、返工证据、测试证据契约和并行集成风险扩缩团队。
 - Human Control：提供 CLI/API 控制路径，支持暂停、恢复、接管、TL 驱动的升级审批和项目报告审计。

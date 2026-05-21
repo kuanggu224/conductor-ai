@@ -4080,7 +4080,13 @@ def test_manifest_verifier_rejects_unknown_testing_feedback_workitem(tmp_path) -
                     "stage": "development",
                     "kind": "ui_implementation",
                     "status": "pending",
-                    "testing_feedback": [{"workitem_id": "missing-test", "failing_checks": []}],
+                    "testing_feedback": [
+                        {
+                            "workitem_id": "missing-test",
+                            "failing_checks": [],
+                            "validation_command": "python -m pytest",
+                        }
+                    ],
                 }
             ]
         },
@@ -4090,6 +4096,7 @@ def test_manifest_verifier_rejects_unknown_testing_feedback_workitem(tmp_path) -
 
     assert result.passed is False
     assert "workitem workitem-1.testing_feedback[0] references unknown WorkItem: missing-test" in result.errors
+    assert "workitem workitem-1.testing_feedback[0] validation_command must be a list" in result.warnings
 
 
 def test_manifest_verifier_warns_for_malformed_testing_checklist(tmp_path) -> None:

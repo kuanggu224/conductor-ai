@@ -694,14 +694,17 @@ class TaskContextBuilder:
                 ]
             )
             suggestions = _join_or_none(_list_payload(payload.get("suggested_actions")))
+            validation_command = _join_or_none(_list_payload(payload.get("validation_command")))
             lines.extend(
                 [
                     (
                         f"- {payload.get('workitem_id', '')}: "
                         f"type={payload.get('failure_type', '') or 'unknown'}, "
                         f"exit_code={payload.get('exit_code', '') or '-'}, "
+                        f"validation_exit_code={payload.get('validation_exit_code', '') or '-'}, "
                         f"summary={payload.get('summary', '') or '-'}"
                     ),
+                    f"- Validation Command: {validation_command}",
                     f"- Failing Checks: {failing_checks}",
                     f"- Missing Coverage: {missing_coverage}",
                     f"- Missing Checklist Items: {missing_checklist}",

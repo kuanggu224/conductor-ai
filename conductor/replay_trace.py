@@ -347,9 +347,16 @@ def _event_testing_feedback_detail(event: ReplayTraceEvent) -> str:
             continue
         workitem_id = str(feedback.get("workitem_id", ""))
         summary = str(feedback.get("summary", ""))
+        validation_command = _string_list(feedback.get("validation_command", []))
+        validation_exit_code = str(feedback.get("validation_exit_code", ""))
         failing_checks = _string_list(feedback.get("failing_checks", []))
         missing_coverage = _string_list(feedback.get("missing_coverage", []))
         detail = summary or (failing_checks[0] if failing_checks else "") or (missing_coverage[0] if missing_coverage else "")
+        if validation_exit_code:
+            detail = f"{detail}; validation_exit_code={validation_exit_code}" if detail else f"validation_exit_code={validation_exit_code}"
+        if validation_command:
+            command = " ".join(validation_command)
+            detail = f"{detail}; validation_command={command}" if detail else f"validation_command={command}"
         if workitem_id or detail:
             parts.append(f"testing_feedback[{workitem_id or '-'}]={detail or '-'}")
     return "; ".join(parts)

@@ -188,10 +188,13 @@ class ProjectLogStore:
                     ]
                 )
                 suggestions = self._join_or_dash(feedback.suggested_actions)
+                validation_command = self._join_or_dash(feedback.validation_command)
                 lines.append(
                     f"  - structured_testing_feedback: source={feedback.workitem_id} | "
-                    f"type={feedback.failure_type or '-'} | summary={feedback.summary or '-'}"
+                    f"type={feedback.failure_type or '-'} | exit_code={feedback.exit_code or '-'} | "
+                    f"validation_exit_code={feedback.validation_exit_code or '-'} | summary={feedback.summary or '-'}"
                 )
+                lines.append(f"    - validation_command={validation_command}")
                 lines.append(f"    - failing_checks={checks}")
                 lines.append(f"    - missing_coverage={missing}")
                 lines.append(f"    - missing_checklist_items={missing_checklist}")

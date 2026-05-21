@@ -13,6 +13,8 @@ from conductor.controller.engine import ConductorEngine
 from conductor.domain.models import (
     AgentActivation,
     Artifact,
+    Execution,
+    ExecutionStatus,
     ProjectStatus,
     TaskAssignment,
     TaskAssignmentStatus,
@@ -986,6 +988,16 @@ def test_manifest_records_structured_testing_feedback_for_rework(tmp_path) -> No
         current_stage="development",
         workitems=[failed_test, rework],
         artifacts=[failed_artifact],
+        executions=[
+            Execution(
+                workitem_id=failed_test.id,
+                agent_id="agent-tester",
+                result="UI validation failed",
+                status=ExecutionStatus.FAILED,
+                validation_command=["python", "-m", "conductor.harness.static_web_cli"],
+                validation_exit_code=1,
+            )
+        ],
     )
     engine.state_store.save_state(state)
     report_path = engine.write_project_report(state.project.id)
@@ -998,6 +1010,12 @@ def test_manifest_records_structured_testing_feedback_for_rework(tmp_path) -> No
     assert manifest_rework["rework_of"] == "workitem-ui-implementation"
     assert manifest_rework["input_artifact_ids"] == ["artifact-ui-test"]
     assert manifest_rework["testing_feedback"][0]["workitem_id"] == failed_test.id
+    assert manifest_rework["testing_feedback"][0]["validation_command"] == [
+        "python",
+        "-m",
+        "conductor.harness.static_web_cli",
+    ]
+    assert manifest_rework["testing_feedback"][0]["validation_exit_code"] == "1"
     assert "Browser form submit did not change visible page state" in manifest_rework["testing_feedback"][0]["failing_checks"]
     assert "检查表单/按钮事件绑定" in manifest_rework["testing_feedback"][0]["suggested_actions"][0]
 

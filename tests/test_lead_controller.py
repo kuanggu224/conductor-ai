@@ -6,7 +6,7 @@ from conductor.artifacts.store import ArtifactStore
 from conductor.collaboration.models import Collaboration, CollaborationDraftVersion, CollaborationStatus
 from conductor.collaboration.policy import CollaborationPolicy
 from conductor.collaboration.runner import CollaborationRunner
-from conductor.domain.models import Artifact, ProjectStatus, TaskAssignmentStatus, WorkItem, WorkItemStatus
+from conductor.domain.models import Artifact, Execution, ExecutionStatus, ProjectStatus, TaskAssignmentStatus, WorkItem, WorkItemStatus
 from conductor.execution.runner import Runner
 from conductor.state.store import InMemoryStateStore
 from conductor.workflow.template import WorkflowTemplate
@@ -797,6 +797,16 @@ def test_testing_failure_creates_development_feedback_rework() -> None:
         original_implementation_artifact,
         failed_test_artifact,
     ]
+    state.executions = [
+        Execution(
+            workitem_id=failed_test.id,
+            agent_id="agent-tester",
+            result="Static Web Validation failed",
+            status=ExecutionStatus.FAILED,
+            validation_command=["python", "-m", "conductor.harness.static_web_cli"],
+            validation_exit_code=1,
+        )
+    ]
     state.current_stage = "testing"
     state.project.current_stage = "testing"
     state.project_status = ProjectStatus.IN_PROGRESS
@@ -816,6 +826,8 @@ def test_testing_failure_creates_development_feedback_rework() -> None:
     assert design_artifact.id in rework_items[0].input_artifact_ids
     assert "原始实现 WorkItem" in rework_items[0].description
     assert "## 结构化测试反馈" in rework_items[0].description
+    assert "Validation Command: `python -m conductor.harness.static_web_cli`" in rework_items[0].description
+    assert "Validation Exit Code: `1`" in rework_items[0].description
     assert "`add_item` add item interaction" in rework_items[0].description
     assert "Browser form submit did not change visible page state" in rework_items[0].description
     assert "检查表单/按钮事件绑定" in rework_items[0].description

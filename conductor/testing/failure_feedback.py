@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from conductor.domain.models import Artifact, SharedProjectState, WorkItem
+from conductor.domain.models import Artifact, Execution, SharedProjectState, WorkItem
 
 
 @dataclass(slots=True)
@@ -16,6 +16,8 @@ class TestingFailureFeedback:
     failure_type: str = ""
     summary: str = ""
     exit_code: str = ""
+    validation_command: list[str] = field(default_factory=list)
+    validation_exit_code: str = ""
     failing_checks: list[str] = field(default_factory=list)
     missing_coverage: list[str] = field(default_factory=list)
     missing_checklist_items: list[dict[str, object]] = field(default_factory=list)
@@ -32,7 +34,9 @@ class TestingFailureFeedback:
             f"- Failed WorkItem: `{self.workitem_id}`\n"
             f"- Failure Type: `{self.failure_type or 'unknown'}`\n"
             f"- Summary: {self.summary or '未提供'}\n"
-            f"- Exit Code: `{self.exit_code or '-'}`\n\n"
+            f"- Exit Code: `{self.exit_code or '-'}`\n"
+            f"- Validation Command: `{_command_text(self.validation_command) or '-'}`\n"
+            f"- Validation Exit Code: `{self.validation_exit_code or '-'}`\n\n"
             "### 失败信号\n"
             f"{failing_checks}\n\n"
             "### 缺失需求覆盖\n"
@@ -44,8 +48,13 @@ class TestingFailureFeedback:
         )
 
 
-def build_testing_failure_feedback(workitem: WorkItem, artifacts: list[Artifact]) -> TestingFailureFeedback:
+def build_testing_failure_feedback(
+    workitem: WorkItem,
+    artifacts: list[Artifact],
+    executions: list[Execution] | None = None,
+) -> TestingFailureFeedback:
     """Build structured feedback from WorkItem failure fields and report artifacts."""
+    execution = _latest_execution(workitem.id, executions or [])
     text = "\n".join(
         item
         for item in [
@@ -59,7 +68,9 @@ def build_testing_failure_feedback(workitem: WorkItem, artifacts: list[Artifact]
     failing_checks = _extract_failure_lines(text)
     missing_coverage = _extract_missing_coverage(text)
     missing_checklist_items = _missing_checklist_items(workitem, missing_coverage)
-    exit_code = _extract_exit_code(text)
+    validation_exit_code = _code_text(execution.validation_exit_code if execution else None)
+    execution_exit_code = _code_text(execution.execution_exit_code if execution else None)
+    exit_code = _extract_exit_code(text) or validation_exit_code or execution_exit_code
     summary = workitem.failure_summary or _first_non_empty([*missing_coverage, *failing_checks, workitem.result or ""])
     suggested_actions = _suggest_actions(text=text, failing_checks=failing_checks, missing_coverage=missing_coverage)
     return TestingFailureFeedback(
@@ -67,6 +78,8 @@ def build_testing_failure_feedback(workitem: WorkItem, artifacts: list[Artifact]
         failure_type=workitem.failure_type or ("validation_failed" if failing_checks or missing_coverage else ""),
         summary=summary[:500],
         exit_code=exit_code,
+        validation_command=list(execution.validation_command) if execution else [],
+        validation_exit_code=validation_exit_code,
         failing_checks=failing_checks[:8],
         missing_coverage=missing_coverage[:8],
         missing_checklist_items=missing_checklist_items[:8],
@@ -96,7 +109,8 @@ def build_testing_feedback_for_workitem(state: SharedProjectState, workitem: Wor
         artifacts = [artifact for artifact in state.artifacts if artifact.workitem_id == testing_item.id]
         if not _has_testing_failure_evidence(testing_item) and not artifacts:
             continue
-        feedback_items.append(build_testing_failure_feedback(testing_item, artifacts))
+        executions = [execution for execution in state.executions if execution.workitem_id == testing_item.id]
+        feedback_items.append(build_testing_failure_feedback(testing_item, artifacts, executions))
     return feedback_items
 
 
@@ -143,6 +157,19 @@ def _extract_missing_coverage(text: str) -> list[str]:
 def _extract_exit_code(text: str) -> str:
     match = re.search(r"Exit Code:\s*`?(-?\d+)`?", text, flags=re.IGNORECASE)
     return match.group(1) if match else ""
+
+
+def _latest_execution(workitem_id: str, executions: list[Execution]) -> Execution | None:
+    matches = [execution for execution in executions if execution.workitem_id == workitem_id]
+    return matches[-1] if matches else None
+
+
+def _code_text(value: int | None) -> str:
+    return "" if value is None else str(value)
+
+
+def _command_text(command: list[str]) -> str:
+    return " ".join(str(part) for part in command if str(part))
 
 
 def _suggest_actions(*, text: str, failing_checks: list[str], missing_coverage: list[str]) -> list[str]:

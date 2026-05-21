@@ -746,7 +746,8 @@ class LeadController:
             original_artifact_ids = self._workitem_artifact_ids(latest, original_workitem_id) if original_workitem_id else []
             input_artifact_ids = list(dict.fromkeys([*failed_artifact_ids, *original_artifact_ids]))
             failed_artifacts = [artifact for artifact in latest.artifacts if artifact.id in failed_artifact_ids]
-            feedback = build_testing_failure_feedback(failed, failed_artifacts)
+            failed_executions = [execution for execution in latest.executions if execution.workitem_id == failed.id]
+            feedback = build_testing_failure_feedback(failed, failed_artifacts, failed_executions)
             checklist_acceptance_criteria = self._feedback_rework_acceptance_criteria(feedback)
             rework_items.append(
                 WorkItem(

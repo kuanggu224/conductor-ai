@@ -222,6 +222,8 @@ def test_replay_trace_includes_rework_and_testing_feedback(tmp_path) -> None:
                     "workitem_id": "workitem-ui-test",
                     "failure_type": "validation_failed",
                     "summary": "Validation exit_code=1",
+                    "validation_command": ["python", "-m", "conductor.harness.static_web_cli"],
+                    "validation_exit_code": "1",
                     "failing_checks": ["Browser form submit did not change visible page state"],
                     "missing_coverage": [],
                     "suggested_actions": ["检查表单/按钮事件绑定，确保提交后页面可见状态发生变化。"],
@@ -249,6 +251,7 @@ def test_replay_trace_includes_rework_and_testing_feedback(tmp_path) -> None:
     assert "feedback_from=workitem-ui-test" in markdown
     assert "rework_of=workitem-ui-implementation" in markdown
     assert "testing_feedback[workitem-ui-test]=Validation exit_code=1" in markdown
+    assert "validation_command=python -m conductor.harness.static_web_cli" in markdown
 
 
 def test_replay_trace_refuses_invalid_manifest(tmp_path) -> None:
