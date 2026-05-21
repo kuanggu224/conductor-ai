@@ -4,8 +4,8 @@ Last updated: 2026-05-21
 
 ## Stable Checkpoint
 
-- Latest verified code checkpoint: current `dev` TL testing evidence guard update.
-- Current full test result: `python -m pytest -q --basetemp C:\tmp\conductor_pytest_full_tl_evidence` -> `681 passed in 123.71s`.
+- Latest verified code checkpoint: current `dev` testing checklist report update.
+- Current full test result: `python -m pytest -q --basetemp C:\tmp\conductor_pytest_full_checklist_report` -> `682 passed in 123.66s`.
 - Current focus: backend orchestration, auditability, logs, manifest/replay, and task-center reliability.
 - Frontend Board exists, but visual redesign is intentionally not the current priority.
 
@@ -35,6 +35,7 @@ Last updated: 2026-05-21
 - Task Center `handoff_safety` now exposes `baseline_handoff`, so external workers can see whether development acceptance criteria explicitly preserve requirement/design baselines before starting work.
 - Code execution reports, project reports, and manifest execution records now include acceptance trace evidence that maps WorkItem acceptance criteria to validation status and changed files.
 - Testing WorkItems now carry a machine-readable `testing_checklist` derived from frozen requirement coverage rules, including rule ids, labels, requirement signals, and required evidence terms.
+- Harness-generated testing reports now render the testing checklist evidence contract, so required evidence terms are visible in persisted test artifacts.
 - Structured testing feedback now maps missing coverage back to `missing_checklist_items`, so development rework prompts can cite the exact checklist `rule_id` and required evidence that failed.
 - Development feedback rework now promotes missing checklist evidence into WorkItem acceptance criteria and Task Center prompts, making the repair target auditable before the next test pass.
 - Run Manifest schema is now `1.36`; WorkItem and retry history records include relationship fields, structured testing feedback, and testing checklists for rework audit/replay; execution records include delivery contracts plus acceptance traces.

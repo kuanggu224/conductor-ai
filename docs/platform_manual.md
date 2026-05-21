@@ -148,6 +148,7 @@ requirement -> design -> development -> testing
 - `StaticWebHarness` 验证静态 Web 项目。
 - Requirement coverage 检查。
 - API validation 需要输出 endpoint、status code 或 response payload 等具体接口行为证据；泛化的测试通过信息不能单独满足 API coverage。
+- Harness 测试报告会渲染 `Testing Checklist Evidence Contract`，把 required evidence terms 写入持久化 Artifact。
 - 测试失败可反馈生成开发返工任务。
 - Manifest 记录测试结果、失败原因和修复建议。
 

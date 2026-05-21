@@ -392,6 +392,55 @@ def test_runner_uses_shell_harness_for_tester_workitems() -> None:
     assert "Exit Code: `0`" in latest.artifacts[0].content
 
 
+def test_runner_harness_report_renders_testing_checklist_evidence_contract() -> None:
+    state_store = InMemoryStateStore()
+    runner = Runner(
+        state_store,
+        shell_harness=FakeSuccessHarness(),
+        enable_tester_harness=True,
+    )
+    controller = LeadController(
+        workflow_template=WorkflowTemplate(),
+        state_store=state_store,
+        runner=runner,
+    )
+    state = controller.initialize_project("Validate API behavior with concrete endpoint evidence")
+    test_workitem = WorkItem(
+        id="workitem-api-validation",
+        description="Run API validation",
+        stage="testing",
+        kind="api_validation",
+        testing_checklist=[
+            {
+                "rule_id": "api_behavior",
+                "label": "API endpoint behavior",
+                "status": "pending",
+                "requirement_terms": ["API"],
+                "required_evidence_terms": ["endpoint path", "HTTP status code", "response payload"],
+            }
+        ],
+    )
+    state.workitems = [test_workitem]
+    state_store.save_state(state)
+    tester_profile = next(profile for profile in build_default_agent_profiles() if profile.role_name == "tester")
+    agent = Agent(
+        id="agent-tester",
+        role="tester",
+        profile=tester_profile,
+        capabilities=[Capability.TESTING],
+        backend="mock",
+        execution_backend="cli",
+    )
+
+    execution = runner.run(project_id=state.project.id, workitem=test_workitem, agent=agent)
+    latest = state_store.get_state(state.project.id)
+
+    assert execution.status == ExecutionStatus.SUCCESS
+    assert "Testing Checklist Evidence Contract" in latest.artifacts[0].content
+    assert "api_behavior | API endpoint behavior | status=pending" in latest.artifacts[0].content
+    assert "required_evidence=endpoint path, HTTP status code, response payload" in latest.artifacts[0].content
+
+
 def test_runner_blocks_validation_when_frozen_requirement_coverage_is_missing(tmp_path) -> None:
     (tmp_path / "index.html").write_text("<!doctype html><title>App</title>", encoding="utf-8")
     state_store = InMemoryStateStore()

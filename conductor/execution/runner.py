@@ -2494,6 +2494,7 @@ button {
         stdout = (result.stdout or "").strip() or "(无 stdout)"
         stderr = (result.stderr or "").strip() or "(无 stderr)"
         command = " ".join(request.command)
+        checklist_section = self._testing_checklist_report(workitem)
         coverage_section = f"{coverage_result.render_markdown()}\n" if coverage_result else ""
         return (
             f"# 测试执行报告 - {workitem.id}\n\n"
@@ -2509,6 +2510,7 @@ button {
             "## 原始工作项\n"
             f"- 描述：{workitem.description}\n"
             f"- 阶段：{workitem.stage}\n\n"
+            f"{checklist_section}"
             f"## stdout\n```text\n{stdout}\n```\n\n"
             f"## stderr\n```text\n{stderr}\n```\n\n"
             f"{coverage_section}"
@@ -2517,6 +2519,32 @@ button {
             f"{no_tests_note}"
             "- 若失败，Gate 应据此进入重试或升级路径。\n"
         )
+
+    def _testing_checklist_report(self, workitem: WorkItem) -> str:
+        """Render machine-readable testing evidence contracts into harness reports."""
+        if not workitem.testing_checklist:
+            return ""
+        lines = [
+            "## Testing Checklist Evidence Contract",
+            "- Tester output must provide observable evidence for each required evidence term below.",
+        ]
+        for item in workitem.testing_checklist:
+            rule_id = str(item.get("rule_id", "")).strip() or "-"
+            label = str(item.get("label", "")).strip() or "-"
+            status = str(item.get("status", "")).strip() or "-"
+            requirement_terms = self._join_checklist_terms(item.get("requirement_terms"))
+            evidence_terms = self._join_checklist_terms(item.get("required_evidence_terms"))
+            lines.append(
+                f"- {rule_id} | {label} | status={status} | "
+                f"requirement_terms={requirement_terms} | required_evidence={evidence_terms}"
+            )
+        return "\n".join(lines) + "\n\n"
+
+    def _join_checklist_terms(self, value: object) -> str:
+        if not isinstance(value, list):
+            return "-"
+        terms = [str(item).strip() for item in value if str(item).strip()]
+        return ", ".join(terms) if terms else "-"
 
     def _build_code_execution_report(
         self,
