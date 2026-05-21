@@ -47,7 +47,7 @@ from conductor.config.llm import (
 from conductor.control.human import HumanControlService
 from conductor.controller.engine import ConductorEngine
 from conductor.diagnostics import build_platform_diagnostics, build_requirement_llm_preflight_probe
-from conductor.domain.models import SharedProjectState, TaskAssignment
+from conductor.domain.models import SharedProjectState, TaskAssignment, TaskAssignmentStatus
 from conductor.io.encoding import configure_utf8_stdio
 from conductor.io.requirements import RequirementInputError, load_requirement_text
 from conductor.requirement_benchmark import run_requirement_llm_preflight
@@ -1426,8 +1426,33 @@ def _task_assignment_payload(
         "lease_expired": task_center.lease_expired(assignment),
         "returned_at": assignment.returned_at,
         "prompt_file": assignment.prompt_file,
+        "return_commands": _task_return_commands(state, assignment),
         "workitem": _task_workitem_payload(workitem),
         "artifacts": artifacts,
+    }
+
+
+def _task_return_commands(state: SharedProjectState, assignment: TaskAssignment) -> dict[str, str]:
+    if assignment.status != TaskAssignmentStatus.CLAIMED:
+        return {}
+    root = state.project.project_root or "<project-root>"
+    agent_id = assignment.assigned_agent_id or "<agent-id>"
+    claim_token = assignment.claim_token or "<claim-token>"
+    base = ["python", "-m", "app.task_center"]
+    common = [
+        _quote_cli_arg(assignment.id),
+        "--project-root",
+        _quote_cli_arg(root),
+        "--agent-id",
+        _quote_cli_arg(agent_id),
+        "--claim-token",
+        _quote_cli_arg(claim_token),
+    ]
+    return {
+        "complete": " ".join([*base, "complete", *common, "--result-summary", _quote_cli_arg("done")]),
+        "fail": " ".join([*base, "fail", *common, "--blocked-reason", _quote_cli_arg("blocked")]),
+        "heartbeat": " ".join([*base, "heartbeat", *common]),
+        "release": " ".join([*base, "release", *common, "--release-reason", _quote_cli_arg("release claim")]),
     }
 
 

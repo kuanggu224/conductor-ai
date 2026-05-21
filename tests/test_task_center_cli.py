@@ -79,6 +79,14 @@ def test_task_center_cli_lists_claims_and_completes_persisted_assignment(tmp_pat
     assert claim_payload["task"]["transition_history"][-1]["action"] == "claim"
     assert claim_payload["task"]["workitem"]["status"] == "running"
     assert claim_payload["task"]["workitem"]["owner_agent"] == "agent-external"
+    return_commands = claim_payload["task"]["return_commands"]
+    assert return_commands["complete"].startswith(f'python -m app.task_center complete "{assignment_id}"')
+    assert f'--project-root "{project_root}"' in return_commands["complete"]
+    assert '--agent-id "agent-external"' in return_commands["complete"]
+    assert f'--claim-token "{claim_payload["task"]["claim_token"]}"' in return_commands["complete"]
+    assert return_commands["heartbeat"].startswith(f'python -m app.task_center heartbeat "{assignment_id}"')
+    assert return_commands["fail"].startswith(f'python -m app.task_center fail "{assignment_id}"')
+    assert return_commands["release"].startswith(f'python -m app.task_center release "{assignment_id}"')
 
     heartbeat_code = main(
         [
@@ -132,6 +140,7 @@ def test_task_center_cli_lists_claims_and_completes_persisted_assignment(tmp_pat
         "heartbeat",
         "return",
     ]
+    assert complete_payload["task"]["return_commands"] == {}
     assert complete_payload["task"]["workitem"]["status"] == "done"
 
     reloaded = FileStateStore(project_root / ".conductor" / "state").get_state(state.project.id)

@@ -211,6 +211,8 @@ Run Manifest Verifier 也会检查 Development WorkItem 的 handoff 约束：如
 
 动态 Agent 领取任务时，`tasks-for-agent` 与 Board API 动态 Agent task list 会对每个 claimable assignment 输出可复制的 `claim_command`、`claim_with_context_command` 和 API claim path；如果任务受依赖或 write-scope 冲突阻塞，这些命令保持为空，确保外部 CLI Agent 先处理阻塞再开工。
 
+任务被 claim 后，CLI 与 Board API 的 task payload 会提供 `return_commands`，把 complete、fail、heartbeat、release 的命令和当前 `claim_token` 一起返回，减少外部 worker 归还任务时的手工拼接错误。
+
 ## 6. 执行后端
 
 ### 6.1 LLMHarness

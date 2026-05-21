@@ -477,6 +477,13 @@ def test_project_task_claim_and_complete_protocol() -> None:
     assert claimed_task["returned_at"] == ""
     assert claimed_task["workitem"]["status"] == "running"
     assert claimed_task["workitem"]["owner_agent"] == "agent-manual"
+    return_commands = claimed_task["return_commands"]
+    assert return_commands["complete"].startswith(f'python -m app.task_center complete "{assignment_id}"')
+    assert '--agent-id "agent-manual"' in return_commands["complete"]
+    assert f'--claim-token "{claimed_task["claim_token"]}"' in return_commands["complete"]
+    assert return_commands["heartbeat"].startswith(f'python -m app.task_center heartbeat "{assignment_id}"')
+    assert return_commands["fail"].startswith(f'python -m app.task_center fail "{assignment_id}"')
+    assert return_commands["release"].startswith(f'python -m app.task_center release "{assignment_id}"')
 
     heartbeat = client.post(
         f"/api/projects/{state.project.id}/tasks/{assignment_id}/heartbeat",
@@ -514,6 +521,7 @@ def test_project_task_claim_and_complete_protocol() -> None:
     assert completed_task["output_artifact_ids"] == ["artifact-manual"]
     assert completed_task["returned_at"]
     assert completed_task["workitem"]["status"] == "done"
+    assert completed_task["return_commands"] == {}
 
     completed_list = client.get(f"/api/projects/{state.project.id}/tasks?status=completed")
     assert completed_list.status_code == 200

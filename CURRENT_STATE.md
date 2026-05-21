@@ -4,8 +4,8 @@ Last updated: 2026-05-21
 
 ## Stable Checkpoint
 
-- Latest verified code checkpoint: current `dev` Board API dynamic Agent claim handoff update.
-- Current full test result: `python -m pytest -q --basetemp C:\tmp\conductor_pytest_full_board_api_dynamic_claim_handoff` -> `700 passed in 125.62s`.
+- Latest verified code checkpoint: current `dev` Task Center return command handoff update.
+- Current full test result: `python -m pytest -q --basetemp C:\tmp\conductor_pytest_full_task_return_commands` -> `700 passed in 125.94s`.
 - Current focus: backend orchestration, auditability, logs, manifest/replay, and task-center reliability.
 - Frontend Board exists, but visual redesign is intentionally not the current priority.
 
@@ -31,6 +31,7 @@ Last updated: 2026-05-21
 - Structured testing feedback lookup is centralized in `conductor.testing.failure_feedback`, reducing drift across Task Center, manifest, project report, and replay outputs.
 - Task Center context now includes a machine-readable `delivery_contract` and renders it into CLI prompts, making each external Agent's expected outputs, guardrails, and verification focus explicit.
 - Task Center `tasks-for-agent` and Board API dynamic Agent task lists now expose copyable `claim_command` and `claim_with_context_command` for claimable tasks, while blocked tasks keep those command fields empty.
+- Claimed Task Center payloads now expose `return_commands` for complete, fail, heartbeat, and release with the current `agent_id` and `claim_token`.
 - The same delivery contract is shared by direct Runner prompts for Agent CLI document/code execution, keeping internal execution and external Task Center handoff aligned.
 - Development WorkItems now promote frozen requirement/design input artifacts into explicit acceptance criteria, so implementation agents must preserve baseline scope and explain design deviations.
 - Manifest verification now warns when development WorkItems reference frozen requirement/design baselines without explicit handoff acceptance criteria.
