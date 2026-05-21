@@ -546,6 +546,7 @@ TL Agent 会在阶段开始、运行时失败、反馈返工等节点生成 `age
 - UI/API/data 等需求特征触发的前端、后端、测试和设计席位拆分。
 - 运行时失败或 retry 触发的 `failure_triage` / `release_risk` 复核席位。
 - 历史角色失败率触发的独立质量复核。
+- 开发范围较宽时触发 `implementation_coordination_guard`，由 solution designer 复核 write scope、依赖顺序、交接边界和归并风险。
 - 缺失 testing checklist evidence 的返工触发 `rework_acceptance_guard`。
 - 带 required evidence 的 testing checklist 触发 `evidence_trace_guard`，专门审计测试证据是否逐条覆盖。
 - 前后端并行实现触发 `integration_contract_guard`，由 solution designer 复核 API/UI/data 契约和交接边界。

@@ -61,6 +61,7 @@ class TechnicalLeadAgent:
         rework_evidence_items = self._rework_evidence_items(stage_workitems)
         testing_checklist_items = self._testing_checklist_items(stage, stage_workitems)
         integration_risk = self._integration_risk_detected(stage, candidate.agent_specs, stage_workitems)
+        coordination_risk = self._coordination_risk_detected(stage, stage_workitems)
         specs = list(candidate.agent_specs)
         reasons = ["TL reviewed current stage, work scope, risk, and retry state.", *candidate.reasons]
         summary_parts = [
@@ -72,6 +73,7 @@ class TechnicalLeadAgent:
             f"rework_evidence_items={len(rework_evidence_items)}",
             f"testing_checklist_items={len(testing_checklist_items)}",
             f"integration_risk={int(integration_risk)}",
+            f"coordination_risk={int(coordination_risk)}",
         ]
 
         if blockers or state.project_status == ProjectStatus.BLOCKED:
@@ -89,6 +91,7 @@ class TechnicalLeadAgent:
         specs.extend(self._rework_evidence_specs(planner, stage, rework_evidence_items))
         specs.extend(self._testing_checklist_specs(planner, stage, testing_checklist_items))
         specs.extend(self._integration_risk_specs(planner, stage, stage_workitems, integration_risk))
+        specs.extend(self._coordination_risk_specs(planner, stage, stage_workitems, coordination_risk))
         specs = self._dedupe_specs(specs)
         return replace(
             candidate,
@@ -99,6 +102,7 @@ class TechnicalLeadAgent:
                 specs,
                 rework_evidence_items,
                 testing_checklist_items,
+                coordination_risk,
             ),
             reasons=self._dedupe(
                 [
@@ -108,6 +112,7 @@ class TechnicalLeadAgent:
                     *self._rework_evidence_reasons(rework_evidence_items),
                     *self._testing_checklist_reasons(testing_checklist_items),
                     *self._integration_risk_reasons(integration_risk),
+                    *self._coordination_risk_reasons(coordination_risk),
                 ]
             ),
             agent_specs=specs,
@@ -334,6 +339,47 @@ class TechnicalLeadAgent:
             )
         ]
 
+    def _coordination_risk_detected(self, stage: str, workitems: list) -> bool:
+        """Return whether development scope needs an explicit multi-Agent coordination owner."""
+        if stage != "development" or not workitems:
+            return False
+        implementation_kinds = {
+            item.kind
+            for item in workitems
+            if item.kind.endswith("_implementation") or item.kind == "generic_implementation"
+        }
+        acceptance_count = sum(len(item.acceptance_criteria) for item in workitems)
+        input_artifact_count = sum(len(item.input_artifact_ids) for item in workitems)
+        return (
+            len(workitems) >= 3
+            or len(implementation_kinds) >= 3
+            or acceptance_count >= 6
+            or input_artifact_count >= 6
+        )
+
+    def _coordination_risk_specs(
+        self,
+        planner: AgentTeamPlanner,
+        stage: str,
+        workitems: list,
+        coordination_risk: bool,
+    ) -> list[DynamicAgentSpec]:
+        """Add a planning guard for broad development work split across multiple Agents."""
+        if not coordination_risk:
+            return []
+        return [
+            planner.build_spec(
+                role="solution_designer",
+                instance_id="implementation_coordination_guard",
+                stage=stage,
+                mission="Review development work split before multiple implementation Agents proceed.",
+                reason="TL detected broad development scope requiring explicit coordination of Agent work boundaries.",
+                scope="write scopes, dependency order, integration handoff, merge-risk controls",
+                mode="sequential_review",
+                workitem_kinds=list(dict.fromkeys(item.kind for item in workitems)),
+            )
+        ]
+
     def _tl_complexity_level(
         self,
         candidate_level: str,
@@ -342,10 +388,11 @@ class TechnicalLeadAgent:
         specs: list[DynamicAgentSpec],
         rework_evidence_items: list | None = None,
         testing_checklist_items: list | None = None,
+        coordination_risk: bool = False,
     ) -> str:
         if failed or len(retried) >= 2 or len(specs) >= 5:
             return "complex"
-        if rework_evidence_items or testing_checklist_items or retried or len(specs) >= 3:
+        if rework_evidence_items or testing_checklist_items or coordination_risk or retried or len(specs) >= 3:
             return "standard"
         return candidate_level
 
@@ -379,6 +426,11 @@ class TechnicalLeadAgent:
         if not integration_risk:
             return []
         return ["TL detected frontend/backend parallel implementation requiring an integration contract guard."]
+
+    def _coordination_risk_reasons(self, coordination_risk: bool) -> list[str]:
+        if not coordination_risk:
+            return []
+        return ["TL detected broad development scope requiring explicit multi-Agent coordination."]
 
     def _risk_level(self, state: SharedProjectState, failed: list, blockers: list[str]) -> str:
         if state.project_status == ProjectStatus.BLOCKED or blockers:

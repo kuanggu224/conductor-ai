@@ -335,3 +335,48 @@ def test_tl_agent_adds_testing_evidence_trace_guard_for_checklist_contracts() ->
     assert guard.workitem_kinds == ["api_validation"]
     assert "required evidence terms" in guard.scope
     assert any("testing checklist evidence contracts requiring trace audit" in reason for reason in plan.reasons)
+
+
+def test_tl_agent_adds_coordination_guard_for_broad_development_scope() -> None:
+    planner = AgentTeamPlanner()
+    tl_agent = TechnicalLeadAgent()
+    state = SharedProjectState(
+        project=Project(id="project-tl-coordination", goal="Implement a broad project execution workflow.", current_stage="development"),
+        project_status=ProjectStatus.IN_PROGRESS,
+        current_stage="development",
+        workitems=[
+            WorkItem(
+                id="workitem-parser",
+                description="Implement requirement intake parser.",
+                stage="development",
+                kind="generic_implementation",
+                acceptance_criteria=["Parser handles structured intake.", "Parser records validation errors."],
+            ),
+            WorkItem(
+                id="workitem-scheduler",
+                description="Implement execution scheduling rules.",
+                stage="development",
+                kind="generic_implementation",
+                acceptance_criteria=["Scheduler respects dependencies.", "Scheduler records blocked tasks."],
+            ),
+            WorkItem(
+                id="workitem-reporter",
+                description="Implement delivery reporting outputs.",
+                stage="development",
+                kind="generic_implementation",
+                acceptance_criteria=["Reporter writes audit summary.", "Reporter links generated artifacts."],
+            ),
+        ],
+    )
+
+    plan = tl_agent.plan_agent_team(state, planner, trigger="stage_start")
+
+    assert plan.decision_source == "tl_agent"
+    assert "coordination_risk=1" in plan.decision_summary
+    assert plan.complexity_level == "standard"
+    guard = next(spec for spec in plan.agent_specs if spec.instance_id == "implementation_coordination_guard")
+    assert guard.role == "solution_designer"
+    assert guard.collaboration_mode == "sequential_review"
+    assert guard.workitem_kinds == ["generic_implementation"]
+    assert "write scopes" in guard.scope
+    assert any("broad development scope" in reason for reason in plan.reasons)
