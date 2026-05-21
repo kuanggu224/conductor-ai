@@ -1,6 +1,6 @@
 # Conductor Current State
 
-Last updated: 2026-05-20
+Last updated: 2026-05-21
 
 ## Stable Checkpoint
 
@@ -42,6 +42,7 @@ Last updated: 2026-05-20
 - Replay trace renders WorkItem rework lineage and structured testing feedback, so failed-test-to-rework chains are visible in read-only replay output.
 - Default ShellHarness validation skips real test commands when no project deliverables exist, especially when the project root is the Conductor source checkout.
 - Manifest verification accepts intentionally reclassified failed test WorkItems when their failures have been flowed back into development rework.
+- Platform diagnostics now expose structured UTF-8 readiness, LLM timeout status, timeout warnings, and block model probing when an enabled backend has an invalid timeout.
 
 ## Latest Real E2E Smoke
 
@@ -69,7 +70,7 @@ Last updated: 2026-05-20
 - Development and testing stages are not yet as productized as the requirement stage.
 - End-to-end real project success is not yet stable enough to call production-grade.
 - Dynamic multi-agent collaboration exists, but its cost/benefit still needs more real-case benchmark runs.
-- Local model and external CLI stability still depends on local configuration, model context length, timeout settings, and tool authorization.
+- Local model and external CLI stability still depends on local configuration, provider availability, model context length, timeout settings, and tool authorization.
 - Frontend Board is useful for inspection but should not drive the next engineering phase.
 
 ## Common Commands
@@ -109,5 +110,5 @@ python -m app.verify_manifest <project-root>\.conductor\manifests\<project-id>.m
 1. Inspect the latest real E2E smoke artifacts and identify remaining product gaps in development/testing quality.
 2. Strengthen development-stage handoff from frozen requirement and design artifacts into implementation WorkItems.
 3. Strengthen testing-stage behavior so failed requirement coverage produces more precise, actionable rework prompts.
-4. Add or improve health checks for configured LLM/CLI backends: server status, model availability, context length, timeout, and encoding.
+4. Continue improving health checks for configured LLM/CLI backends, especially provider-specific failures and CLI authorization state.
 5. Keep frontend changes paused unless a backend API shape blocks inspection.

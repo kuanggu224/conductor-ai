@@ -554,6 +554,8 @@ python -m app.run_project `
 python -m app.run_project --project-root C:\path\to\project --preflight-only
 ```
 
+`app.diagnostics` 和 `run_project --diagnose` 会暴露 CLI 探测、LLM server/model/context window、LLM timeout 健康状态、UTF-8 编码就绪度和最近一次 preflight gate。`timeout_status=low` 用于提醒长 prompt 风险；`timeout_status=invalid` 会阻断 LLM model probe，并在 warnings 中给出明确修复建议。
+
 写出审计包：
 
 ```powershell

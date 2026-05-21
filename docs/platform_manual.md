@@ -490,6 +490,8 @@ python -m app.run_project --diagnose
 python -m app.run_project --diagnose --diagnose-cli --diagnose-llm
 ```
 
+诊断输出会包含 CLI 可用性、角色绑定、LLM server/model/context window、LLM timeout 健康状态、UTF-8 编码就绪度，以及最近一次 preflight gate 摘要。低 timeout 会作为 `timeout_status=low` 返回建议；非法 timeout 会阻断 LLM model probe，避免在配置明显错误时继续发起真实请求。
+
 ### 11.6 需求阶段 Benchmark
 
 ```powershell

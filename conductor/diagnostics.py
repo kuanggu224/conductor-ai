@@ -59,6 +59,8 @@ class LLMBackendDiagnostic:
     model: str
     timeout_seconds: float
     api_key_present: bool
+    timeout_status: str = "ok"
+    timeout_warning: str = ""
     server_status: str = "not_checked"
     context_length: int | None = None
     available_models: list[str] = field(default_factory=list)
@@ -82,6 +84,9 @@ class EncodingDiagnostic:
     python_utf8_mode: int
     pythonioencoding_env: str
     pythonutf8_env: str
+    utf8_ready: bool
+    warnings: list[str] = field(default_factory=list)
+    recommendation: str = ""
 
 
 @dataclass(slots=True)
@@ -245,6 +250,8 @@ def _build_llm_backend_diagnostics(
             model=config.model_name,
             timeout_seconds=config.timeout_seconds,
             api_key_present=bool(config.api_key),
+            timeout_status=_timeout_status(config.timeout_seconds),
+            timeout_warning=_timeout_warning(config.timeout_seconds),
             encoding=_runtime_encoding_summary(),
         )
         if not config.enabled:
@@ -252,9 +259,14 @@ def _build_llm_backend_diagnostics(
             item.recommendation = f"Enable the {backend} LLM backend before using it for Agent execution."
             diagnostics.append(item)
             continue
-        item.health_status = "configured"
-        item.recommendation = "Run diagnostics with probe_llm and preflight_llm before real Agent execution."
-        if probe_llm and config.enabled:
+        item.health_status = _llm_health_status(item)
+        item.recommendation = _llm_recommendation(item)
+        if probe_llm and config.enabled and item.timeout_status == "invalid":
+            item.server_status = "invalid_timeout"
+            item.model_list_error = item.timeout_warning
+            item.health_status = _llm_health_status(item)
+            item.recommendation = _llm_recommendation(item)
+        elif probe_llm and config.enabled:
             probe = model_probe or _probe_openai_models
             status, models, context_length, error = probe(config.base_url, config.api_key, config.timeout_seconds)
             item.server_status = status
@@ -339,6 +351,8 @@ def _build_warnings(
     for backend in llm_backends:
         if not backend.enabled:
             continue
+        if backend.timeout_status == "invalid":
+            warnings.append(f"{backend.backend} LLM timeout is invalid: {backend.timeout_seconds:g}s.")
         if backend.backend == "cloud" and not backend.api_key_present:
             warnings.append(f"Cloud LLM `{backend.model}` is enabled but API key is missing.")
         if backend.server_status == "unreachable" and backend.preflight_success is not True:
@@ -356,6 +370,8 @@ def _llm_health_status(backend: LLMBackendDiagnostic) -> str:
     """Classify one LLM backend into a UI/API friendly health status."""
     if not backend.enabled:
         return "disabled"
+    if backend.timeout_status == "invalid":
+        return "failed"
     if backend.preflight_success is False:
         return "failed"
     if backend.server_status == "unreachable":
@@ -375,6 +391,8 @@ def _llm_recommendation(backend: LLMBackendDiagnostic) -> str:
     """Return a short remediation hint for one LLM backend."""
     if not backend.enabled:
         return f"Enable the {backend.backend} LLM backend before using it for Agent execution."
+    if backend.timeout_status == "invalid":
+        return "Set a positive LLM timeout before probing or running Agent execution."
     if backend.backend == "cloud" and not backend.api_key_present:
         return "Fill the cloud API key in local settings before running cloud LLM Agents."
     if backend.preflight_success is False:
@@ -389,6 +407,8 @@ def _llm_recommendation(backend: LLMBackendDiagnostic) -> str:
         return "Backend preflight passed and is ready for controlled Agent execution."
     if backend.server_status == "models_unavailable":
         return "The /models endpoint is unavailable; rely on preflight to verify this provider."
+    if backend.timeout_status == "low":
+        return "Configured timeout is low for multi-Agent prompts; increase it before longer real runs."
     return "Run diagnostics with probe_llm and preflight_llm before real Agent execution."
 
 
@@ -402,15 +422,86 @@ def _runtime_encoding_summary() -> str:
 
 
 def _runtime_encoding_diagnostic() -> EncodingDiagnostic:
-    return EncodingDiagnostic(
-        preferred_encoding=locale.getpreferredencoding(False),
-        filesystem_encoding=sys.getfilesystemencoding(),
-        stdout_encoding=getattr(sys.stdout, "encoding", "") or "",
-        stderr_encoding=getattr(sys.stderr, "encoding", "") or "",
-        python_utf8_mode=int(sys.flags.utf8_mode),
-        pythonioencoding_env=os.environ.get("PYTHONIOENCODING", ""),
-        pythonutf8_env=os.environ.get("PYTHONUTF8", ""),
+    preferred = locale.getpreferredencoding(False)
+    filesystem = sys.getfilesystemencoding()
+    stdout = getattr(sys.stdout, "encoding", "") or ""
+    stderr = getattr(sys.stderr, "encoding", "") or ""
+    python_utf8_mode = int(sys.flags.utf8_mode)
+    pythonioencoding = os.environ.get("PYTHONIOENCODING", "")
+    pythonutf8 = os.environ.get("PYTHONUTF8", "")
+    warnings = _encoding_warnings(
+        preferred_encoding=preferred,
+        filesystem_encoding=filesystem,
+        stdout_encoding=stdout,
+        stderr_encoding=stderr,
+        python_utf8_mode=python_utf8_mode,
+        pythonioencoding_env=pythonioencoding,
+        pythonutf8_env=pythonutf8,
     )
+    return EncodingDiagnostic(
+        preferred_encoding=preferred,
+        filesystem_encoding=filesystem,
+        stdout_encoding=stdout,
+        stderr_encoding=stderr,
+        python_utf8_mode=python_utf8_mode,
+        pythonioencoding_env=pythonioencoding,
+        pythonutf8_env=pythonutf8,
+        utf8_ready=not warnings,
+        warnings=warnings,
+        recommendation=(
+            "Runtime encodings are UTF-8 ready."
+            if not warnings
+            else "Enable UTF-8 stdio before reading Chinese logs or running external Agent CLIs."
+        ),
+    )
+
+
+def _timeout_status(timeout_seconds: float) -> str:
+    """Return a coarse health status for a configured LLM timeout."""
+    if timeout_seconds <= 0:
+        return "invalid"
+    if timeout_seconds < 10:
+        return "low"
+    return "ok"
+
+
+def _timeout_warning(timeout_seconds: float) -> str:
+    """Return a diagnostic warning for risky timeout settings."""
+    if timeout_seconds <= 0:
+        return "timeout_seconds must be greater than 0"
+    if timeout_seconds < 10:
+        return "timeout_seconds is below 10s and may fail on multi-Agent prompts"
+    return ""
+
+
+def _encoding_warnings(
+    *,
+    preferred_encoding: str,
+    filesystem_encoding: str,
+    stdout_encoding: str,
+    stderr_encoding: str,
+    python_utf8_mode: int,
+    pythonioencoding_env: str,
+    pythonutf8_env: str,
+) -> list[str]:
+    """Return runtime encoding warnings without failing the whole diagnostic snapshot."""
+    warnings: list[str] = []
+    if not _is_utf8(preferred_encoding):
+        warnings.append(f"preferred encoding is not UTF-8: {preferred_encoding or 'unknown'}")
+    if not _is_utf8(filesystem_encoding):
+        warnings.append(f"filesystem encoding is not UTF-8: {filesystem_encoding or 'unknown'}")
+    if stdout_encoding and not _is_utf8(stdout_encoding):
+        warnings.append(f"stdout encoding is not UTF-8: {stdout_encoding}")
+    if stderr_encoding and not _is_utf8(stderr_encoding):
+        warnings.append(f"stderr encoding is not UTF-8: {stderr_encoding}")
+    if python_utf8_mode != 1 and pythonutf8_env != "1" and "utf" not in pythonioencoding_env.lower():
+        warnings.append("Python UTF-8 mode is not explicitly enabled")
+    return warnings
+
+
+def _is_utf8(value: str) -> bool:
+    normalized = value.replace("-", "").replace("_", "").lower()
+    return "utf8" in normalized
 
 
 def _probe_openai_models(

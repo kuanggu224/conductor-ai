@@ -33,6 +33,9 @@ def test_platform_diagnostics_marks_ready_bindings(monkeypatch, tmp_path) -> Non
     assert diagnostics.to_dict()["project_root"] == str(tmp_path.resolve())
     assert diagnostics.encoding.preferred_encoding
     assert "encoding" in diagnostics.to_dict()
+    assert isinstance(diagnostics.encoding.utf8_ready, bool)
+    assert isinstance(diagnostics.encoding.warnings, list)
+    assert diagnostics.encoding.recommendation
     assert diagnostics.to_dict()["preflight_gate"]["recorded"] is False
 
 
@@ -269,6 +272,74 @@ def test_platform_diagnostics_warns_when_configured_llm_model_is_not_listed(monk
     assert local.health_status == "warning"
     assert "Choose one of the listed models" in local.recommendation
     assert any("missing-model" in warning for warning in diagnostics.warnings)
+
+
+def test_platform_diagnostics_reports_low_llm_timeout_without_failing(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr("conductor.diagnostics.discover_cli_tools", lambda: [])
+
+    diagnostics = build_platform_diagnostics(
+        cli_config=CLISelectionConfig(),
+        project_root=tmp_path,
+        llm_runtime_config=LLMRuntimeConfig(
+            local=LLMHTTPConfig(
+                base_url="http://127.0.0.1:1234/v1",
+                model_name="local-model",
+                timeout_seconds=5,
+                enabled=True,
+            ),
+            cloud=LLMHTTPConfig(
+                base_url="https://example.com/v1",
+                model_name="cloud-model",
+                enabled=False,
+            ),
+            usage=LLMUsagePolicy(),
+        ),
+    )
+
+    local = {item.backend: item for item in diagnostics.llm_backends}["local"]
+    assert diagnostics.ok is True
+    assert local.timeout_status == "low"
+    assert "below 10s" in local.timeout_warning
+    assert "timeout is low" in local.recommendation
+
+
+def test_platform_diagnostics_blocks_probe_when_llm_timeout_is_invalid(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr("conductor.diagnostics.discover_cli_tools", lambda: [])
+    calls = []
+
+    def fake_model_probe(*args):
+        calls.append(args)
+        return "reachable", ["local-model"], 32768, ""
+
+    diagnostics = build_platform_diagnostics(
+        cli_config=CLISelectionConfig(),
+        project_root=tmp_path,
+        llm_runtime_config=LLMRuntimeConfig(
+            local=LLMHTTPConfig(
+                base_url="http://127.0.0.1:1234/v1",
+                model_name="local-model",
+                timeout_seconds=0,
+                enabled=True,
+            ),
+            cloud=LLMHTTPConfig(
+                base_url="https://example.com/v1",
+                model_name="cloud-model",
+                enabled=False,
+            ),
+            usage=LLMUsagePolicy(),
+        ),
+        probe_llm=True,
+        model_probe=fake_model_probe,
+    )
+
+    local = {item.backend: item for item in diagnostics.llm_backends}["local"]
+    assert diagnostics.ok is False
+    assert calls == []
+    assert local.timeout_status == "invalid"
+    assert local.server_status == "invalid_timeout"
+    assert local.health_status == "failed"
+    assert local.model_list_error == "timeout_seconds must be greater than 0"
+    assert any("timeout is invalid" in warning for warning in diagnostics.warnings)
 
 
 def test_platform_diagnostics_includes_persisted_preflight_gate_snapshot(monkeypatch, tmp_path) -> None:
