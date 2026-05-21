@@ -549,11 +549,17 @@ def test_project_task_complete_api_rejects_wrong_agent_guard() -> None:
 
     completed = client.post(
         f"/api/projects/{state.project.id}/tasks/{assignment_id}/complete",
-        json={"agent_id": "agent-other", "result_summary": "finished task"},
+        json={
+            "agent_id": "agent-other",
+            "result_summary": "finished task",
+            "output_artifact_content": "# Worker Result\n\nThis should not persist.",
+        },
     )
+    reloaded = board.engine.get_project(state.project.id)
 
     assert completed.status_code == 403
     assert "claimed by another agent" in completed.json()["detail"]
+    assert {artifact.id for artifact in reloaded.artifacts} == {artifact.id for artifact in state.artifacts}
 
 
 def test_project_task_complete_api_rejects_stale_claim_token() -> None:
@@ -569,11 +575,18 @@ def test_project_task_complete_api_rejects_stale_claim_token() -> None:
 
     completed = client.post(
         f"/api/projects/{state.project.id}/tasks/{assignment_id}/complete",
-        json={"agent_id": "agent-owner", "claim_token": f"stale-{claim_token}", "result_summary": "finished task"},
+        json={
+            "agent_id": "agent-owner",
+            "claim_token": f"stale-{claim_token}",
+            "result_summary": "finished task",
+            "output_artifact_content": "# Worker Result\n\nThis should not persist.",
+        },
     )
+    reloaded = board.engine.get_project(state.project.id)
 
     assert completed.status_code == 403
     assert "claim token does not match" in completed.json()["detail"]
+    assert {artifact.id for artifact in reloaded.artifacts} == {artifact.id for artifact in state.artifacts}
 
 
 def test_project_task_complete_api_can_create_output_artifact() -> None:

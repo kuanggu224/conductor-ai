@@ -1159,7 +1159,16 @@ def _task_return_output_artifact_ids(
     if not payload.output_artifact_content:
         return output_artifact_ids
     state = _require_project_state(project_id)
-    assignment = _task_center_service().require_assignment(state, assignment_id)
+    service = _task_center_service()
+    try:
+        assignment = service.validate_return_guard(
+            state,
+            assignment_id,
+            agent_id=payload.agent_id or "",
+            claim_token=payload.claim_token,
+        )
+    except TaskCenterError as error:
+        raise HTTPException(status_code=error.status_code, detail=str(error)) from error
     try:
         artifact = create_task_return_artifact(
             state_store=engine.state_store,

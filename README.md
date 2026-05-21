@@ -79,6 +79,8 @@ Task Center context 会暴露冻结需求、冻结设计、delivery contract、t
 
 任务被 claim 后，CLI、Board API 和 context JSON 的 task payload 会返回 `return_commands`，包含带当前 `agent_id` 和 `claim_token` 的 `complete`、`complete_with_output_file`、`fail`、`fail_with_output_file`、`heartbeat`、`release` 命令，方便外部 worker 按同一协议归还任务和 Artifact。Board API task payload 还会提供 `return_api_paths`，供 API worker 直接调用。
 
+CLI/API 在创建外部输出 Artifact 前会先校验 claim 状态、`agent_id` 和 `claim_token`，错误 worker 或 stale token 的归还请求不会留下未引用的外部 Artifact。
+
 `run_project --maintenance-task-center` 可在恢复项目前执行 Task Center 维护；输出的 report/latest 会包含 `attention_project_ids`、`finding_code_counts`、`recommendations`、pending retest scope、active human-control holds、operator guidance，以及可复制的维护、状态检查和 human-control hold 检查命令，便于长周期项目接入调度器。
 
 ## Manifest、Replay 和审计

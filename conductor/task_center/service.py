@@ -697,6 +697,21 @@ class TaskCenterService:
                 claim_token=claim_token,
             )
 
+    def validate_return_guard(
+        self,
+        state: SharedProjectState,
+        assignment_id: str,
+        *,
+        agent_id: str = "",
+        claim_token: str = "",
+    ) -> TaskAssignment:
+        """Return the claimed assignment after validating return ownership guards."""
+        assignment = self.require_assignment(state, assignment_id)
+        if assignment.status != TaskAssignmentStatus.CLAIMED:
+            raise TaskCenterError(f"Task assignment is not claimed: {assignment.status.value}")
+        self._validate_claim_guard(assignment, agent_id=agent_id, claim_token=claim_token)
+        return assignment
+
     def release(
         self,
         project_id: str,
@@ -1114,10 +1129,12 @@ class TaskCenterService:
         claim_token: str = "",
     ) -> TaskCenterTransition:
         state = self._state(project_id)
-        assignment = self.require_assignment(state, assignment_id)
-        if assignment.status != TaskAssignmentStatus.CLAIMED:
-            raise TaskCenterError(f"Task assignment is not claimed: {assignment.status.value}")
-        self._validate_claim_guard(assignment, agent_id=agent_id, claim_token=claim_token)
+        assignment = self.validate_return_guard(
+            state,
+            assignment_id,
+            agent_id=agent_id,
+            claim_token=claim_token,
+        )
         artifact_ids = list(output_artifact_ids or [])
         returned_at = _utc_now()
         updated = replace(

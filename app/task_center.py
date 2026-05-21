@@ -1458,7 +1458,12 @@ def _return_output_artifact_ids(
     output_artifact_ids = list(args.output_artifact_id)
     if not args.output_file:
         return output_artifact_ids
-    assignment = service.require_assignment(state, args.assignment_id)
+    assignment = service.validate_return_guard(
+        state,
+        args.assignment_id,
+        agent_id=args.agent_id,
+        claim_token=args.claim_token,
+    )
     content = Path(args.output_file).expanduser().read_text(encoding="utf-8")
     artifact = create_task_return_artifact(
         state_store=store,

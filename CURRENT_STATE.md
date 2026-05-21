@@ -4,8 +4,8 @@ Last updated: 2026-05-21
 
 ## Stable Checkpoint
 
-- Latest verified code checkpoint: current `dev` Task Center artifact-return command handoff update.
-- Current full test result: `python -m pytest -q --basetemp C:\tmp\conductor_pytest_full_artifact_return_commands` -> `700 passed in 126.67s`.
+- Latest verified code checkpoint: current `dev` Task Center guarded artifact-return update.
+- Current full test result: `python -m pytest -q --basetemp C:\tmp\conductor_pytest_full_return_guard_artifacts` -> `700 passed in 140.35s`.
 - Current focus: backend orchestration, auditability, logs, manifest/replay, and task-center reliability.
 - Frontend Board exists, but visual redesign is intentionally not the current priority.
 
@@ -33,6 +33,7 @@ Last updated: 2026-05-21
 - Task Center `tasks-for-agent` and Board API dynamic Agent task lists now expose copyable `claim_command` and `claim_with_context_command` for claimable tasks, while blocked tasks keep those command fields empty.
 - Claimed Task Center payloads now expose `return_commands` for complete, fail, heartbeat, and release with the current `agent_id` and `claim_token`.
 - Task Center return command templates now include `complete_with_output_file` and `fail_with_output_file`, expose the same templates in context JSON, and Board API task payloads include matching `return_api_paths`.
+- Task Center CLI and Board API now validate return ownership guards before creating output artifacts, preventing stale-token or wrong-agent returns from leaving orphan external artifacts.
 - The same delivery contract is shared by direct Runner prompts for Agent CLI document/code execution, keeping internal execution and external Task Center handoff aligned.
 - Development WorkItems now promote frozen requirement/design input artifacts into explicit acceptance criteria, so implementation agents must preserve baseline scope and explain design deviations.
 - Manifest verification now warns when development WorkItems reference frozen requirement/design baselines without explicit handoff acceptance criteria.

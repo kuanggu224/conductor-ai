@@ -158,6 +158,8 @@ def test_task_center_cli_lists_claims_and_completes_persisted_assignment(tmp_pat
 
 def test_task_center_cli_rejects_complete_for_stale_claim_token(tmp_path, capsys) -> None:
     project_root = tmp_path / "project"
+    output_file = tmp_path / "result.md"
+    output_file.write_text("# Worker Result\n\nThis should not be persisted.", encoding="utf-8")
     state_store = FileStateStore(project_root / ".conductor" / "state")
     engine = ConductorEngine(
         log_dir=project_root / ".conductor" / "logs",
@@ -182,12 +184,16 @@ def test_task_center_cli_rejects_complete_for_stale_claim_token(tmp_path, capsys
             f"stale-{claim_payload['task']['claim_token']}",
             "--result-summary",
             "done",
+            "--output-file",
+            str(output_file),
         ]
     )
     captured = capsys.readouterr()
+    reloaded = state_store.get_state(state.project.id)
 
     assert code == 2
     assert "claim token does not match" in captured.err
+    assert {artifact.id for artifact in reloaded.artifacts} == {artifact.id for artifact in state.artifacts}
 
 
 def test_task_center_cli_audit_reports_findings_and_can_fail(tmp_path, capsys) -> None:
@@ -331,6 +337,8 @@ def test_task_center_cli_requires_claim_token_for_guarded_return(tmp_path, capsy
 
 def test_task_center_cli_rejects_complete_for_wrong_agent(tmp_path, capsys) -> None:
     project_root = tmp_path / "project"
+    output_file = tmp_path / "result.md"
+    output_file.write_text("# Worker Result\n\nThis should not be persisted.", encoding="utf-8")
     state_store = FileStateStore(project_root / ".conductor" / "state")
     engine = ConductorEngine(
         log_dir=project_root / ".conductor" / "logs",
@@ -352,12 +360,16 @@ def test_task_center_cli_rejects_complete_for_wrong_agent(tmp_path, capsys) -> N
             "agent-other",
             "--result-summary",
             "done",
+            "--output-file",
+            str(output_file),
         ]
     )
     captured = capsys.readouterr()
+    reloaded = state_store.get_state(state.project.id)
 
     assert code == 2
     assert "claimed by another agent" in captured.err
+    assert {artifact.id for artifact in reloaded.artifacts} == {artifact.id for artifact in state.artifacts}
 
 
 def test_task_center_cli_prints_summary_only(tmp_path, capsys) -> None:
@@ -2291,7 +2303,7 @@ def test_task_center_cli_rejects_empty_output_artifact_file(tmp_path, capsys) ->
     state = engine.create_project(requirement="Build a local reading list", project_root=str(project_root))
     assignment_id = state.task_assignments[0].id
     assert main(["claim", assignment_id, "--project-root", str(project_root), "--agent-id", "agent-external"]) == 0
-    capsys.readouterr()
+    claim_payload = json.loads(capsys.readouterr().out)
 
     code = main(
         [
@@ -2299,6 +2311,10 @@ def test_task_center_cli_rejects_empty_output_artifact_file(tmp_path, capsys) ->
             assignment_id,
             "--project-root",
             str(project_root),
+            "--agent-id",
+            "agent-external",
+            "--claim-token",
+            claim_payload["task"]["claim_token"],
             "--output-file",
             str(output_file),
         ]
