@@ -502,6 +502,69 @@ def test_manifest_verifier_rejects_bad_summary_execution_status_counts(tmp_path)
     assert any("summary.execution_status_counts" in error for error in result.errors)
 
 
+def test_manifest_verifier_rejects_bad_summary_pending_test_scope(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "schema_version": "1.37",
+            "summary": {
+                "final_status": "completed",
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+                "pending_test_scope": ["ui_validation", "ui_validation", "api_validation", ""],
+            },
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is False
+    assert "summary.pending_test_scope[3] must be a non-empty string" in result.errors
+    assert "summary.pending_test_scope must not contain duplicates" in result.errors
+    assert (
+        "summary.pending_test_scope=['ui_validation', 'api_validation'] references no testing WorkItem kind; "
+        "known testing kinds=['acceptance_check']"
+    ) in result.errors
+
+
+def test_manifest_verifier_accepts_matching_summary_pending_test_scope(tmp_path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        {
+            "schema_version": "1.37",
+            "summary": {
+                "final_status": "completed",
+                "workitem_count": 1,
+                "execution_count": 1,
+                "artifact_count": 1,
+                "artifact_file_count": 1,
+                "task_prompt_file_count": 1,
+                "cli_run_count": 0,
+                "llm_run_count": 0,
+                "collaboration_run_count": 0,
+                "retry_history_count": 0,
+                "changed_file_count": 0,
+                "changed_files": [],
+                "pending_test_scope": ["acceptance_check"],
+            },
+        },
+    )
+
+    result = verify_manifest(manifest_path)
+
+    assert result.passed is True
+    assert result.errors == []
+
+
 def test_manifest_verifier_rejects_bad_summary_agent_count(tmp_path) -> None:
     manifest_path = _write_manifest(
         tmp_path,
@@ -4441,7 +4504,7 @@ def test_manifest_verifier_warns_for_non_current_schema_version(tmp_path) -> Non
     result = verify_manifest(manifest_path)
 
     assert result.passed is True
-    assert "manifest schema_version 1.0 differs from current 1.36" in result.warnings
+    assert "manifest schema_version 1.0 differs from current 1.37" in result.warnings
 
 
 def test_manifest_verifier_rejects_api_key_fields(tmp_path) -> None:

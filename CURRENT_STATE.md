@@ -4,8 +4,8 @@ Last updated: 2026-05-21
 
 ## Stable Checkpoint
 
-- Latest verified code checkpoint: current `dev` pending retest scope handoff update.
-- Current full test result: `python -m pytest -q --basetemp C:\tmp\conductor_pytest_full_pending_retest_scope` -> `689 passed in 131.90s`.
+- Latest verified code checkpoint: current `dev` Run Manifest schema 1.37 pending test scope verifier update.
+- Current full test result: `python -m pytest -q --basetemp C:\tmp\conductor_pytest_full_schema137_pending_scope_verifier` -> `691 passed in 146.07s`.
 - Current focus: backend orchestration, auditability, logs, manifest/replay, and task-center reliability.
 - Frontend Board exists, but visual redesign is intentionally not the current priority.
 
@@ -39,7 +39,7 @@ Last updated: 2026-05-21
 - Harness-generated testing reports now render the testing checklist evidence contract, so required evidence terms are visible in persisted test artifacts.
 - Structured testing feedback now maps missing coverage back to `missing_checklist_items`, so development rework prompts can cite the exact checklist `rule_id` and required evidence that failed.
 - Development feedback rework now promotes missing checklist evidence into WorkItem acceptance criteria and Task Center prompts, making the repair target auditable before the next test pass.
-- Run Manifest schema is now `1.36`; WorkItem and retry history records include relationship fields, structured testing feedback, and testing checklists for rework audit/replay; execution records include delivery contracts plus acceptance traces.
+- Run Manifest schema is now `1.37`; WorkItem and retry history records include relationship fields, structured testing feedback, testing checklists, and summary pending test scope for rework audit/replay; execution records include delivery contracts plus acceptance traces.
 - Human Control now has CLI and Board API control paths, Board snapshot exposure, Manifest records, and Markdown project report audit output.
 - TL decisions now mark `escalate_project` as `human_action_required`, and LeadController uses that TL decision to request a matching Human Control approval gate before blocking the project.
 - TL dynamic team planning now adds a `rework_acceptance_guard` tester seat when development feedback rework carries explicit missing checklist evidence targets.
@@ -49,6 +49,7 @@ Last updated: 2026-05-21
 - `run_project --maintenance-task-center` now writes `attention_project_ids`, `finding_code_counts`, `recommendations`, operator guidance, and copyable maintenance/status commands into pre-run maintenance reports and latest pointers.
 - Manifest verification now validates execution delivery contracts and acceptance traces, including required input artifact references, list-shaped fields, trace status values, and evidence field types.
 - Manifest verification also validates WorkItem testing checklist structure so malformed checklist fields are surfaced before replay/resume.
+- Manifest verification now validates `summary.pending_test_scope` shape, duplicates, and references to known testing WorkItem kinds.
 - Project reports render structured testing feedback under WorkItems, including failing checks, missing coverage, and suggested fixes.
 - Replay trace renders WorkItem rework lineage and structured testing feedback, so failed-test-to-rework chains are visible in read-only replay output.
 - Default ShellHarness validation skips real test commands when no project deliverables exist, especially when the project root is the Conductor source checkout.

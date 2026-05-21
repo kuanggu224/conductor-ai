@@ -388,7 +388,7 @@ generates compatible fallback commands from `--project-root`, `--latest`, and
 
 ## Audit Outputs
 
-Run Manifest schema `1.36` records:
+Run Manifest schema `1.37` records:
 
 - `task_assignments[].claimable`
 - `task_assignments[].unmet_dependency_ids`
@@ -443,6 +443,7 @@ Run Manifest schema `1.36` records:
 - `summary.llm_token_usage`
 - `summary.llm_cost_estimate`
 - `summary.llm_context_windows`
+- `summary.pending_test_scope`
 - `resume_cursor.project_status`
 - `resume_cursor.current_stage`
 - `resume_cursor.next_action`

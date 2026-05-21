@@ -215,6 +215,7 @@ class ManifestVerifier:
         summary = self._dict(payload.get("summary"))
         if not summary:
             return
+        workitems = self._list(payload.get("workitems"))
         for summary_key, list_key in self.SUMMARY_LIST_COUNTS.items():
             if summary_key not in summary:
                 continue
@@ -239,7 +240,7 @@ class ManifestVerifier:
             self._status_counts(self._list(payload.get("executions"))),
             result,
         )
-        self._verify_summary_failure_counts(summary, self._list(payload.get("workitems")), result)
+        self._verify_summary_failure_counts(summary, workitems, result)
         self._verify_summary_retry_attempt_count(summary, self._list(payload.get("retry_history")), result)
         self._verify_task_center_summary(summary, self._list(payload.get("task_assignments")), result)
         self._verify_summary_blockers(summary, self._dict(payload.get("resume_cursor")), result)
@@ -252,6 +253,7 @@ class ManifestVerifier:
         self._verify_task_center_audit_summary(summary, self._list(payload.get("task_center_audit")), result)
         self._verify_llm_context_windows(summary, self._list(payload.get("llm_runs")), result)
         self._verify_summary_llm_identity_lists(summary, self._list(payload.get("llm_runs")), result)
+        self._verify_summary_pending_test_scope(summary, workitems, result)
 
         changed_files = self._list(summary.get("changed_files"))
         if "changed_files" in summary and not isinstance(summary.get("changed_files"), list):
@@ -294,6 +296,46 @@ class ManifestVerifier:
         if actual_changed_files != expected_changed_files:
             result.errors.append(
                 f"summary.changed_files={actual_changed_files} does not match execution changed_files={expected_changed_files}"
+            )
+
+    def _verify_summary_pending_test_scope(
+        self,
+        summary: dict[str, Any],
+        workitems: list[Any],
+        result: ManifestVerificationResult,
+    ) -> None:
+        if "pending_test_scope" not in summary:
+            return
+        value = summary.get("pending_test_scope")
+        if not isinstance(value, list):
+            result.errors.append("summary.pending_test_scope must be a list")
+            return
+
+        scope: list[str] = []
+        for index, item in enumerate(value):
+            if not isinstance(item, str) or not item.strip():
+                result.errors.append(f"summary.pending_test_scope[{index}] must be a non-empty string")
+                continue
+            scope.append(item.strip())
+
+        if len(scope) != len(self._dedupe(scope)):
+            result.errors.append("summary.pending_test_scope must not contain duplicates")
+        if not scope:
+            return
+
+        testing_kinds = self._dedupe(
+            [
+                str(item.get("kind", "")).strip()
+                for item in workitems
+                if isinstance(item, dict) and str(item.get("stage", "")) == "testing" and str(item.get("kind", "")).strip()
+            ]
+        )
+        known_testing_kinds = set(testing_kinds)
+        unknown_scope = [kind for kind in self._dedupe(scope) if kind not in known_testing_kinds]
+        if unknown_scope:
+            result.errors.append(
+                "summary.pending_test_scope="
+                f"{unknown_scope} references no testing WorkItem kind; known testing kinds={testing_kinds}"
             )
 
     def _verify_summary_llm_token_usage(
