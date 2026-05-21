@@ -4,8 +4,8 @@ Last updated: 2026-05-22
 
 ## Stable Checkpoint
 
-- Latest verified code checkpoint: current `dev` Task Center audit report/replay display update.
-- Current full test result: `python -m pytest -q --basetemp C:\tmp\conductor_pytest_full_report_replay_audit` -> `702 passed in 121.26s`.
+- Latest verified code checkpoint: current `dev` API mock delivery profile update.
+- Current full test result: `python -m pytest -q --basetemp C:\tmp\conductor_pytest_full_api_mock_delivery` -> `710 passed in 128.27s`.
 - Current focus: backend orchestration, auditability, logs, manifest/replay, and task-center reliability.
 - Frontend Board exists, but visual redesign is intentionally not the current priority.
 
@@ -22,6 +22,7 @@ Last updated: 2026-05-22
 - Static web delivery now adds a real CSV import control only when frozen requirements ask for file import/upload, and StaticWebHarness distinguishes export/download buttons from import/upload controls.
 - Requirement coverage now includes API endpoint behavior for backend/API requirements, and API validation WorkItems can satisfy it with explicit endpoint-behavior evidence.
 - API validation coverage no longer treats generic test success as endpoint evidence; successful `api_validation` runs must expose endpoint, status code, or response payload signals before API behavior coverage is marked satisfied.
+- `api_mock` run profile now generates a FastAPI mock service plus pytest API contract tests through `api_mock_delivery`, preserving endpoint/status/payload evidence for API mock end-to-end validation.
 - API validation failure feedback now promotes concrete endpoint/status/response evidence requirements into development rework prompts and acceptance criteria.
 - Testing-stage feedback rework has a project-level cap, preventing infinite development/testing loops.
 - Testing-stage feedback rework now persists explicit inputs on the rework WorkItem and Task Center assignment: failed test artifacts, original implementation artifacts, frozen requirement, and design artifacts.

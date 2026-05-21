@@ -337,6 +337,48 @@ def test_requirement_evaluator_allows_edit_delete_only_as_open_questions() -> No
     assert evaluation.metrics["scope_expansion_topics"] == []
 
 
+def test_requirement_evaluator_allows_requested_updating_and_deleting_word_forms() -> None:
+    case = build_requirement_case_from_text(
+        "api-crud",
+        "Build a backend REST API for todo items with creating, listing, updating, deleting, and stats endpoints.",
+    )
+    document = """
+    Goal: deliver a backend REST API for todo items.
+    Scope Boundary: expose JSON API endpoints for create, list, update, delete, and stats behavior.
+    Non-Goals: no browser UI, no login, no external database.
+    Acceptance Criteria: POST creates an item, GET lists items, PATCH updates an item, DELETE removes an item, and stats returns counts.
+    Edge Cases: blank titles return 422 and missing ids return 404.
+    Risks And Assumptions: in-memory persistence is acceptable for the mock flow.
+    Testability: pytest contract tests must print endpoint, status code, and response payload evidence.
+    Downstream Handoff Constraints: backend implementation owns app.py and API contract tests.
+    """
+
+    evaluation = evaluate_requirement_document(document, case)
+
+    assert "record_editing" not in evaluation.metrics["scope_expansion_topics"]
+    assert "record_deletion" not in evaluation.metrics["scope_expansion_topics"]
+
+
+def test_requirement_evaluator_does_not_treat_state_updates_as_record_editing() -> None:
+    case = build_requirement_case_from_text(
+        "static-web",
+        "Build a browser-only flashcard tracker with add, filter, localStorage persistence, delete, and CSV export.",
+    )
+    document = """
+    Goal: deliver a browser-only flashcard tracker.
+    Scope Boundary: support the core user flow, visible UI state updates, local data handling, validation, and offline verification.
+    Non-Goals: no login, no backend, no payments.
+    Acceptance Criteria: users can add cards, filter cards, preserve data after refresh, delete cards, and export CSV.
+    Risks And Assumptions: localStorage capacity is acceptable.
+    Testability: browser validation must exercise form, filter, reload, delete, and export evidence.
+    Downstream Handoff Constraints: keep implementation static web only.
+    """
+
+    evaluation = evaluate_requirement_document(document, case)
+
+    assert "record_editing" not in evaluation.metrics["scope_expansion_topics"]
+
+
 def test_requirement_evaluator_does_not_treat_author_as_authentication() -> None:
     case = RequirementBenchmarkCase(
         id="author-not-auth",

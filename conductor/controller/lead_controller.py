@@ -383,14 +383,24 @@ class LeadController:
         self.state_store.save_state(latest_state)
         assignment = self._assignment_for(latest_state, failed_workitem.id)
         if assignment:
+            failed_assignment = replace(
+                assignment,
+                status=TaskAssignmentStatus.FAILED,
+                output_artifact_ids=output_artifact_ids,
+                blocked_reason=reason,
+                result_summary=f"Design gate rework created: {rework_item.id}",
+            )
             self.state_store.upsert_task_assignment(
                 project_id,
-                replace(
-                    assignment,
+                self._assignment_with_transition(
+                    failed_assignment,
+                    action="return",
                     status=TaskAssignmentStatus.FAILED,
-                    output_artifact_ids=output_artifact_ids,
-                    blocked_reason=reason,
-                    result_summary=f"Design gate rework created: {rework_item.id}",
+                    reason=reason,
+                    details={
+                        "result_summary": f"Design gate rework created: {rework_item.id}",
+                        "output_artifact_ids": output_artifact_ids,
+                    },
                 ),
             )
         return self.state_store.get_state(project_id)
@@ -418,12 +428,18 @@ class LeadController:
         assignments = latest.task_assignments
         if assignment:
             assignments = [
-                replace(
-                    item,
+                self._assignment_with_transition(
+                    replace(
+                        item,
+                        status=TaskAssignmentStatus.FAILED,
+                        output_artifact_ids=output_artifact_ids,
+                        blocked_reason=reason,
+                        result_summary=blocker,
+                    ),
+                    action="return",
                     status=TaskAssignmentStatus.FAILED,
-                    output_artifact_ids=output_artifact_ids,
-                    blocked_reason=reason,
-                    result_summary=blocker,
+                    reason=reason,
+                    details={"result_summary": blocker, "output_artifact_ids": output_artifact_ids},
                 )
                 if item.workitem_id == failed_workitem.id
                 else item
@@ -501,14 +517,24 @@ class LeadController:
         self.state_store.save_state(latest_state)
         assignment = self._assignment_for(latest_state, failed_workitem.id)
         if assignment:
+            failed_assignment = replace(
+                assignment,
+                status=TaskAssignmentStatus.FAILED,
+                output_artifact_ids=output_artifact_ids,
+                blocked_reason=reason,
+                result_summary=f"Requirement gate rework created: {rework_item.id}",
+            )
             self.state_store.upsert_task_assignment(
                 project_id,
-                replace(
-                    assignment,
+                self._assignment_with_transition(
+                    failed_assignment,
+                    action="return",
                     status=TaskAssignmentStatus.FAILED,
-                    output_artifact_ids=output_artifact_ids,
-                    blocked_reason=reason,
-                    result_summary=f"Requirement gate rework created: {rework_item.id}",
+                    reason=reason,
+                    details={
+                        "result_summary": f"Requirement gate rework created: {rework_item.id}",
+                        "output_artifact_ids": output_artifact_ids,
+                    },
                 ),
         )
         return self.state_store.get_state(project_id)
@@ -536,12 +562,18 @@ class LeadController:
         assignments = latest.task_assignments
         if assignment:
             assignments = [
-                replace(
-                    item,
+                self._assignment_with_transition(
+                    replace(
+                        item,
+                        status=TaskAssignmentStatus.FAILED,
+                        output_artifact_ids=output_artifact_ids,
+                        blocked_reason=reason,
+                        result_summary=blocker,
+                    ),
+                    action="return",
                     status=TaskAssignmentStatus.FAILED,
-                    output_artifact_ids=output_artifact_ids,
-                    blocked_reason=reason,
-                    result_summary=blocker,
+                    reason=reason,
+                    details={"result_summary": blocker, "output_artifact_ids": output_artifact_ids},
                 )
                 if item.workitem_id == failed_workitem.id
                 else item
@@ -1312,7 +1344,8 @@ class LeadController:
         }
         if details:
             record["details"] = details
-        return replace(assignment, transition_history=[*assignment.transition_history, record])
+        returned_at = str(record["at"]) if action == "return" else assignment.returned_at
+        return replace(assignment, returned_at=returned_at, transition_history=[*assignment.transition_history, record])
 
     def _claim_assignment(self, project_id: str, workitem: WorkItem, agent_id: str) -> None:
         """Mark a Task Center assignment as claimed by an Agent."""

@@ -59,6 +59,7 @@ class ConductorEngine:
         self._mock_without_explicit_llm = self.run_profile in {
             RunProfile.MOCK.value,
             RunProfile.STATIC_WEB.value,
+            RunProfile.API_MOCK.value,
         } and llm_harness_backend is None
         if self._mock_without_explicit_llm:
             self.llm_runtime_config = replace(
@@ -86,6 +87,7 @@ class ConductorEngine:
             artifact_store=self.artifact_store,
             enable_tester_harness=True,
             enable_static_web_delivery=self.run_profile == RunProfile.STATIC_WEB.value,
+            enable_api_mock_delivery=self.run_profile == RunProfile.API_MOCK.value,
             cli_selection_config=self.cli_selection_config,
             runtime_stream_store=self.runtime_stream_store,
             require_real_design_outputs=require_real_design_outputs,

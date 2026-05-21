@@ -1084,6 +1084,60 @@ def test_runner_static_web_delivery_generates_files_and_validation(tmp_path) -> 
     assert "Static Web Validation: PASS" in execution.cli_stdout_tail
 
 
+def test_runner_api_mock_delivery_generates_fastapi_service_and_contract_tests(tmp_path) -> None:
+    project_root = tmp_path / "todo-api"
+    state_store = InMemoryStateStore()
+    runner = Runner(
+        state_store,
+        artifact_store=ArtifactStore(project_root / ".conductor" / "artifacts"),
+        enable_api_mock_delivery=True,
+    )
+    controller = LeadController(
+        workflow_template=WorkflowTemplate(),
+        state_store=state_store,
+        runner=runner,
+    )
+    state = controller.initialize_project(
+        "Build a backend REST API for todo items with create, list, query, update, delete, and stats endpoints.",
+        project_root=str(project_root),
+    )
+    frozen = Artifact(
+        id="artifact-frozen-requirement",
+        project_id=state.project.id,
+        workitem_id="workitem-requirement",
+        agent_id="agent-requirement-designer",
+        kind="frozen_requirement_spec",
+        title="Frozen Requirement",
+        content=state.project.goal,
+    )
+    workitem = WorkItem(
+        id="workitem-api",
+        description="Implement todo REST API mock",
+        stage="development",
+        kind="api_implementation",
+    )
+    state = replace(state, workitems=[workitem], artifacts=[frozen])
+    state_store.save_state(state)
+    agent = Agent(
+        id="agent-backend",
+        role="backend_engineer",
+        capabilities=[Capability.CODING],
+        backend="mock",
+        execution_backend="mock",
+    )
+
+    execution = runner.run(state.project.id, workitem, agent)
+
+    assert execution.status == ExecutionStatus.SUCCESS
+    assert execution.source_backend == "api_mock_delivery"
+    assert execution.changed_files == ["app.py", "pytest.ini", "tests/test_api_contract.py"]
+    assert execution.validation_success is True
+    assert (project_root / "app.py").exists()
+    assert (project_root / "tests" / "test_api_contract.py").exists()
+    assert "POST /api/items -> status_code=201 response payload=" in execution.cli_stdout_tail
+    assert "GET /api/items/stats -> status_code=200 response payload=" in execution.cli_stdout_tail
+
+
 def test_runner_static_web_delivery_adds_csv_import_when_required(tmp_path) -> None:
     project_root = tmp_path / "flashcards-import"
     state_store = InMemoryStateStore()

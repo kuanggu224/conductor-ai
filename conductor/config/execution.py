@@ -17,6 +17,7 @@ class RunProfile(StrEnum):
 
     MOCK = "mock"
     STATIC_WEB = "static_web"
+    API_MOCK = "api_mock"
     DESIGN_CLI_ONLY = "design_cli_only"
     CODE_CLI = "code_cli"
     FULL_CLI = "full_cli"
@@ -31,6 +32,7 @@ class RunProfileConfig:
     require_real_design_outputs: bool = False
     require_real_code_outputs: bool = False
     enable_static_web_delivery: bool = False
+    enable_api_mock_delivery: bool = False
 
     def uses_cli_for_role(self, role: str) -> bool:
         """Return whether the role should be bound to CLI in this profile."""
@@ -47,6 +49,12 @@ def resolve_run_profile(profile: str | RunProfile) -> RunProfileConfig:
             profile=run_profile,
             cli_roles=[],
             enable_static_web_delivery=True,
+        )
+    if run_profile == RunProfile.API_MOCK:
+        return RunProfileConfig(
+            profile=run_profile,
+            cli_roles=[],
+            enable_api_mock_delivery=True,
         )
     if run_profile == RunProfile.DESIGN_CLI_ONLY:
         return RunProfileConfig(

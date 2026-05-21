@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from itertools import count
 
@@ -25,6 +26,7 @@ class Planner:
     """Split a requirement into stage-specific WorkItems with keyword rules."""
 
     UI_KEYWORDS = ("界面", "页面", "ui", "前端", "web", "页面设计", "交互")
+    UI_NEGATION_KEYWORDS = ("no frontend", "no browser ui", "no ui", "without ui", "without frontend", "out of scope: browser ui")
     API_KEYWORDS = ("接口", "api", "后端", "服务", "restful", "http")
     TEST_KEYWORDS = ("测试", "test", "验证", "验收", "单元测试", "集成测试")
     DATA_KEYWORDS = ("数据", "数据库", "存储", "持久化", "mysql", "postgres", "sql")
@@ -94,7 +96,7 @@ class Planner:
                 acceptance_criteria=["输出设计要点", "明确下一阶段实现边界", "不得改变冻结需求范围"],
             )
         ]
-        if self._contains_any(normalized_requirement, self.UI_KEYWORDS):
+        if self._contains_any(normalized_requirement, self.UI_KEYWORDS) and not self._excludes_ui_requirement(normalized_requirement):
             drafts.append(
                 WorkItemDraft(
                     kind="ui_design",
@@ -135,7 +137,7 @@ class Planner:
                     acceptance_criteria=["接口行为可运行", "实现结果可供测试阶段验证"],
                 )
             )
-        if self._contains_any(normalized_requirement, self.UI_KEYWORDS):
+        if self._contains_any(normalized_requirement, self.UI_KEYWORDS) and not self._excludes_ui_requirement(normalized_requirement):
             drafts.append(
                 WorkItemDraft(
                     kind="ui_implementation",
@@ -197,7 +199,7 @@ class Planner:
                     ],
                 )
             )
-        if self._contains_any(normalized_requirement, self.UI_KEYWORDS):
+        if self._contains_any(normalized_requirement, self.UI_KEYWORDS) and not self._excludes_ui_requirement(normalized_requirement):
             drafts.append(
                 WorkItemDraft(
                     kind="ui_validation",
@@ -227,10 +229,19 @@ class Planner:
 
     def _contains_any(self, text: str, keywords: tuple[str, ...]) -> bool:
         """Return True when the text contains any keyword."""
-        return any(keyword in text for keyword in keywords)
+        return any(self._contains_keyword(text, keyword) for keyword in keywords)
+
+    def _contains_keyword(self, text: str, keyword: str) -> bool:
+        """Return whether text contains a keyword without short ASCII substring drift."""
+        if keyword.isascii() and keyword.replace("-", "").isalnum():
+            pattern = rf"(?<![a-z0-9]){re.escape(keyword)}(?![a-z0-9])"
+            return re.search(pattern, text) is not None
+        return keyword in text
 
     def _is_frontend_only_requirement(self, text: str) -> bool:
         """Return whether the requirement explicitly excludes backend/database work."""
+        if self._contains_any(text, self.API_KEYWORDS) and not self._contains_any(text, self.BACKEND_NEGATION_KEYWORDS):
+            return False
         has_frontend_scope = self._contains_any(text, self.UI_KEYWORDS) or self._contains_any(text, self.FRONTEND_ONLY_KEYWORDS)
         excludes_backend = self._contains_any(text, self.BACKEND_NEGATION_KEYWORDS)
         excludes_database = self._contains_any(text, self.DATABASE_NEGATION_KEYWORDS)
@@ -238,3 +249,7 @@ class Planner:
             "localstorage" in text or "本地" in text or "静态" in text
         )
         return has_frontend_scope and (excludes_backend or excludes_database or local_static_scope)
+
+    def _excludes_ui_requirement(self, text: str) -> bool:
+        """Return whether UI terms describe excluded scope rather than requested UI work."""
+        return self._contains_any(text, self.UI_NEGATION_KEYWORDS)

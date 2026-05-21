@@ -1010,6 +1010,8 @@ class CollaborationRunner:
         round_index: int,
     ) -> str:
         """Build an actionable design baseline for offline smoke runs."""
+        if self._is_api_workitem(workitem):
+            return self._build_mock_api_design_revision(workitem, draft, reviews, round_index)
         review_summary = "\n".join(f"- {review.role}: {review.decision.value}" for review in reviews) or "- No review notes."
         criteria = "\n".join(f"- {item}" for item in workitem.acceptance_criteria) or "- Preserve the frozen requirement and produce an implementable handoff."
         return (
@@ -1060,6 +1062,8 @@ class CollaborationRunner:
         round_index: int,
     ) -> str:
         """Build a deterministic requirement baseline for offline smoke runs."""
+        if self._is_api_workitem(workitem):
+            return self._build_mock_api_requirement_revision(workitem, reviews, round_index)
         review_summary = "\n".join(f"- {review.role}: {review.decision.value}" for review in reviews) or "- No review notes."
         criteria = "\n".join(f"- {item}" for item in workitem.acceptance_criteria) or "- Downstream stages must verify the stated user requirement."
         return (
@@ -1104,6 +1108,103 @@ class CollaborationRunner:
             f"{review_summary}\n"
             "- Reviewer concerns are resolved through explicit scope, acceptance, validation, persistence, edge cases, and downstream handoff constraints.\n"
         )
+
+    def _build_mock_api_requirement_revision(
+        self,
+        workitem: WorkItem,
+        reviews: list[ReviewContribution],
+        round_index: int,
+    ) -> str:
+        """Build a deterministic API requirement baseline for offline API smoke runs."""
+        review_summary = "\n".join(f"- {review.role}: {review.decision.value}" for review in reviews) or "- No review notes."
+        criteria = "\n".join(f"- {item}" for item in workitem.acceptance_criteria) or "- Downstream stages must verify the stated API requirement."
+        return (
+            f"# Requirement Specification - {workitem.id}\n\n"
+            f"## Revision Round\n{round_index}\n\n"
+            "## Goal\n"
+            "Deliver the smallest useful backend API that satisfies the user request while preserving explicit scope boundaries.\n\n"
+            "## Requirement Understanding\n"
+            f"{workitem.description}\n\n"
+            "The product must expose JSON HTTP endpoints for the requested resource workflow and keep API behavior observable through contract tests.\n\n"
+            "## Scope Boundary\n"
+            "- In scope: REST-style API endpoints, JSON request/response payloads, input validation, in-memory mock persistence, filtering/query behavior, update/delete behavior, and stats where requested.\n"
+            "- Out of scope / non-goals: browser UI, localStorage, authentication, payments, cloud services, external databases, background jobs, and analytics unless explicitly requested.\n"
+            "- The implementation must not add unrelated platform features beyond the stated API requirement.\n\n"
+            "## Non-Goals\n"
+            "- No frontend page or static web UI.\n"
+            "- No external network service dependency.\n"
+            "- No production database or account system.\n\n"
+            "## Acceptance Criteria\n"
+            f"{criteria}\n"
+            "- Given a valid create request, when the API receives it, then it returns HTTP 201 with a JSON response payload containing the created item.\n"
+            "- Given existing items, when the list endpoint is called, then it returns HTTP 200 with a JSON response payload containing matching items.\n"
+            "- Given filter or query parameters, when the list endpoint is called, then active/completed and keyword matches are reflected in the response payload.\n"
+            "- Given an update or delete request, when the target exists, then the API returns a concrete status code and JSON payload proving the state change.\n\n"
+            "## Edge / Error Cases\n"
+            "- Blank required titles must be rejected with a 4xx status code.\n"
+            "- Missing item ids must return 404.\n"
+            "- Invalid filter values must be rejected instead of silently ignored.\n\n"
+            "## Risks And Assumptions\n"
+            "- Assumption: this is an offline API mock with in-memory persistence for validation.\n"
+            "- Risk: generic test success is not enough evidence; tests must print endpoint, status code, and response payload signals.\n\n"
+            "## Downstream Handoff Constraints\n"
+            "- Design must preserve this API requirement baseline as the contract for later stages.\n"
+            "- Backend implementation must include app.py routes and API contract tests.\n"
+            "- Testing must cover create, list, filter/query, update, delete, stats, and explicit endpoint/status/payload evidence.\n\n"
+            "## Review Resolution\n"
+            f"{review_summary}\n"
+            "- Reviewer concerns are resolved through explicit API scope, contract tests, validation cases, and endpoint evidence requirements.\n"
+        )
+
+    def _build_mock_api_design_revision(
+        self,
+        workitem: WorkItem,
+        draft: str,
+        reviews: list[ReviewContribution],
+        round_index: int,
+    ) -> str:
+        """Build an actionable API design baseline for offline API smoke runs."""
+        review_summary = "\n".join(f"- {review.role}: {review.decision.value}" for review in reviews) or "- No review notes."
+        criteria = "\n".join(f"- {item}" for item in workitem.acceptance_criteria) or "- Preserve the frozen requirement and produce an implementable API handoff."
+        return (
+            f"# Overall Design - {workitem.id}\n\n"
+            f"## Revision Round\n{round_index}\n\n"
+            "## Goal\n"
+            "Define an API-first implementation plan that downstream development and testing agents can execute without adding UI scope.\n\n"
+            "## Requirement Understanding\n"
+            f"{workitem.description}\n\n"
+            "The workflow is a backend JSON API with observable endpoint behavior, validation, filtering/querying, mutation, deletion, and stats responses.\n\n"
+            "## Scope Boundary\n"
+            "- In scope: FastAPI-compatible app.py, /api/items resource routes, JSON payload models, in-memory mock state, validation errors, and pytest contract tests.\n"
+            "- Out of scope / non-goals: browser UI, localStorage, static assets, login/auth, external database, remote integrations, and background workers.\n"
+            "- Constraint: keep the mock deterministic and self-contained for offline validation.\n\n"
+            "## Solution\n"
+            "- Architecture: app.py exposes create/list/get/update/delete/stats endpoints for /api/items.\n"
+            "- Data model: item id, title, content, completed flag, with blank-title validation.\n"
+            "- Contract tests: tests/test_api_contract.py uses FastAPI TestClient and prints endpoint, status code, and response payload evidence.\n"
+            "- Validation command: pytest runs in the project root and emits endpoint behavior evidence for Manifest coverage.\n\n"
+            "## Acceptance And Test Plan\n"
+            f"{criteria}\n"
+            "- Test POST /api/items returns 201 and created item payload.\n"
+            "- Test GET /api/items returns listed items and supports active/completed plus keyword query.\n"
+            "- Test PATCH and DELETE mutate state and return JSON payloads.\n"
+            "- Test GET /api/items/stats returns total/completed/active counts.\n\n"
+            "## Risks And Assumptions\n"
+            "- Assumption: in-memory state is acceptable for the API mock flow.\n"
+            "- Risk: contract tests that hide stdout cannot prove endpoint coverage, so pytest must expose evidence output.\n\n"
+            "## Review Resolution\n"
+            f"{review_summary}\n"
+            "- Reviewer concerns are resolved through explicit API routes, data model, validation boundaries, and contract-test evidence.\n\n"
+            "## Previous Draft Summary\n"
+            f"{draft[:800]}\n"
+        )
+
+    def _is_api_workitem(self, workitem: WorkItem) -> bool:
+        """Return whether a mock collaboration artifact should stay API-first."""
+        text = f"{workitem.kind} {workitem.description}".lower()
+        api_terms = ("api", "rest", "http", "endpoint", "backend", "server", "service", "fastapi")
+        frontend_only_terms = ("browser-only", "static web", "localstorage", "local storage", "no backend")
+        return any(term in text for term in api_terms) and not any(term in text for term in frontend_only_terms)
 
     def _create_final_artifact(
         self,

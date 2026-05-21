@@ -128,6 +128,37 @@ def test_requirement_coverage_infers_api_behavior_interaction() -> None:
     assert covered.traceability[0].evidence_terms == ["api validation exercised endpoint behavior"]
 
 
+def test_requirement_coverage_treats_api_only_non_goals_as_excluded_ui_scope() -> None:
+    requirement = "\n".join(
+        [
+            "Build a backend REST API for todo items.",
+            "Support creating, updating, deleting, filtering, and querying items.",
+            "Out of scope: browser UI, frontend form, and localStorage persistence.",
+        ]
+    )
+
+    rules = infer_coverage_rules(requirement)
+
+    assert [rule.rule_id for rule in rules] == ["api_behavior"]
+
+
+def test_requirement_coverage_accepts_api_endpoint_status_payload_output() -> None:
+    requirement = "Build a backend REST API for todo items with create, query, update, and delete endpoints."
+    output = "\n".join(
+        [
+            "POST /api/items -> status_code=201 response payload={'id': 'item-1'}",
+            "GET /api/items -> status_code=200 response payload=[{'id': 'item-1'}]",
+            "PATCH /api/items/item-1 -> status_code=200 response payload={'status': 'done'}",
+            "DELETE /api/items/item-1 -> status_code=204 response payload=",
+        ]
+    )
+
+    result = evaluate_requirement_coverage(requirement, output)
+
+    assert result.passed is True
+    assert [rule.rule_id for rule in result.required_rules] == ["api_behavior"]
+
+
 def test_requirement_coverage_does_not_infer_api_from_backend_negation() -> None:
     requirement = "\u53ea\u505a\u524d\u7aef\u9759\u6001\u9875\u9762\uff0c\u4e0d\u63a5 API\uff0c\u4e0d\u9700\u8981\u540e\u7aef\u3002"
 

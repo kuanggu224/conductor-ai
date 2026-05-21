@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 from conductor.domain.models import Artifact
@@ -188,7 +189,7 @@ def evaluate_requirement_coverage(frozen_requirement: Artifact | str | None, val
     covered_rule_ids = [
         rule.rule_id
         for rule in required_rules
-        if any(term.lower() in output for term in rule.evidence_terms)
+        if _rule_is_covered(rule, output)
     ]
     missing_rules = [rule for rule in required_rules if rule.rule_id not in set(covered_rule_ids)]
     return CoverageResult(
@@ -234,7 +235,11 @@ def build_testing_checklist(requirement_text: str) -> list[dict[str, object]]:
 
 def _rule_is_required(rule: CoverageRule, normalized_requirement: str) -> bool:
     """Return whether a coverage rule is truly required by the requirement."""
-    if rule.rule_id == "add_item" and _has_api_behavior_requirement(normalized_requirement) and not _has_ui_context(normalized_requirement):
+    if (
+        rule.rule_id in {"add_item", "persistence", "export_csv", "filter", "delete_item", "file_import"}
+        and _has_api_behavior_requirement(normalized_requirement)
+        and not _has_ui_context(normalized_requirement)
+    ):
         return False
     if rule.rule_id == "export_csv":
         return _has_export_interaction_requirement(normalized_requirement)
@@ -243,6 +248,15 @@ def _rule_is_required(rule: CoverageRule, normalized_requirement: str) -> bool:
     if rule.rule_id != "filter":
         return any(term.lower() in normalized_requirement for term in rule.requirement_terms)
     return _has_filter_interaction_requirement(normalized_requirement)
+
+
+def _rule_is_covered(rule: CoverageRule, normalized_output: str) -> bool:
+    """Return whether validation output proves the required coverage rule."""
+    if any(term.lower() in normalized_output for term in rule.evidence_terms):
+        return True
+    if rule.rule_id == "api_behavior":
+        return _has_api_endpoint_evidence(normalized_output)
+    return False
 
 
 def _has_export_interaction_requirement(normalized_requirement: str) -> bool:
@@ -283,22 +297,96 @@ def _has_api_behavior_requirement(normalized_requirement: str) -> bool:
 
 def _has_ui_context(normalized_requirement: str) -> bool:
     """Return whether the requirement asks for browser/UI interaction."""
+    ui_terms = (
+        "\u9875\u9762",
+        "\u754c\u9762",
+        "\u524d\u7aef",
+        "\u8868\u5355",
+        "\u6309\u94ae",
+        "ui",
+        "web",
+        "frontend",
+        "browser",
+        "form",
+        "button",
+    )
     return any(
-        term in normalized_requirement
+        any(_contains_term(line, term) for term in ui_terms) and not _line_negates_ui_scope(line)
+        for line in _normalized_lines(normalized_requirement)
+    )
+
+
+def _line_negates_ui_scope(line: str) -> bool:
+    """Return whether a line mentions UI only as an excluded/non-goal scope."""
+    ui_negation_terms = (
+        "no ui",
+        "without ui",
+        "no browser ui",
+        "without browser ui",
+        "no frontend",
+        "without frontend",
+        "no web ui",
+        "without web ui",
+        "out of scope: browser ui",
+        "out of scope: ui",
+        "non-goal: browser ui",
+        "non-goal: ui",
+        "\u4e0d\u9700\u8981\u524d\u7aef",
+        "\u65e0\u9700\u524d\u7aef",
+        "\u4e0d\u505a\u524d\u7aef",
+        "\u4e0d\u9700\u8981\u9875\u9762",
+        "\u65e0\u9700\u9875\u9762",
+        "\u4e0d\u505a\u9875\u9762",
+        "\u975e\u76ee\u6807\uff1a\u524d\u7aef",
+        "\u975e\u76ee\u6807:\u524d\u7aef",
+        "\u8303\u56f4\u5916\uff1a\u524d\u7aef",
+        "\u8303\u56f4\u5916:\u524d\u7aef",
+    )
+    scoped_negation_markers = (
+        "out of scope",
+        "non-goal",
+        "non goal",
+        "not in scope",
+        "excluded",
+        "exclude",
+        "\u975e\u76ee\u6807",
+        "\u8303\u56f4\u5916",
+        "\u4e0d\u5305\u542b",
+        "\u4e0d\u9700\u8981",
+        "\u65e0\u9700",
+        "\u4e0d\u505a",
+    )
+    ui_terms = ("\u9875\u9762", "\u754c\u9762", "\u524d\u7aef", "ui", "frontend", "browser", "web")
+    return any(_contains_term(line, term) for term in ui_negation_terms) or (
+        any(_contains_term(line, marker) for marker in scoped_negation_markers)
+        and any(_contains_term(line, term) for term in ui_terms)
+    )
+
+
+def _has_api_endpoint_evidence(normalized_output: str) -> bool:
+    """Return whether validation output proves API behavior, not just test success."""
+    endpoint_signal = any(
+        term in normalized_output
         for term in (
-            "\u9875\u9762",
-            "\u754c\u9762",
-            "\u524d\u7aef",
-            "\u8868\u5355",
-            "\u6309\u94ae",
-            "ui",
-            "web",
-            "frontend",
-            "browser",
-            "form",
-            "button",
+            "/api",
+            "endpoint",
+            "route",
+            "testclient",
+            "httpx",
+            "requests.",
+            "fastapi",
+            "flask",
+            "django",
         )
     )
+    method_signal = re.search(r"\b(get|post|put|patch|delete|options|head)\s+[/\w-]", normalized_output) is not None
+    status_signal = (
+        re.search(r"\bstatus(?:_code| code)?\s*[:=]?\s*[1-5]\d\d\b", normalized_output) is not None
+        or re.search(r"\bhttp\s+[1-5]\d\d\b", normalized_output) is not None
+        or re.search(r"->\s*[1-5]\d\d\b", normalized_output) is not None
+    )
+    response_signal = any(term in normalized_output for term in ("response", "payload", "json body", "json=", "body="))
+    return (endpoint_signal or method_signal) and (status_signal or response_signal)
 
 
 def _has_filter_interaction_requirement(normalized_requirement: str) -> bool:
@@ -317,6 +405,23 @@ def _has_filter_interaction_requirement(normalized_requirement: str) -> bool:
             continue
         return True
     return False
+
+
+def _normalized_lines(normalized_text: str) -> list[str]:
+    """Return compact lower-cased requirement lines."""
+    return [
+        " ".join(raw_line.strip().split())
+        for raw_line in normalized_text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+        if raw_line.strip()
+    ]
+
+
+def _contains_term(text: str, term: str) -> bool:
+    """Match ASCII words by boundary while keeping phrase/CJK substring matching."""
+    normalized_term = term.lower()
+    if normalized_term.isascii() and re.search(r"[a-z0-9]", normalized_term):
+        return re.search(rf"(?<![a-z0-9_]){re.escape(normalized_term)}(?![a-z0-9_])", text) is not None
+    return normalized_term in text
 
 
 def _matched_terms(terms: tuple[str, ...], text: str) -> list[str]:

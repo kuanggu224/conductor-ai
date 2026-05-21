@@ -88,6 +88,7 @@ class Runner:
         shell_harness: BaseHarness | None = None,
         enable_tester_harness: bool = False,
         enable_static_web_delivery: bool = False,
+        enable_api_mock_delivery: bool = False,
         cli_selection_config: CLISelectionConfig | None = None,
         runtime_stream_store: RuntimeStreamStore | None = None,
         require_real_design_outputs: bool = False,
@@ -104,6 +105,7 @@ class Runner:
         self.shell_harness = shell_harness or ShellHarness()
         self.enable_tester_harness = enable_tester_harness
         self.enable_static_web_delivery = enable_static_web_delivery
+        self.enable_api_mock_delivery = enable_api_mock_delivery
         self.cli_selection_config = cli_selection_config or CLISelectionConfig()
         self.runtime_stream_store = runtime_stream_store or RuntimeStreamStore()
         self.require_real_design_outputs = require_real_design_outputs
@@ -452,6 +454,10 @@ class Runner:
             self.state_store.add_event(project_id, f"WorkItem {workitem.id} 使用 StaticWebDelivery 生成真实静态 Web 交付物")
             return self._run_static_web_delivery(project_id, workitem, agent, project_root)
 
+        if self._should_use_api_mock_delivery(project_id, workitem, agent):
+            self.state_store.add_event(project_id, f"WorkItem {workitem.id} uses ApiMockDelivery for a verifiable API mock")
+            return self._run_api_mock_delivery(project_id, workitem, agent, project_root)
+
         if self._requires_real_design_output(workitem, agent):
             return self._real_backend_required_result(
                 workitem,
@@ -528,6 +534,243 @@ class Runner:
             cli_stdout_tail=self._tail(validation.stdout),
             cli_stderr_tail=self._tail(validation.stderr),
         )
+
+    def _should_use_api_mock_delivery(self, project_id: str, workitem: WorkItem, agent: Agent) -> bool:
+        """Return whether the built-in API mock backend should produce real API files."""
+        if not (
+            self.enable_api_mock_delivery
+            and agent.role == "backend_engineer"
+            and workitem.kind == "api_implementation"
+        ):
+            return False
+        requirement_text = self._static_web_requirement_text(project_id).lower()
+        api_terms = ("api", "rest", "http", "endpoint", "backend", "server", "service", "fastapi")
+        return any(term in requirement_text for term in api_terms)
+
+    def _run_api_mock_delivery(
+        self,
+        project_id: str,
+        workitem: WorkItem,
+        agent: Agent,
+        project_root: str,
+    ) -> WorkItemRunResult:
+        """Generate a concrete FastAPI mock service and validate it with pytest."""
+        root = Path(project_root)
+        changed_files = self._write_api_mock_app(root)
+        validation_command = self._select_test_command(str(root))
+        validation_request = HarnessRequest(
+            command=validation_command,
+            working_directory=str(root),
+            timeout_seconds=180.0,
+            description=f"api_mock_delivery:{workitem.id}",
+            stream_callback=self._build_stream_callback(project_id),
+            environment=self._validation_environment(),
+        )
+        validation = self.shell_harness.run(validation_request)
+        report = self._build_api_mock_delivery_report(
+            workitem=workitem,
+            agent=agent,
+            changed_files=changed_files,
+            validation=validation,
+            validation_command=validation_command,
+        )
+        return WorkItemRunResult(
+            content=report,
+            source_backend="api_mock_delivery",
+            succeeded=validation.success,
+            failure=None if validation.success else validation_failed(validation),
+            cli_name="api_mock_delivery",
+            working_directory=str(root),
+            execution_command=list(validation_command),
+            execution_exit_code=validation.exit_code,
+            execution_duration_ms=validation.duration_ms,
+            changed_files=changed_files,
+            validation_command=list(validation_command),
+            validation_exit_code=validation.exit_code,
+            validation_success=validation.success,
+            cli_stdout_tail=self._tail(validation.stdout),
+            cli_stderr_tail=self._tail(validation.stderr),
+        )
+
+    def _write_api_mock_app(self, root: Path) -> list[str]:
+        """Write a small FastAPI CRUD mock plus contract tests into the project root."""
+        root.mkdir(parents=True, exist_ok=True)
+        tests_dir = root / "tests"
+        tests_dir.mkdir(parents=True, exist_ok=True)
+        files = {
+            "app.py": self._api_mock_app_py(),
+            "pytest.ini": "[pytest]\naddopts = -s\n",
+            "tests/test_api_contract.py": self._api_mock_contract_tests_py(),
+        }
+        changed: list[str] = []
+        for relative_path, content in files.items():
+            path = root / relative_path
+            previous = path.read_text(encoding="utf-8", errors="replace") if path.exists() else None
+            if previous != content:
+                path.write_text(content, encoding="utf-8")
+                changed.append(relative_path)
+        return changed
+
+    def _api_mock_app_py(self) -> str:
+        return '''"""Generated FastAPI mock service for Conductor API delivery validation."""
+
+from __future__ import annotations
+
+from fastapi import FastAPI, HTTPException, Query
+from pydantic import BaseModel, Field
+
+
+app = FastAPI(title="Conductor API Mock")
+_items: list[dict[str, object]] = []
+_next_id = 1
+
+
+class ItemCreate(BaseModel):
+    title: str = Field(min_length=1)
+    content: str = ""
+    completed: bool = False
+
+
+class ItemPatch(BaseModel):
+    title: str | None = None
+    content: str | None = None
+    completed: bool | None = None
+
+
+def _normalize_title(title: str) -> str:
+    normalized = title.strip()
+    if not normalized:
+        raise HTTPException(status_code=422, detail="title must not be blank")
+    return normalized
+
+
+def _find_item(item_id: int) -> dict[str, object]:
+    for item in _items:
+        if item["id"] == item_id:
+            return item
+    raise HTTPException(status_code=404, detail="item not found")
+
+
+@app.post("/api/items", status_code=201)
+def create_item(payload: ItemCreate) -> dict[str, object]:
+    global _next_id
+    item = {
+        "id": _next_id,
+        "title": _normalize_title(payload.title),
+        "content": payload.content,
+        "completed": payload.completed,
+    }
+    _next_id += 1
+    _items.append(item)
+    return {"item": item}
+
+
+@app.get("/api/items")
+def list_items(
+    status: str = Query("all", pattern="^(all|active|completed)$"),
+    q: str = "",
+) -> dict[str, object]:
+    query = q.strip().lower()
+    items = list(reversed(_items))
+    if status == "active":
+        items = [item for item in items if not item["completed"]]
+    elif status == "completed":
+        items = [item for item in items if item["completed"]]
+    if query:
+        items = [
+            item
+            for item in items
+            if query in str(item["title"]).lower() or query in str(item["content"]).lower()
+        ]
+    return {"items": items}
+
+
+@app.get("/api/items/stats")
+def item_stats() -> dict[str, int]:
+    completed = sum(1 for item in _items if item["completed"])
+    return {"total": len(_items), "completed": completed, "active": len(_items) - completed}
+
+
+@app.get("/api/items/{item_id}")
+def get_item(item_id: int) -> dict[str, object]:
+    return {"item": _find_item(item_id)}
+
+
+@app.patch("/api/items/{item_id}")
+def update_item(item_id: int, payload: ItemPatch) -> dict[str, object]:
+    item = _find_item(item_id)
+    if payload.title is not None:
+        item["title"] = _normalize_title(payload.title)
+    if payload.content is not None:
+        item["content"] = payload.content
+    if payload.completed is not None:
+        item["completed"] = payload.completed
+    return {"item": item}
+
+
+@app.delete("/api/items/{item_id}")
+def delete_item(item_id: int) -> dict[str, object]:
+    item = _find_item(item_id)
+    _items.remove(item)
+    return {"deleted": True}
+'''
+
+    def _api_mock_contract_tests_py(self) -> str:
+        return '''"""Contract tests for the generated API mock service."""
+
+from fastapi.testclient import TestClient
+
+from app import app
+
+
+def test_api_crud_filter_query_and_stats_contract() -> None:
+    client = TestClient(app)
+
+    create_response = client.post(
+        "/api/items",
+        json={"title": "Write backend", "content": "Finish API", "completed": False},
+    )
+    print(f"POST /api/items -> status_code={create_response.status_code} response payload={create_response.json()}")
+    assert create_response.status_code == 201
+    item = create_response.json()["item"]
+
+    completed_response = client.post(
+        "/api/items",
+        json={"title": "Ship release", "content": "Done", "completed": True},
+    )
+    print(f"POST /api/items -> status_code={completed_response.status_code} response payload={completed_response.json()}")
+    assert completed_response.status_code == 201
+
+    list_response = client.get("/api/items")
+    print(f"GET /api/items -> status_code={list_response.status_code} response payload={list_response.json()}")
+    assert list_response.status_code == 200
+    assert len(list_response.json()["items"]) == 2
+
+    active_response = client.get("/api/items", params={"status": "active"})
+    print(f"GET /api/items?status=active -> status_code={active_response.status_code} response payload={active_response.json()}")
+    assert active_response.status_code == 200
+    assert [entry["id"] for entry in active_response.json()["items"]] == [item["id"]]
+
+    query_response = client.get("/api/items", params={"q": "backend"})
+    print(f"GET /api/items?q=backend -> status_code={query_response.status_code} response payload={query_response.json()}")
+    assert query_response.status_code == 200
+    assert query_response.json()["items"][0]["title"] == "Write backend"
+
+    update_response = client.patch(f"/api/items/{item['id']}", json={"completed": True, "content": "Ready"})
+    print(f"PATCH /api/items/{item['id']} -> status_code={update_response.status_code} response payload={update_response.json()}")
+    assert update_response.status_code == 200
+    assert update_response.json()["item"]["completed"] is True
+
+    stats_response = client.get("/api/items/stats")
+    print(f"GET /api/items/stats -> status_code={stats_response.status_code} response payload={stats_response.json()}")
+    assert stats_response.status_code == 200
+    assert stats_response.json() == {"total": 2, "completed": 2, "active": 0}
+
+    delete_response = client.delete(f"/api/items/{item['id']}")
+    print(f"DELETE /api/items/{item['id']} -> status_code={delete_response.status_code} response payload={delete_response.json()}")
+    assert delete_response.status_code == 200
+    assert delete_response.json() == {"deleted": True}
+'''
 
     def _write_static_web_app(self, root: Path, project_id: str) -> list[str]:
         """Write a small browser-only CRUD/filter/export app into the project root."""
@@ -952,6 +1195,27 @@ button {
             cli_name="static_web_delivery",
             changed_files=changed_files,
             cli_stdout="Generated static browser app files.",
+            cli_stderr="",
+            validation_result=validation,
+            validation_command=validation_command,
+            success=validation.success,
+        )
+
+    def _build_api_mock_delivery_report(
+        self,
+        *,
+        workitem: WorkItem,
+        agent: Agent,
+        changed_files: list[str],
+        validation: HarnessResult,
+        validation_command: list[str],
+    ) -> str:
+        return self._build_code_execution_report(
+            workitem=workitem,
+            agent=agent,
+            cli_name="api_mock_delivery",
+            changed_files=changed_files,
+            cli_stdout="Generated FastAPI mock service and API contract tests.",
             cli_stderr="",
             validation_result=validation,
             validation_command=validation_command,

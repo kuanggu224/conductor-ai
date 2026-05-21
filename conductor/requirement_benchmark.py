@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -247,8 +248,8 @@ SCOPE_EXPANSION_TOPICS: dict[str, tuple[str, ...]] = {
     "analytics": ("analytics", "metrics", "\u7edf\u8ba1", "\u5206\u6790", "\u62a5\u8868"),
     "deployment": ("deploy", "docker", "kubernetes", "\u90e8\u7f72", "\u4e0a\u7ebf", "\u5bb9\u5668"),
     "ai_recommendation": ("recommendation", "ai recommendation", "\u63a8\u8350", "\u667a\u80fd\u63a8\u8350"),
-    "record_editing": ("edit", "editing", "modify", "\u7f16\u8f91", "\u4fee\u6539"),
-    "record_deletion": ("delete", "deletion", "remove", "\u5220\u9664", "\u79fb\u9664", "\u589e\u5220", "\u589e\u5220\u6539\u67e5"),
+    "record_editing": ("edit", "editing", "modify", "update", "updating", "\u7f16\u8f91", "\u4fee\u6539"),
+    "record_deletion": ("delete", "deleting", "deletion", "remove", "removing", "\u5220\u9664", "\u79fb\u9664", "\u589e\u5220", "\u589e\u5220\u6539\u67e5"),
 }
 
 SCOPE_NEGATION_TERMS: tuple[str, ...] = (
@@ -715,9 +716,9 @@ def _scope_expansion_topics(requirement: str, document: str) -> list[str]:
     document_text = _scope_detection_text(document)
     topics: list[str] = []
     for topic, terms in SCOPE_EXPANSION_TOPICS.items():
-        if _contains_any(requirement_text, terms):
+        if _contains_scope_topic(requirement_text, terms):
             continue
-        if not _contains_any(document_text, terms):
+        if not _contains_scope_topic(document_text, terms):
             continue
         if _topic_only_appears_as_non_goal(document_text, terms):
             continue
@@ -735,19 +736,34 @@ def _scope_detection_text(text: str) -> str:
 
 def _topic_only_appears_as_non_goal(text: str, terms: tuple[str, ...]) -> bool:
     """Return whether every mention of a topic is explicitly negated/out of scope."""
-    mentions: list[int] = []
-    lowered_terms = [term.lower() for term in terms]
-    for term in lowered_terms:
-        start = 0
-        while True:
-            index = text.find(term, start)
-            if index < 0:
-                break
-            mentions.append(index)
-            start = index + max(len(term), 1)
+    mentions = _scope_topic_mentions(text, terms)
     if not mentions:
         return False
     return all(_has_scope_negation_near(text, index) for index in mentions)
+
+
+def _contains_scope_topic(text: str, terms: tuple[str, ...]) -> bool:
+    """Return whether a scope expansion topic appears with stable term boundaries."""
+    return bool(_scope_topic_mentions(text, terms))
+
+
+def _scope_topic_mentions(text: str, terms: tuple[str, ...]) -> list[int]:
+    """Return topic mention offsets, matching ASCII terms by word boundary."""
+    mentions: list[int] = []
+    for term in terms:
+        lowered = term.lower()
+        if lowered.isascii() and re.search(r"[a-z0-9]", lowered):
+            pattern = re.compile(rf"(?<![a-z0-9_]){re.escape(lowered)}(?![a-z0-9_])")
+            mentions.extend(match.start() for match in pattern.finditer(text))
+            continue
+        start = 0
+        while True:
+            index = text.find(lowered, start)
+            if index < 0:
+                break
+            mentions.append(index)
+            start = index + max(len(lowered), 1)
+    return mentions
 
 
 def _has_scope_negation_near(text: str, index: int) -> bool:

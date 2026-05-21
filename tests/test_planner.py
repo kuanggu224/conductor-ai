@@ -1,6 +1,7 @@
 """规则版 Planner 测试。"""
 
 from conductor.execution.planner import Planner
+from conductor.domain.models import Stage
 from conductor.workflow.template import WorkflowTemplate
 
 
@@ -131,3 +132,36 @@ def test_planner_adds_api_behavior_evidence_to_testing_checklist() -> None:
     ]
     api_validation = next(item for item in testing_workitems if item.kind == "api_validation")
     assert "记录 endpoint、status code 和 response payload 证据" in api_validation.acceptance_criteria
+
+
+def test_planner_does_not_treat_build_as_ui_keyword_for_api_requirements() -> None:
+    planner = Planner()
+    requirement = "Build a backend REST API for todo items with create, list, update, delete, and stats endpoints."
+
+    design_items = planner.plan_stage_workitems(Stage("design", "", ""), requirement)
+    development_items = planner.plan_stage_workitems(Stage("development", "", ""), requirement)
+    testing_items = planner.plan_stage_workitems(Stage("testing", "", ""), requirement)
+
+    assert "api_design" in [item.kind for item in design_items]
+    assert "ui_design" not in [item.kind for item in design_items]
+    assert [item.kind for item in development_items] == ["api_implementation"]
+    assert "api_validation" in [item.kind for item in testing_items]
+    assert "ui_validation" not in [item.kind for item in testing_items]
+
+
+def test_planner_keeps_api_requirement_ui_non_goal_out_of_workitems() -> None:
+    planner = Planner()
+    requirement = (
+        "Build a backend REST API for todo items. "
+        "Out of scope: browser UI, localStorage, and static frontend assets."
+    )
+
+    design_items = planner.plan_stage_workitems(Stage("design", "", ""), requirement)
+    development_items = planner.plan_stage_workitems(Stage("development", "", ""), requirement)
+    testing_items = planner.plan_stage_workitems(Stage("testing", "", ""), requirement)
+
+    assert "api_design" in [item.kind for item in design_items]
+    assert "ui_design" not in [item.kind for item in design_items]
+    assert [item.kind for item in development_items] == ["api_implementation"]
+    assert "api_validation" in [item.kind for item in testing_items]
+    assert "ui_validation" not in [item.kind for item in testing_items]
