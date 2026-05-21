@@ -562,7 +562,7 @@ Task Center CLI 的预期失败会在 stderr 输出机器可读 JSON，包含 `e
 
 Human Control 是人类接管与审批入口。它不替代 Controller，而是在 Controller 推进前插入显式 hold、approval 或 override 记录。
 
-Human Control actions 会写入 state、Board snapshot、Run Manifest 和 Markdown 项目报告，因此 pause、approval、reject、override 决策在交付后仍可审计。
+Human Control actions 会写入 state、Board snapshot、Run Manifest 和 Markdown 项目报告，因此 pause、approval、reject、override 决策在交付后仍可审计。TL 决策会把 `escalate_project` 标记为 `human_action_required`，LeadController 会据此先创建匹配的 approval gate，再允许人工确认后进入阻塞/升级路径。
 
 当前能力：
 
@@ -607,7 +607,7 @@ POST /api/projects/{project_id}/human-control/override
 当前限制：
 
 - 已有 CLI 和 Board API 控制面，Board 页面按钮还未完善。
-- 审批策略仍然很轻量，后续应接入 TL Agent 风险判断、审批模板和人类审查记录。
+- 审批策略已接入 TL Agent 的关键升级判断；后续还应扩展审批模板、人类审查记录和更细粒度风险分级。
 
 ## 14. 当前完成度判断
 

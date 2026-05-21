@@ -199,6 +199,9 @@ class LeadController:
         gated_actions = {"escalate_project"}
         if action not in gated_actions:
             return False
+        latest_decision = state.tl_decisions[-1] if state.tl_decisions else None
+        if latest_decision is not None and not latest_decision.human_action_required:
+            return False
         return not self.human_control.has_clearance(state, action, state.current_stage or "")
 
     def _execute_next_ready_workitem(self, state: SharedProjectState) -> SharedProjectState:

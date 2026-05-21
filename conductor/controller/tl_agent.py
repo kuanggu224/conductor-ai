@@ -18,7 +18,11 @@ class TechnicalLeadAgent:
         pending = [item for item in state.workitems if item.status == WorkItemStatus.PENDING]
         running = [item for item in state.workitems if item.status == WorkItemStatus.RUNNING]
         blockers = list(state.blockers)
-        human_action_required = bool(blockers) or state.project_status == ProjectStatus.BLOCKED or action == "human_hold"
+        human_action_required = (
+            bool(blockers)
+            or state.project_status == ProjectStatus.BLOCKED
+            or action in {"human_hold", "escalate_project"}
+        )
         risk_level = self._risk_level(state, failed, blockers)
         recommendations = self._recommendations(action, failed, blockers, pending, running)
         created_at = datetime.now(timezone.utc).isoformat()

@@ -145,6 +145,20 @@ def test_tl_agent_owns_dynamic_team_plan_decision() -> None:
     assert any(spec.role == "backend_engineer" for spec in plan.agent_specs)
 
 
+def test_tl_agent_marks_escalation_as_human_action_required() -> None:
+    tl_agent = TechnicalLeadAgent()
+    state = SharedProjectState(
+        project=Project(id="project-tl-escalate", goal="Build risky feature", current_stage="testing"),
+        project_status=ProjectStatus.IN_PROGRESS,
+        current_stage="testing",
+    )
+
+    decision = tl_agent.evaluate(state, "escalate_project")
+
+    assert decision.action == "escalate_project"
+    assert decision.human_action_required is True
+
+
 def test_tl_agent_adds_integration_contract_guard_for_parallel_frontend_backend_work() -> None:
     planner = AgentTeamPlanner()
     tl_agent = TechnicalLeadAgent()

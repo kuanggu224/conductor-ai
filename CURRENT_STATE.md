@@ -4,8 +4,8 @@ Last updated: 2026-05-21
 
 ## Stable Checkpoint
 
-- Latest verified code checkpoint: current `dev` testing checklist report update.
-- Current full test result: `python -m pytest -q --basetemp C:\tmp\conductor_pytest_full_checklist_report` -> `682 passed in 123.66s`.
+- Latest verified code checkpoint: current `dev` TL-driven human approval gate update.
+- Current full test result: `python -m pytest -q --basetemp C:\tmp\conductor_pytest_full_tl_human_gate` -> `683 passed in 125.00s`.
 - Current focus: backend orchestration, auditability, logs, manifest/replay, and task-center reliability.
 - Frontend Board exists, but visual redesign is intentionally not the current priority.
 
@@ -40,6 +40,7 @@ Last updated: 2026-05-21
 - Development feedback rework now promotes missing checklist evidence into WorkItem acceptance criteria and Task Center prompts, making the repair target auditable before the next test pass.
 - Run Manifest schema is now `1.36`; WorkItem and retry history records include relationship fields, structured testing feedback, and testing checklists for rework audit/replay; execution records include delivery contracts plus acceptance traces.
 - Human Control now has CLI and Board API control paths, Board snapshot exposure, Manifest records, and Markdown project report audit output.
+- TL decisions now mark `escalate_project` as `human_action_required`, and LeadController uses that TL decision to request a matching Human Control approval gate before blocking the project.
 - TL dynamic team planning now adds a `rework_acceptance_guard` tester seat when development feedback rework carries explicit missing checklist evidence targets.
 - TL dynamic team planning now adds an `evidence_trace_guard` tester seat when testing WorkItems carry machine-readable checklist evidence contracts.
 - Task Center Board API now covers dynamic Agent task discovery/claiming, batch claim, explicit lease renewal, expired lease release, stale release, and combined sweep maintenance.

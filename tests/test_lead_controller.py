@@ -344,6 +344,8 @@ def test_failed_workitem_escalates_when_retry_exhausted() -> None:
     state = controller.advance(state)
 
     assert state.project_status == ProjectStatus.INITIALIZED
+    assert state.tl_decisions[-1].action == "escalate_project"
+    assert state.tl_decisions[-1].human_action_required is True
     assert state.human_control_actions[-1].action.value == "request_approval"
     assert state.human_control_actions[-1].payload == {"controller_action": "escalate_project", "stage": "design"}
 
