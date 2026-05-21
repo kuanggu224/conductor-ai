@@ -156,3 +156,59 @@ def test_human_control_cli_requires_project_id_when_multiple_states(tmp_path, ca
 
     assert code == 0
     assert payload["project_id"] == "project-b"
+
+
+def test_human_control_cli_status_all_reports_active_holds(tmp_path, capsys) -> None:
+    project_root = tmp_path / "workspace"
+    state_a = _seed_project(project_root, project_id="project-a")
+    state_b = _seed_project(project_root, project_id="project-b")
+    state_c = _seed_project(project_root, project_id="project-c")
+    store = FileStateStore(project_root / ".conductor" / "state")
+    service = HumanControlService(store)
+    service.pause(state_b.project.id, actor="operator", reason="inspect output")
+    service.request_approval(
+        state_c.project.id,
+        actor="tl_agent",
+        reason="high risk escalation",
+        payload={"controller_action": "escalate_project", "stage": "development"},
+    )
+
+    code = main(["status-all", "--project-root", str(project_root)])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert payload["project_count"] == 3
+    assert payload["active_count"] == 2
+    assert payload["active_project_ids"] == ["project-b", "project-c"]
+    assert payload["action_count"] == 2
+    assert [item["action"] for item in payload["active_actions"]] == ["pause", "request_approval"]
+
+    projects = {item["project_id"]: item for item in payload["projects"]}
+    assert projects[state_a.project.id]["active"] is False
+    assert projects[state_a.project.id]["available_actions"] == ["pause", "request_approval"]
+    assert projects[state_b.project.id]["hold_reason"] == "human_paused: inspect output"
+    assert projects[state_b.project.id]["operator_commands"][0].startswith("python -m app.human_control resume")
+    assert projects[state_c.project.id]["hold_reason"] == "human_approval_required: high risk escalation"
+    assert projects[state_c.project.id]["active_action"]["payload"] == {
+        "controller_action": "escalate_project",
+        "stage": "development",
+    }
+    assert "python -m app.human_control approve" in projects[state_c.project.id]["operator_commands"][0]
+
+
+def test_human_control_cli_status_all_allows_empty_workspace(tmp_path, capsys) -> None:
+    project_root = tmp_path / "workspace"
+
+    code = main(["status-all", "--project-root", str(project_root)])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert payload == {
+        "ok": True,
+        "project_count": 0,
+        "active_count": 0,
+        "active_project_ids": [],
+        "active_actions": [],
+        "action_count": 0,
+        "projects": [],
+    }

@@ -27,6 +27,7 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--project-id", help="Project id. Optional when the state directory contains one project.")
 
     subparsers.add_parser("status", parents=[common], help="Print the active human-control state.")
+    subparsers.add_parser("status-all", parents=[common], help="Print human-control state for every project.")
 
     pause = subparsers.add_parser("pause", parents=[common], help="Pause automatic controller advancement.")
     pause.add_argument("--actor", default="human")
@@ -64,8 +65,13 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         store = FileStateStore(_resolve_state_dir(args))
-        state = _resolve_state(store, args.project_id)
         service = HumanControlService(store)
+        if args.command == "status-all":
+            payload = _status_all_payload(store, service)
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+            return 0
+
+        state = _resolve_state(store, args.project_id)
 
         if args.command == "status":
             payload = _status_payload(state, service)
@@ -176,6 +182,45 @@ def _status_payload(state: SharedProjectState, service: HumanControlService) -> 
         "operator_commands": service.operator_command_templates(state),
         "action_count": len(state.human_control_actions),
         "actions": [_action_payload(action) for action in state.human_control_actions],
+    }
+
+
+def _status_all_payload(store: FileStateStore, service: HumanControlService) -> dict[str, object]:
+    projects: list[dict[str, object]] = []
+    active_project_ids: list[str] = []
+    active_actions: list[dict[str, object]] = []
+    total_action_count = 0
+    for state in store.list_states():
+        project = _project_status_payload(state, service)
+        projects.append(project)
+        total_action_count += int(project["action_count"])
+        if project["active"]:
+            active_project_ids.append(str(project["project_id"]))
+            active_actions.append(dict(project["active_action"]))
+    return {
+        "ok": True,
+        "project_count": len(projects),
+        "active_count": len(active_project_ids),
+        "active_project_ids": active_project_ids,
+        "active_actions": active_actions,
+        "action_count": total_action_count,
+        "projects": projects,
+    }
+
+
+def _project_status_payload(state: SharedProjectState, service: HumanControlService) -> dict[str, object]:
+    active = service.active_action(state)
+    return {
+        "project_id": state.project.id,
+        "project_status": state.project_status.value,
+        "current_stage": state.current_stage or "",
+        "active": active is not None,
+        "hold_reason": service.controller_hold_reason(state) or "",
+        "active_action": _action_payload(active) if active else {},
+        "available_actions": service.available_actions(state),
+        "operator_guidance": service.operator_guidance(state),
+        "operator_commands": service.operator_command_templates(state),
+        "action_count": len(state.human_control_actions),
     }
 
 

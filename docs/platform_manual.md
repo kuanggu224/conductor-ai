@@ -568,6 +568,8 @@ Human Control 是人类接管与审批入口。它不替代 Controller，而是�
 
 Human Control actions 会写入 state、Board snapshot、Run Manifest、Markdown 项目报告和 Replay trace，因此 pause、approval、reject、override 决策在交付后仍可审计。TL 决策会把 `escalate_project` 标记为 `human_action_required`，LeadController 会据此先创建匹配的 approval gate，再允许人工确认后进入阻塞/升级路径。
 
+`status-all` 会扫描同一个 workspace 下的全部项目，输出 `active_project_ids`、`active_actions`、每个项目的 hold reason 和可复制 operator commands，便于长周期调度器或人工 operator 先确认哪些项目正处于暂停或审批 gate。
+
 当前能力：
 
 - `pause`：暂停自动推进。
@@ -582,6 +584,7 @@ Human Control actions 会写入 state、Board snapshot、Run Manifest、Markdown
 
 ```powershell
 python -m app.human_control status --project-root <project-root>
+python -m app.human_control status-all --project-root <workspace-root>
 python -m app.human_control pause --project-root <project-root> --actor operator --reason "inspect delivery"
 python -m app.human_control resume --project-root <project-root> --actor operator --reason "continue"
 python -m app.human_control request-approval --project-root <project-root> --actor tl_agent --reason "high risk escalation" --controller-action escalate_project --stage testing
