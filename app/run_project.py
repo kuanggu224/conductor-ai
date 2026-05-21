@@ -955,6 +955,14 @@ def _preflight_gate_recommendations(
         health_status = getattr(backend, "health_status", "")
         if recommendation and health_status in {"failed", "warning", "unreadable"}:
             recommendations.append(recommendation)
+    for tool in getattr(diagnostics, "cli_tools", []):
+        if agent_cli and getattr(tool, "name", "") != agent_cli:
+            continue
+        recommendation = getattr(tool, "recommendation", "")
+        auth_status = getattr(tool, "auth_status", "")
+        version_status = getattr(tool, "version_status", "")
+        if recommendation and (auth_status == "unauthorized" or version_status in {"failed", "timeout"}):
+            recommendations.append(recommendation)
     for warning in _preflight_gate_relevant_warnings(
         diagnostics=diagnostics,
         agent_cli=agent_cli,

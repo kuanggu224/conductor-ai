@@ -4,8 +4,8 @@ Last updated: 2026-05-21
 
 ## Stable Checkpoint
 
-- Latest verified code checkpoint: current `dev` testing feedback execution evidence update.
-- Current full test result: `python -m pytest -q --basetemp C:\tmp\conductor_pytest_full_feedback_execution` -> `685 passed in 124.06s`.
+- Latest verified code checkpoint: current `dev` CLI auth diagnostics update.
+- Current full test result: `python -m pytest -q --basetemp C:\tmp\conductor_pytest_full_cli_auth_diag` -> `687 passed in 124.54s`.
 - Current focus: backend orchestration, auditability, logs, manifest/replay, and task-center reliability.
 - Frontend Board exists, but visual redesign is intentionally not the current priority.
 
@@ -52,7 +52,7 @@ Last updated: 2026-05-21
 - Replay trace renders WorkItem rework lineage and structured testing feedback, so failed-test-to-rework chains are visible in read-only replay output.
 - Default ShellHarness validation skips real test commands when no project deliverables exist, especially when the project root is the Conductor source checkout.
 - Manifest verification accepts intentionally reclassified failed test WorkItems when their failures have been flowed back into development rework.
-- Platform diagnostics now expose structured UTF-8 readiness, LLM timeout status, timeout warnings, and block model probing when an enabled backend has an invalid timeout.
+- Platform diagnostics now expose structured UTF-8 readiness, LLM timeout status, timeout warnings, CLI auth status, CLI auth recovery recommendations, and block model probing when an enabled backend has an invalid timeout.
 
 ## Latest Real E2E Smoke
 

@@ -35,6 +35,9 @@ class CLIToolDiagnostic:
     version_status: str = "not_checked"
     version_output: str = ""
     version_error: str = ""
+    auth_status: str = "not_checked"
+    auth_error: str = ""
+    recommendation: str = ""
 
 
 @dataclass(slots=True)
@@ -225,8 +228,16 @@ def _build_cli_tool_diagnostics(
             item.version_status = status
             item.version_output = output
             item.version_error = error
+            item.auth_status, item.auth_error = _classify_cli_auth_status(
+                cli_name=name,
+                version_status=status,
+                output=output,
+                error=error,
+            )
         elif probe_cli and not available:
             item.version_status = "not_available"
+            item.auth_status = "not_available"
+        item.recommendation = _cli_recommendation(item)
         diagnostics.append(item)
     return diagnostics
 
@@ -348,6 +359,8 @@ def _build_warnings(
     for tool in cli_tools:
         if tool.selected and tool.version_status in {"failed", "timeout"}:
             warnings.append(f"Selected CLI `{tool.name}` probe failed: {tool.version_error or tool.version_output}")
+        if tool.selected and tool.auth_status == "unauthorized":
+            warnings.append(f"Selected CLI `{tool.name}` appears unauthorized: {tool.auth_error}")
     for backend in llm_backends:
         if not backend.enabled:
             continue
@@ -550,6 +563,65 @@ def _probe_cli_version(path: str, timeout_seconds: float) -> tuple[str, str, str
     if completed.returncode != 0:
         return "failed", output[:500], f"exit_code={completed.returncode}"
     return "ok", output[:500], ""
+
+
+def _classify_cli_auth_status(
+    *,
+    cli_name: str,
+    version_status: str,
+    output: str,
+    error: str,
+) -> tuple[str, str]:
+    """Classify common Agent CLI authentication failures from lightweight probe output."""
+    text = f"{output}\n{error}".lower()
+    auth_terms = (
+        "not logged in",
+        "not login",
+        "login required",
+        "please login",
+        "please log in",
+        "authentication required",
+        "not authenticated",
+        "unauthorized",
+        "401",
+        "403",
+        "invalid api key",
+        "api key missing",
+        "missing api key",
+        "token expired",
+        "no auth token",
+        "invalid auth token",
+        "expired auth token",
+        "oauth error",
+    )
+    if any(term in text for term in auth_terms):
+        return "unauthorized", _cli_auth_error_message(output=output, error=error)
+    if version_status == "not_checked":
+        return "not_checked", ""
+    if version_status == "not_available":
+        return "not_available", ""
+    if version_status == "ok":
+        return "unknown", f"`{cli_name} --version` passed, but authentication was not exercised."
+    return "unknown", _cli_auth_error_message(output=output, error=error)
+
+
+def _cli_auth_error_message(*, output: str, error: str) -> str:
+    return (error or output or "authentication status could not be verified").strip()[:500]
+
+
+def _cli_recommendation(tool: CLIToolDiagnostic) -> str:
+    """Return an operator hint for one Agent CLI diagnostic."""
+    if not tool.available:
+        return f"Install `{tool.name}` or remove it from selected CLI bindings."
+    if tool.auth_status == "unauthorized":
+        return f"Run the `{tool.name}` login/auth command, refresh credentials, then rerun diagnostics with --probe-cli."
+    if tool.version_status == "timeout":
+        return f"`{tool.name} --version` timed out; verify the CLI launches without interactive prompts."
+    if tool.version_status == "failed":
+        return f"Fix `{tool.name} --version` before using it for Agent execution."
+    if tool.auth_status == "unknown":
+        return f"`{tool.name}` is installed; run a provider-specific auth/status command before long real runs."
+    return f"`{tool.name}` is installed; run diagnostics with --probe-cli before real Agent execution."
 
 
 def _extract_model_names(payload: object) -> list[str]:

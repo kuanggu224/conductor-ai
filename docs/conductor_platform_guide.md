@@ -557,7 +557,7 @@ python -m app.run_project `
 python -m app.run_project --project-root C:\path\to\project --preflight-only
 ```
 
-`app.diagnostics` 和 `run_project --diagnose` 会暴露 CLI 探测、LLM server/model/context window、LLM timeout 健康状态、UTF-8 编码就绪度和最近一次 preflight gate。`timeout_status=low` 用于提醒长 prompt 风险；`timeout_status=invalid` 会阻断 LLM model probe，并在 warnings 中给出明确修复建议。
+`app.diagnostics` 和 `run_project --diagnose` 会暴露 CLI 探测、CLI auth status、LLM server/model/context window、LLM timeout 健康状态、UTF-8 编码就绪度和最近一次 preflight gate。`--probe-cli` 会从轻量探测输出中识别未登录、认证过期、API key 缺失等常见授权失败，并输出 `auth_status=unauthorized`、`auth_error` 和 login/auth 恢复建议；selected CLI 的未授权状态会进入 preflight gate warnings，避免真实执行开始后才失败。`timeout_status=low` 用于提醒长 prompt 风险；`timeout_status=invalid` 会阻断 LLM model probe，并在 warnings 中给出明确修复建议。
 
 写出审计包：
 

@@ -1141,11 +1141,51 @@ def test_preflight_gate_blocks_failed_llm_harness(monkeypatch, tmp_path) -> None
     assert any("preflight failed" in error for error in payload["preflight_gate"]["errors"])
 
 
+def test_preflight_gate_recommends_cli_auth_recovery(monkeypatch, tmp_path) -> None:
+    run_profile = resolve_run_profile("design_cli_only")
+    llm_runtime_config = LLMRuntimeConfig(
+        local=LLMHTTPConfig(base_url="http://127.0.0.1:1234/v1", model_name="local-model", enabled=False),
+        cloud=LLMHTTPConfig(base_url="https://example.com/v1", model_name="cloud-model", enabled=False),
+        usage=LLMUsagePolicy(runner_enabled=False),
+    )
+    monkeypatch.setattr(
+        run_project,
+        "build_platform_diagnostics",
+        lambda **_: fake_diagnostics(
+            "local",
+            "disabled",
+            warnings=["Selected CLI `codex` appears unauthorized: authentication required"],
+            cli_tools=[
+                SimpleNamespace(
+                    name="codex",
+                    auth_status="unauthorized",
+                    version_status="failed",
+                    recommendation="Run the `codex` login/auth command, refresh credentials, then rerun diagnostics with --probe-cli.",
+                )
+            ],
+        ),
+    )
+
+    payload = _run_preflight_gate(
+        cli_config=_build_cli_config("codex", run_profile),
+        llm_runtime_config=llm_runtime_config,
+        project_root=tmp_path,
+        run_profile=run_profile,
+        agent_cli="codex",
+        llm_harness_backend=None,
+    )
+
+    assert payload["ok"] is False
+    assert any("appears unauthorized" in error for error in payload["preflight_gate"]["errors"])
+    assert any("login/auth" in item for item in payload["preflight_gate"]["recommendations"])
+
+
 def fake_diagnostics(
     backend: str,
     health_status: str,
     warnings: list[str] | None = None,
     extra_backends: list[tuple[str, str, str]] | None = None,
+    cli_tools: list[object] | None = None,
 ):
     backends = [
         SimpleNamespace(
@@ -1165,10 +1205,15 @@ def fake_diagnostics(
     return SimpleNamespace(
         warnings=warnings or [],
         llm_backends=backends,
+        cli_tools=cli_tools or [],
         to_dict=lambda: {
             "llm_backends": [
                 {"backend": item.backend, "health_status": item.health_status}
                 for item in backends
-            ]
+            ],
+            "cli_tools": [
+                {"name": getattr(item, "name", ""), "auth_status": getattr(item, "auth_status", "")}
+                for item in (cli_tools or [])
+            ],
         },
     )

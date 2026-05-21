@@ -98,7 +98,10 @@ def test_platform_diagnostics_can_probe_cli_versions(monkeypatch, tmp_path) -> N
     assert codex.selected is True
     assert codex.version_status == "ok"
     assert codex.version_output == "codex 1.2.3"
+    assert codex.auth_status == "unknown"
+    assert "auth/status" in codex.recommendation
     assert opencode.version_status == "not_available"
+    assert opencode.auth_status == "not_available"
 
 
 def test_platform_diagnostics_warns_when_selected_cli_probe_fails(monkeypatch, tmp_path) -> None:
@@ -121,6 +124,32 @@ def test_platform_diagnostics_warns_when_selected_cli_probe_fails(monkeypatch, t
 
     assert diagnostics.ok is False
     assert any("Selected CLI `codex` probe failed" in warning for warning in diagnostics.warnings)
+
+
+def test_platform_diagnostics_reports_selected_cli_auth_failure(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        "conductor.diagnostics.discover_cli_tools",
+        lambda: [
+            type("Tool", (), {"name": "codex", "label": "Codex CLI", "path": "/bin/codex", "available": True})(),
+        ],
+    )
+
+    diagnostics = build_platform_diagnostics(
+        cli_config=CLISelectionConfig(
+            selected_cli_names=["codex"],
+            role_cli_bindings={"designer": "codex"},
+        ),
+        project_root=tmp_path,
+        probe_cli=True,
+        cli_probe=lambda *_: ("failed", "", "authentication required: please log in"),
+    )
+
+    codex = diagnostics.cli_tools[0]
+    assert diagnostics.ok is False
+    assert codex.auth_status == "unauthorized"
+    assert "authentication required" in codex.auth_error
+    assert "login/auth" in codex.recommendation
+    assert any("appears unauthorized" in warning for warning in diagnostics.warnings)
 
 
 def test_platform_diagnostics_reports_llm_backend_config_without_probe(monkeypatch, tmp_path) -> None:
