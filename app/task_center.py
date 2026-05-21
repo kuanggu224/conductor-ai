@@ -1267,7 +1267,11 @@ def _watchdog_operator_commands(
         status.extend(["--max-age-seconds", str(max_age_seconds)])
     watchdog.append("--fail-on-unhealthy")
     status.append("--fail-on-findings")
-    return [" ".join(watchdog), " ".join(status)]
+    return [
+        " ".join(watchdog),
+        " ".join(status),
+        _human_control_status_all_command(project_root),
+    ]
 
 
 def _attach_maintenance_operator_hints(
@@ -1331,7 +1335,28 @@ def _maintenance_operator_commands(
     if max_age_seconds > 0:
         status.extend(["--max-age-seconds", str(max_age_seconds)])
     status.append("--fail-on-findings")
-    return [" ".join(maintenance), " ".join(status)]
+    return [
+        " ".join(maintenance),
+        " ".join(status),
+        _human_control_status_all_command(project_root),
+    ]
+
+
+def _human_control_status_all_command(project_root: str) -> str:
+    return " ".join(
+        [
+            "python",
+            "-m",
+            "app.human_control",
+            "status-all",
+            "--project-root",
+            _quote_cli_arg(project_root),
+            "--active-only",
+            "--fail-on-active",
+            "--output",
+            _quote_cli_arg(".conductor/human-control/status.json"),
+        ]
+    )
 
 
 def _quote_cli_arg(value: object) -> str:

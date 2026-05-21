@@ -649,7 +649,11 @@ def _pre_run_maintenance_operator_commands(
         _quote_cli_arg(latest_path),
         "--fail-on-findings",
     ]
-    return [" ".join(resume), " ".join(status)]
+    return [
+        " ".join(resume),
+        " ".join(status),
+        _human_control_status_all_command(str(project_root)),
+    ]
 
 
 def _list_payload(value: object) -> list[object]:
@@ -662,6 +666,23 @@ def _dict_payload(value: object) -> dict[str, object]:
 
 def _quote_cli_arg(value: object) -> str:
     return '"' + str(value).replace('"', '\\"') + '"'
+
+
+def _human_control_status_all_command(project_root: str) -> str:
+    return " ".join(
+        [
+            "python",
+            "-m",
+            "app.human_control",
+            "status-all",
+            "--project-root",
+            _quote_cli_arg(project_root),
+            "--active-only",
+            "--fail-on-active",
+            "--output",
+            _quote_cli_arg(".conductor/human-control/status.json"),
+        ]
+    )
 
 
 def _write_audit_bundle_index_if_requested(

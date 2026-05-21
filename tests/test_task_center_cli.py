@@ -1872,6 +1872,10 @@ def test_task_center_cli_maintenance_sweeps_then_audits_and_writes_report(tmp_pa
     assert '--latest-output ".conductor/maintenance/latest.json"' in payload["operator_commands"][0]
     assert payload["operator_commands"][1].startswith("python -m app.task_center maintenance-status")
     assert "--fail-on-findings" in payload["operator_commands"][1]
+    assert payload["operator_commands"][2].startswith("python -m app.human_control status-all")
+    assert "--active-only" in payload["operator_commands"][2]
+    assert "--fail-on-active" in payload["operator_commands"][2]
+    assert '--output ".conductor/human-control/status.json"' in payload["operator_commands"][2]
     assert payload["sweep"]["released_count"] == 1
     assert payload["audit"]["passed"] is False
     assert report_payload["status"] == "needs_attention"
@@ -1976,6 +1980,8 @@ def test_task_center_cli_maintenance_status_reads_clean_latest(tmp_path, capsys)
     assert payload["operator_commands"][1].startswith("python -m app.task_center maintenance-status")
     assert '--latest ".conductor/maintenance/latest.json"' in payload["operator_commands"][1]
     assert "--fail-on-findings" in payload["operator_commands"][1]
+    assert payload["operator_commands"][2].startswith("python -m app.human_control status-all")
+    assert "--fail-on-active" in payload["operator_commands"][2]
 
 
 def test_task_center_cli_maintenance_status_reports_stale_latest(tmp_path, capsys) -> None:
@@ -2032,6 +2038,7 @@ def test_task_center_cli_maintenance_status_reports_missing_latest(tmp_path, cap
     assert payload["healthy"] is False
     assert payload["operator_commands"][0].startswith("python -m app.task_center maintenance")
     assert payload["operator_commands"][1].startswith("python -m app.task_center maintenance-status")
+    assert payload["operator_commands"][2].startswith("python -m app.human_control status-all")
     assert payload["error"] == "latest maintenance file not found"
 
 
@@ -2083,6 +2090,8 @@ def test_task_center_cli_watchdog_runs_maintenance_when_latest_missing(tmp_path,
     assert '--latest-output ".conductor/maintenance/latest.json"' in payload["operator_commands"][0]
     assert "--max-age-seconds 60" in payload["operator_commands"][0]
     assert "--fail-on-unhealthy" in payload["operator_commands"][0]
+    assert payload["operator_commands"][2].startswith("python -m app.human_control status-all")
+    assert "--fail-on-active" in payload["operator_commands"][2]
 
 
 def test_task_center_cli_watchdog_check_only_does_not_write_when_latest_missing(tmp_path, capsys) -> None:

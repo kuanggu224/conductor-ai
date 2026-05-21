@@ -839,6 +839,10 @@ def test_run_project_can_run_task_center_maintenance_before_resume(tmp_path, cap
     assert '--maintenance-report-output "maintenance/pre-run.json"' in maintenance["operator_commands"][0]
     assert '--maintenance-latest-output "maintenance/latest.json"' in maintenance["operator_commands"][0]
     assert maintenance["operator_commands"][1].startswith("python -m app.task_center maintenance-status")
+    assert maintenance["operator_commands"][2].startswith("python -m app.human_control status-all")
+    assert "--active-only" in maintenance["operator_commands"][2]
+    assert "--fail-on-active" in maintenance["operator_commands"][2]
+    assert '--output ".conductor/human-control/status.json"' in maintenance["operator_commands"][2]
     assert maintenance_report["project_id"] == payload["project_id"]
     assert maintenance_report["released_count"] == 1
     assert maintenance_report["operator_commands"] == maintenance["operator_commands"]
@@ -982,6 +986,7 @@ def test_run_project_maintenance_can_stop_before_resume_on_audit_findings(tmp_pa
     assert maintenance_latest["report_path"] == str(maintenance_report_path.resolve())
     assert maintenance_latest["operator_commands"]
     assert "--maintenance-fail-on-findings" in maintenance_latest["operator_commands"][0]
+    assert maintenance_latest["operator_commands"][2].startswith("python -m app.human_control status-all")
     assert "manifest_path" not in resumed_payload
     assert reloaded.executions == []
 
