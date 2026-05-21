@@ -978,6 +978,7 @@ class ManifestVerifier:
             task_center_audit,
             task_assignment_ids,
             workitem_ids,
+            artifact_ids,
             assignment_workitem_ids,
             result,
         )
@@ -1349,10 +1350,11 @@ class ManifestVerifier:
         task_center_audit: list[Any],
         task_assignment_ids: set[str],
         workitem_ids: set[str],
+        artifact_ids: set[str],
         assignment_workitem_ids: dict[str, str],
         result: ManifestVerificationResult,
     ) -> None:
-        """Verify Task Center audit findings can be traced back to archived assignments."""
+        """Verify Task Center audit findings can be traced back to archived state."""
         for index, finding in enumerate(task_center_audit):
             if not isinstance(finding, dict):
                 result.errors.append(f"task_center_audit[{index}] must be an object")
@@ -1363,6 +1365,8 @@ class ManifestVerifier:
             workitem_id = str(finding.get("workitem_id", ""))
             if "related_assignment_ids" in finding and not isinstance(finding.get("related_assignment_ids"), list):
                 result.errors.append(f"task_center_audit[{index}].related_assignment_ids must be a list")
+            if "related_artifact_ids" in finding and not isinstance(finding.get("related_artifact_ids"), list):
+                result.errors.append(f"task_center_audit[{index}].related_artifact_ids must be a list")
             if not code:
                 result.errors.append(f"task_center_audit[{index}].code must be non-empty")
             if severity and severity not in {"error", "warning"}:
@@ -1384,6 +1388,12 @@ class ManifestVerifier:
                     result.errors.append(
                         f"task_center_audit[{index}].related_assignment_ids references unknown TaskAssignment: "
                         f"{related_assignment_id}"
+                    )
+            for related_artifact_id in self._string_list(finding.get("related_artifact_ids", [])):
+                if related_artifact_id not in artifact_ids:
+                    result.errors.append(
+                        f"task_center_audit[{index}].related_artifact_ids references unknown Artifact: "
+                        f"{related_artifact_id}"
                     )
 
     def _verify_control_plane_links(

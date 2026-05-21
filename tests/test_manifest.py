@@ -342,6 +342,7 @@ def test_manifest_records_stale_claimed_task_assignments(tmp_path) -> None:
     assert payload["summary"]["task_center_audit_warning_count"] >= 1
     assert any(finding["code"] == "stale_claimed" for finding in payload["task_center_audit"])
     assert "related_assignment_ids" in payload["task_center_audit"][0]
+    assert "related_artifact_ids" in payload["task_center_audit"][0]
     assert payload["task_assignments"][0]["claimed_age_seconds"] >= 7200
     assert payload["task_assignments"][0]["heartbeat_age_seconds"] >= 7200
     assert payload["task_assignments"][0]["stale_claimed"] is True

@@ -710,6 +710,7 @@ def test_manifest_verifier_rejects_bad_task_center_audit_links(tmp_path) -> None
                     "assignment_id": "assignment-1",
                     "workitem_id": "workitem-other",
                     "related_assignment_ids": ["missing-related-assignment"],
+                    "related_artifact_ids": ["missing-related-artifact"],
                 },
             ],
         },
@@ -728,6 +729,10 @@ def test_manifest_verifier_rejects_bad_task_center_audit_links(tmp_path) -> None
     assert (
         "task_center_audit[2].related_assignment_ids references unknown TaskAssignment: "
         "missing-related-assignment"
+    ) in result.errors
+    assert (
+        "task_center_audit[2].related_artifact_ids references unknown Artifact: "
+        "missing-related-artifact"
     ) in result.errors
 
 

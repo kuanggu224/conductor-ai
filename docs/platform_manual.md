@@ -559,7 +559,7 @@ Run Manifest Verifier 也会检查 Development WorkItem 的 handoff 约束：如
 Task Center context 会把每个 eligible dynamic Agent 的 `claimable_for_agent` 和 `write_scope_conflict_assignment_ids` 写入 JSON 与 Markdown prompt。`tasks-for-agent` 与 Board API 动态 Agent task list 对每个 claimable 任务输出精确 `claim_command`、`claim_with_context_command` 和 API claim path，不可领取任务保持命令为空；任务被 claim 后，CLI、Board API 和 context JSON task payload 会输出带当前 `agent_id` / `claim_token` 的 `return_commands`，覆盖 complete、complete_with_output_file、fail、fail_with_output_file、heartbeat 和 release，Board API task payload 还会提供 `return_api_paths`。外部 CLI Agent 在 prompt 或任务列表里看到 `claimable_for_agent=false` 时，应先等待或释放冲突 assignment，而不是直接开始修改文件。返工任务的 `rework_context.testing_feedback` 会同步输出失败测试的验证命令和退出码，`rework_context.pending_retest_scope` 会给出修复后应优先复跑的最小测试范围，便于 worker 按同一证据链复验。
 
 CLI/API 归还路径会在创建外部输出 Artifact 之前校验任务仍处于 claimed 状态，并校验 `agent_id` 与 `claim_token`，避免错误 worker 或 stale token 留下未被 assignment 引用的孤儿 Artifact。
-Task Center audit/maintenance 也会把历史遗留的 `task_center/external` 孤儿产物报告为 `orphan_external_artifact`，便于长周期项目恢复前清理状态污染。
+Task Center audit/maintenance 也会把历史遗留的 `task_center/external` 孤儿产物报告为 `orphan_external_artifact`，并用 `related_artifact_ids` 结构化记录对应 Artifact，便于长周期项目恢复前清理状态污染。
 
 Context 顶层还会输出 `handoff_safety`，汇总 `ready_for_handoff`、依赖阻塞、写入范围冲突、warnings 和 guidance；其中 `baseline_handoff` 会标记 Development 任务引用的冻结需求/设计基线是否已经进入 `acceptance_criteria`。Markdown prompt 同步渲染 `## Handoff Safety`，让外部 worker 在领取和开工前就能判断当前任务是否安全。
 

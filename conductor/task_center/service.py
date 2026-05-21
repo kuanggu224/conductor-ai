@@ -67,6 +67,7 @@ class TaskCenterAuditFinding:
     message: str
     recommendation: str = ""
     related_assignment_ids: list[str] = field(default_factory=list)
+    related_artifact_ids: list[str] = field(default_factory=list)
 
 
 class TaskCenterService:
@@ -480,6 +481,7 @@ class TaskCenterService:
                         "Attach the artifact to the correct returned assignment output_artifact_ids "
                         "or remove the orphan artifact from project state."
                     ),
+                    related_artifact_ids=[artifact.id],
                 )
             )
         return findings

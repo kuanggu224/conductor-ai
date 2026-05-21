@@ -4,8 +4,8 @@ Last updated: 2026-05-22
 
 ## Stable Checkpoint
 
-- Latest verified code checkpoint: current `dev` Task Center orphan external artifact audit update.
-- Current full test result: `python -m pytest -q --basetemp C:\tmp\conductor_pytest_full_orphan_external_artifacts` -> `700 passed in 120.10s`.
+- Latest verified code checkpoint: current `dev` Task Center audit related artifact trace update.
+- Current full test result: `python -m pytest -q --basetemp C:\tmp\conductor_pytest_full_audit_related_artifacts` -> `700 passed in 119.80s`.
 - Current focus: backend orchestration, auditability, logs, manifest/replay, and task-center reliability.
 - Frontend Board exists, but visual redesign is intentionally not the current priority.
 
@@ -35,6 +35,7 @@ Last updated: 2026-05-22
 - Task Center return command templates now include `complete_with_output_file` and `fail_with_output_file`, expose the same templates in context JSON, and Board API task payloads include matching `return_api_paths`.
 - Task Center CLI and Board API now validate return ownership guards before creating output artifacts, preventing stale-token or wrong-agent returns from leaving orphan external artifacts.
 - Task Center audit/maintenance now reports historical `task_center/external` artifacts that are not referenced by any assignment output as `orphan_external_artifact`.
+- Task Center audit findings now expose `related_artifact_ids`, and Manifest verification validates those artifact references.
 - The same delivery contract is shared by direct Runner prompts for Agent CLI document/code execution, keeping internal execution and external Task Center handoff aligned.
 - Development WorkItems now promote frozen requirement/design input artifacts into explicit acceptance criteria, so implementation agents must preserve baseline scope and explain design deviations.
 - Manifest verification now warns when development WorkItems reference frozen requirement/design baselines without explicit handoff acceptance criteria.
