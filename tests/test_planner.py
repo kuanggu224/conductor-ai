@@ -129,3 +129,5 @@ def test_planner_adds_api_behavior_evidence_to_testing_checklist() -> None:
     assert acceptance_check.testing_checklist[0]["required_evidence_terms"] == [
         "api validation exercised endpoint behavior"
     ]
+    api_validation = next(item for item in testing_workitems if item.kind == "api_validation")
+    assert "记录 endpoint、status code 和 response payload 证据" in api_validation.acceptance_criteria

@@ -21,6 +21,7 @@ Last updated: 2026-05-21
 - Requirement coverage and StaticWebHarness now cover file import/upload flows with browser evidence that a sample file was processed.
 - Static web delivery now adds a real CSV import control only when frozen requirements ask for file import/upload, and StaticWebHarness distinguishes export/download buttons from import/upload controls.
 - Requirement coverage now includes API endpoint behavior for backend/API requirements, and API validation WorkItems can satisfy it with explicit endpoint-behavior evidence.
+- API validation coverage no longer treats generic test success as endpoint evidence; successful `api_validation` runs must expose endpoint, status code, or response payload signals before API behavior coverage is marked satisfied.
 - Testing-stage feedback rework has a project-level cap, preventing infinite development/testing loops.
 - Testing-stage feedback rework now persists explicit inputs on the rework WorkItem and Task Center assignment: failed test artifacts, original implementation artifacts, frozen requirement, and design artifacts.
 - Testing-stage feedback rework now embeds structured failure feedback extracted from failed test reports: failure signals, missing requirement coverage, exit code, and suggested fix directions.

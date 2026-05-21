@@ -32,6 +32,25 @@ class FakeSuccessHarness(BaseHarness):
         )
 
 
+class FakeApiEvidenceHarness(BaseHarness):
+    name = "shell"
+
+    def run(self, request: HarnessRequest) -> HarnessResult:
+        return HarnessResult(
+            success=True,
+            exit_code=0,
+            stdout="\n".join(
+                [
+                    "POST /api/items -> status_code=201 response payload id=1",
+                    "GET /api/items -> status_code=200 response payload count=1",
+                    "3 passed",
+                ]
+            ),
+            stderr="",
+            duration_ms=12,
+        )
+
+
 class FakePartialStaticValidationHarness(BaseHarness):
     name = "static_web"
 
@@ -439,7 +458,7 @@ def test_runner_records_api_validation_evidence_for_api_requirement(tmp_path) ->
     state_store = InMemoryStateStore()
     runner = Runner(
         state_store,
-        shell_harness=FakeSuccessHarness(),
+        shell_harness=FakeApiEvidenceHarness(),
         enable_tester_harness=True,
     )
     controller = LeadController(
@@ -488,6 +507,64 @@ def test_runner_records_api_validation_evidence_for_api_requirement(tmp_path) ->
     assert "Status: `pass`" in latest.artifacts[-1].content
     assert "API endpoint behavior" in latest.artifacts[-1].content
     assert "api validation exercised endpoint behavior" in latest.artifacts[-1].content
+
+
+def test_runner_requires_concrete_api_validation_evidence_for_api_requirement(tmp_path) -> None:
+    (tmp_path / "app.py").write_text("# api deliverable\n", encoding="utf-8")
+    (tmp_path / "tests").mkdir()
+    state_store = InMemoryStateStore()
+    runner = Runner(
+        state_store,
+        shell_harness=FakeSuccessHarness(),
+        enable_tester_harness=True,
+    )
+    controller = LeadController(
+        workflow_template=WorkflowTemplate(),
+        state_store=state_store,
+        runner=runner,
+    )
+    state = controller.initialize_project(
+        "\u9700\u5b9e\u73b0\u540e\u7aef API \u63a5\u53e3\uff0c\u652f\u6301\u521b\u5efa\u548c\u67e5\u8be2\u6761\u76ee\u3002"
+    )
+    state.project.project_root = str(tmp_path)
+    test_workitem = WorkItem(
+        id="workitem-api-validation",
+        description="\u6267\u884c API \u9a8c\u8bc1",
+        stage="testing",
+        kind="api_validation",
+    )
+    state.workitems = [test_workitem]
+    state.artifacts = [
+        Artifact(
+            id="artifact-frozen",
+            project_id=state.project.id,
+            workitem_id="workitem-requirement",
+            agent_id="agent-designer",
+            kind="frozen_requirement_spec",
+            title="Frozen Requirement",
+            content=state.project.goal,
+        )
+    ]
+    state_store.save_state(state)
+    tester_profile = next(profile for profile in build_default_agent_profiles() if profile.role_name == "tester")
+    agent = Agent(
+        id="agent-tester",
+        role="tester",
+        profile=tester_profile,
+        capabilities=[Capability.TESTING],
+        backend="mock",
+        execution_backend="cli",
+    )
+
+    execution = runner.run(project_id=state.project.id, workitem=test_workitem, agent=agent)
+    latest = state_store.get_state(state.project.id)
+
+    assert execution.status == ExecutionStatus.FAILED
+    assert execution.failure_type == "validation_failed"
+    assert execution.failure_summary == "Requirement coverage missing: API endpoint behavior"
+    assert latest.workitems[0].status == WorkItemStatus.FAILED
+    assert "Status: `missing_coverage`" in latest.artifacts[-1].content
+    assert "API endpoint behavior" in latest.artifacts[-1].content
 
 
 def test_tester_validation_prefers_shell_harness_even_when_bound_to_agent_cli(monkeypatch) -> None:

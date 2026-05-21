@@ -2278,9 +2278,37 @@ button {
         """Validate harness evidence against the latest frozen requirement."""
         frozen_requirement = self._latest_frozen_requirement(project_id)
         output = f"{result.stdout or ''}\n{result.stderr or ''}"
-        if workitem and workitem.kind == "api_validation" and result.success:
+        if workitem and workitem.kind == "api_validation" and result.success and self._has_api_endpoint_evidence(output):
             output = f"{output}\nAPI validation exercised endpoint behavior"
         return evaluate_requirement_coverage(frozen_requirement, output)
+
+    def _has_api_endpoint_evidence(self, output: str) -> bool:
+        """Return whether validation output proves API endpoint behavior, not just test success."""
+        lowered = output.lower()
+        if "api validation exercised endpoint behavior" in lowered:
+            return True
+        endpoint_signal = any(
+            term in lowered
+            for term in (
+                "/api",
+                "endpoint",
+                "route",
+                "testclient",
+                "httpx",
+                "requests.",
+                "fastapi",
+                "flask",
+                "django",
+            )
+        )
+        method_signal = re.search(r"\b(get|post|put|patch|delete|options|head)\s+[/\w-]", lowered) is not None
+        status_signal = (
+            re.search(r"\bstatus(?:_code| code)?\s*[:=]?\s*[1-5]\d\d\b", lowered) is not None
+            or re.search(r"\bhttp\s+[1-5]\d\d\b", lowered) is not None
+            or re.search(r"->\s*[1-5]\d\d\b", lowered) is not None
+        )
+        response_signal = any(term in lowered for term in ("response", "payload", "json body", "json=", "body="))
+        return (endpoint_signal or method_signal) and (status_signal or response_signal)
 
     def _build_harness_request(self, workitem: WorkItem, working_directory: str, stream_callback=None) -> HarnessRequest:
         """Build tester harness request."""

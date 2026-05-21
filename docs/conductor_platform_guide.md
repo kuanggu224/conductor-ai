@@ -264,7 +264,7 @@ Conductor 的多 Agent 不是多人闲聊，而是结构化职责协作。
 ### 6.4 StaticWebHarness
 
 用于验证小型静态 Web 项目，包括 HTML、JS、CSS、页面打开、基础交互和 smoke check。
-当前可审计交互证据包括表单提交、localStorage 刷新保留、筛选/搜索、删除、导出下载，以及文件导入/上传样本处理。文件处理类需求会映射到 `file_import` testing checklist，并要求 `Browser file import processed sample file` 证据；`static_web_delivery` 只会在冻结需求要求 import/upload 时生成真实 CSV 导入控件，避免把未请求的导入能力扩进交付范围。后端/API 类需求会映射到 `api_behavior` testing checklist；`api_validation` WorkItem 的真实验证通过后会记录 `API validation exercised endpoint behavior` 作为接口行为证据，避免 API mock / 后端验收只停留在泛化的 `pytest passed`。当测试失败回流为开发返工时，缺失的 testing checklist evidence 会进入返工 WorkItem 的 acceptance criteria，并出现在 Task Center rework prompt 中，外部 worker 可以直接看到需要补齐哪条验收证据。
+当前可审计交互证据包括表单提交、localStorage 刷新保留、筛选/搜索、删除、导出下载，以及文件导入/上传样本处理。文件处理类需求会映射到 `file_import` testing checklist，并要求 `Browser file import processed sample file` 证据；`static_web_delivery` 只会在冻结需求要求 import/upload 时生成真实 CSV 导入控件，避免把未请求的导入能力扩进交付范围。后端/API 类需求会映射到 `api_behavior` testing checklist；`api_validation` WorkItem 必须在成功输出中暴露 endpoint、status code 或 response payload 等具体接口行为信号，才会记录 `API validation exercised endpoint behavior`，避免 API mock / 后端验收只停留在泛化的 `pytest passed`。当测试失败回流为开发返工时，缺失的 testing checklist evidence 会进入返工 WorkItem 的 acceptance criteria，并出现在 Task Center rework prompt 中，外部 worker 可以直接看到需要补齐哪条验收证据。
 
 ## 7. Task Center
 

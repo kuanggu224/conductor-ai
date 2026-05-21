@@ -190,7 +190,11 @@ class Planner:
                 WorkItemDraft(
                     kind="api_validation",
                     description="验证接口输入输出与关键边界",
-                    acceptance_criteria=["接口行为符合预期", "关键边界已覆盖"],
+                    acceptance_criteria=[
+                        "接口行为符合预期",
+                        "关键边界已覆盖",
+                        "记录 endpoint、status code 和 response payload 证据",
+                    ],
                 )
             )
         if self._contains_any(normalized_requirement, self.UI_KEYWORDS):
