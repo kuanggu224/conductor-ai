@@ -334,6 +334,15 @@ def test_project_dynamic_agent_task_api_can_list_and_claim_matching_task(tmp_pat
     assert tasks_payload["tasks"][0]["assignment_id"] == assignment.id
     assert tasks_payload["tasks"][0]["parallel_safe"] is True
     assert tasks_payload["tasks"][0]["write_scope"] == ["index.html", "styles.css"]
+    assert tasks_payload["tasks"][0]["claim_command"].startswith(
+        f'python -m app.task_center claim-for-agent "{activation.agent_id}"'
+    )
+    assert f'--project-root "{project_root}"' in tasks_payload["tasks"][0]["claim_command"]
+    assert "--with-context" not in tasks_payload["tasks"][0]["claim_command"]
+    assert tasks_payload["tasks"][0]["claim_with_context_command"].endswith("--with-context")
+    assert tasks_payload["tasks"][0]["claim_api_path"] == (
+        f"/api/projects/{state.project.id}/agents/{activation.agent_id}/claim-task"
+    )
 
     claim = client.post(
         f"/api/projects/{state.project.id}/agents/{activation.agent_id}/claim-task",
@@ -434,6 +443,9 @@ def test_project_dynamic_agent_tasks_expose_write_scope_conflicts(tmp_path) -> N
     conflicted = next(item for item in tasks_payload["tasks"] if item["assignment_id"] == assignment_b.id)
     assert conflicted["claimable"] is False
     assert conflicted["write_scope_conflict_assignment_ids"] == [assignment_a.id]
+    assert conflicted["claim_command"] == ""
+    assert conflicted["claim_with_context_command"] == ""
+    assert conflicted["claim_api_path"] == ""
     assert claimable_tasks.status_code == 200
     assert claimable_tasks.json()["task_count"] == 0
 

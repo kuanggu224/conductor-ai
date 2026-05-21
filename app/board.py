@@ -1306,6 +1306,22 @@ def _agent_tasks_payload(
                     "scope": activation.scope,
                     "parallel_safe": activation.parallel_safe,
                     "write_scope": list(activation.write_scope),
+                    "claim_command": _dynamic_agent_claim_command(
+                        project_root=state.project.project_root,
+                        agent_id=agent_id,
+                    )
+                    if claimable
+                    else "",
+                    "claim_with_context_command": _dynamic_agent_claim_command(
+                        project_root=state.project.project_root,
+                        agent_id=agent_id,
+                        with_context=True,
+                    )
+                    if claimable
+                    else "",
+                    "claim_api_path": f"/api/projects/{state.project.id}/agents/{agent_id}/claim-task"
+                    if claimable
+                    else "",
                 }
             )
     return {
@@ -1330,6 +1346,30 @@ def _agent_tasks_payload(
         ],
         "tasks": tasks,
     }
+
+
+def _dynamic_agent_claim_command(
+    *,
+    project_root: str,
+    agent_id: str,
+    with_context: bool = False,
+) -> str:
+    parts = [
+        "python",
+        "-m",
+        "app.task_center",
+        "claim-for-agent",
+        _quote_cli_arg(agent_id),
+        "--project-root",
+        _quote_cli_arg(project_root or "<project-root>"),
+    ]
+    if with_context:
+        parts.append("--with-context")
+    return " ".join(parts)
+
+
+def _quote_cli_arg(value: object) -> str:
+    return '"' + str(value).replace('"', '\\"') + '"'
 
 
 def _task_assignment_payload(

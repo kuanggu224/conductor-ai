@@ -209,7 +209,7 @@ Conductor 的多 Agent 不是多人闲聊，而是结构化职责协作。
 
 Run Manifest Verifier 也会检查 Development WorkItem 的 handoff 约束：如果开发任务引用冻结需求或冻结设计输入，却没有在 `acceptance_criteria` 中显式要求保持需求/设计基线，会产生 warning，避免基线只作为隐含输入存在。Task Center context 同步在 `handoff_safety.baseline_handoff` 中暴露这类缺口，并在 Markdown prompt 的 `## Handoff Safety` 中渲染，外部 worker 开工前即可看到基线约束是否完整。
 
-动态 Agent 领取任务时，`tasks-for-agent` 会对每个 claimable assignment 输出可复制的 `claim_command` 和 `claim_with_context_command`；如果任务受依赖或 write-scope 冲突阻塞，这两个命令保持为空，确保外部 CLI Agent 先处理阻塞再开工。
+动态 Agent 领取任务时，`tasks-for-agent` 与 Board API 动态 Agent task list 会对每个 claimable assignment 输出可复制的 `claim_command`、`claim_with_context_command` 和 API claim path；如果任务受依赖或 write-scope 冲突阻塞，这些命令保持为空，确保外部 CLI Agent 先处理阻塞再开工。
 
 ## 6. 执行后端
 

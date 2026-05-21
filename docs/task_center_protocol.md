@@ -84,6 +84,10 @@ assignment id. `claim-for-agent --with-context --prompt-file <path>` is the
 recommended handoff for external CLI agents because it claims the task, returns
 the claim token, records the matched Agent seat, renders the task context, and
 persists the Markdown prompt in one audited transition.
+`tasks-for-agent` includes `claim_command` and `claim_with_context_command` for
+claimable assignments; blocked assignments leave both command fields empty so
+external agents do not accidentally claim work that is blocked by dependencies
+or write-scope conflicts.
 Use `--prompt-file <path>` to persist the rendered Markdown prompt for audit,
 handoff, or direct CLI consumption. Relative paths are resolved under
 `project_root`.
@@ -133,6 +137,10 @@ Endpoints:
 - `POST /api/projects/{project_id}/tasks/release-stale`
 - `POST /api/projects/{project_id}/tasks/release-expired-leases`
 - `POST /api/projects/{project_id}/tasks/sweep`
+
+Dynamic Agent task-list responses mirror the CLI handoff fields: claimable
+tasks include `claim_command`, `claim_with_context_command`, and
+`claim_api_path`; blocked tasks leave those fields empty.
 
 `claim-next` request body:
 
