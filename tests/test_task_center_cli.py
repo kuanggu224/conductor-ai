@@ -84,8 +84,10 @@ def test_task_center_cli_lists_claims_and_completes_persisted_assignment(tmp_pat
     assert f'--project-root "{project_root}"' in return_commands["complete"]
     assert '--agent-id "agent-external"' in return_commands["complete"]
     assert f'--claim-token "{claim_payload["task"]["claim_token"]}"' in return_commands["complete"]
+    assert return_commands["complete_with_output_file"].endswith('--output-file "result.md"')
     assert return_commands["heartbeat"].startswith(f'python -m app.task_center heartbeat "{assignment_id}"')
     assert return_commands["fail"].startswith(f'python -m app.task_center fail "{assignment_id}"')
+    assert return_commands["fail_with_output_file"].endswith('--output-file "result.md"')
     assert return_commands["release"].startswith(f'python -m app.task_center release "{assignment_id}"')
 
     heartbeat_code = main(
@@ -1180,6 +1182,9 @@ def test_task_center_cli_claim_next_can_include_context(tmp_path, capsys) -> Non
     assert code == 0
     assert payload["task"]["status"] == "claimed"
     assert payload["context"]["assignment"]["id"] == assignment.id
+    assert payload["context"]["assignment"]["return_commands"]["complete_with_output_file"].endswith(
+        '--output-file "result.md"'
+    )
     assert "Return Protocol" in payload["context"]["execution_brief"]
     assert payload["context"]["input_artifacts"][0]["id"] == artifact.id
     assert "content" in payload["context"]["input_artifacts"][0]

@@ -14,6 +14,7 @@ from conductor.control.human import HumanControlService
 from conductor.domain.models import SharedProjectState, TaskAssignment, TaskAssignmentStatus
 from conductor.io.encoding import configure_utf8_stdio
 from conductor.task_center.artifacts import create_task_return_artifact
+from conductor.task_center.commands import build_task_return_commands
 from conductor.task_center.context import TaskContextBuilder
 from conductor.task_center.prompts import resolve_task_prompt_path, write_task_prompt_file
 from conductor.state.file_store import FileStateStore
@@ -1546,36 +1547,8 @@ def _assignment_payload(
             "lease_expires_at": assignment.lease_expires_at,
             "lease_expired": service.lease_expired(assignment),
             "workitem": asdict(workitem) if workitem else {},
-            "return_commands": _task_return_commands(state, assignment),
+            "return_commands": build_task_return_commands(state.project.project_root, assignment),
         },
-    }
-
-
-def _task_return_commands(state: SharedProjectState, assignment: TaskAssignment) -> dict[str, str]:
-    if assignment.status != TaskAssignmentStatus.CLAIMED:
-        return {}
-    root = state.project.project_root or "<project-root>"
-    agent_id = assignment.assigned_agent_id or "<agent-id>"
-    claim_token = assignment.claim_token or "<claim-token>"
-    base = [
-        "python",
-        "-m",
-        "app.task_center",
-    ]
-    common = [
-        _quote_cli_arg(assignment.id),
-        "--project-root",
-        _quote_cli_arg(root),
-        "--agent-id",
-        _quote_cli_arg(agent_id),
-        "--claim-token",
-        _quote_cli_arg(claim_token),
-    ]
-    return {
-        "complete": " ".join([*base, "complete", *common, "--result-summary", _quote_cli_arg("done")]),
-        "fail": " ".join([*base, "fail", *common, "--blocked-reason", _quote_cli_arg("blocked")]),
-        "heartbeat": " ".join([*base, "heartbeat", *common]),
-        "release": " ".join([*base, "release", *common, "--release-reason", _quote_cli_arg("release claim")]),
     }
 
 

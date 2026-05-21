@@ -219,6 +219,7 @@ Task Center 是给外部 Agent 或人类 worker 使用的轻量任务中心。
 - 外部 worker 归还 Artifact。
 
 它当前不是完整分布式队列，但已经提供了稳定的文件状态边界和任务归还协议。
+任务被 claim 后，CLI、Board API 和 context JSON 会提供 `return_commands`，其中包含 `complete_with_output_file` / `fail_with_output_file` 这类直接归还 Artifact 的命令模板；Board API task payload 还会提供 `return_api_paths`。
 
 常用命令：
 

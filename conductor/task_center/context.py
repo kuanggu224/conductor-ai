@@ -7,6 +7,7 @@ from dataclasses import asdict
 from conductor.artifacts.store import ArtifactStore
 from conductor.delivery_contract import build_delivery_contract, render_delivery_contract_markdown
 from conductor.domain.models import Artifact, SharedProjectState, TaskAssignment
+from conductor.task_center.commands import build_task_return_commands
 from conductor.task_center.service import TaskCenterError, TaskCenterService
 from conductor.testing.failure_feedback import build_testing_feedback_for_workitem
 
@@ -115,6 +116,7 @@ class TaskContextBuilder:
                 "claimable": task_center.claimable(state, assignment),
                 "unmet_dependency_ids": task_center.unmet_dependency_ids(state, assignment),
                 "lease_expired": task_center.lease_expired(assignment),
+                "return_commands": build_task_return_commands(state.project.project_root, assignment),
             },
             "workitem": asdict(workitem),
             "input_artifacts": input_artifacts,
@@ -877,13 +879,14 @@ def _fenced(content: str) -> str:
 
 
 def _return_command_lines(payload: dict[str, object], assignment: dict[str, object]) -> list[str]:
+    return_commands = _dict_payload(assignment.get("return_commands"))
     project_root = str(payload.get("project_root", "") or ".")
     assignment_id = str(assignment.get("id", "") or "<assignment-id>")
     agent_id = str(assignment.get("assigned_agent_id", "") or "<agent-id>")
     claim_token = str(assignment.get("claim_token", "") or "<claim-token>")
     lease_seconds = int(assignment.get("lease_seconds", 0) or 0)
     lease_arg = f" --lease-seconds {lease_seconds}" if lease_seconds > 0 else ""
-    complete_command = (
+    complete_command = str(return_commands.get("complete_with_output_file") or "") or (
         f'python -m app.task_center complete "{assignment_id}" '
         f'--project-root "{project_root}" '
         f'--agent-id "{agent_id}" '
@@ -891,7 +894,7 @@ def _return_command_lines(payload: dict[str, object], assignment: dict[str, obje
         '--result-summary "completed" '
         '--output-file result.md'
     )
-    fail_command = (
+    fail_command = str(return_commands.get("fail") or "") or (
         f'python -m app.task_center fail "{assignment_id}" '
         f'--project-root "{project_root}" '
         f'--agent-id "{agent_id}" '
@@ -899,14 +902,14 @@ def _return_command_lines(payload: dict[str, object], assignment: dict[str, obje
         '--result-summary "failed" '
         '--blocked-reason "explain blocker"'
     )
-    heartbeat_command = (
+    heartbeat_command = str(return_commands.get("heartbeat") or "") or (
         f'python -m app.task_center heartbeat "{assignment_id}" '
         f'--project-root "{project_root}" '
         f'--agent-id "{agent_id}" '
         f'--claim-token "{claim_token}"'
         f"{lease_arg}"
     )
-    release_command = (
+    release_command = str(return_commands.get("release") or "") or (
         f'python -m app.task_center release "{assignment_id}" '
         f'--project-root "{project_root}" '
         f'--agent-id "{agent_id}" '

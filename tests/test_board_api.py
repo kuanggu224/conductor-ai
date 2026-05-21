@@ -481,9 +481,17 @@ def test_project_task_claim_and_complete_protocol() -> None:
     assert return_commands["complete"].startswith(f'python -m app.task_center complete "{assignment_id}"')
     assert '--agent-id "agent-manual"' in return_commands["complete"]
     assert f'--claim-token "{claimed_task["claim_token"]}"' in return_commands["complete"]
+    assert return_commands["complete_with_output_file"].endswith('--output-file "result.md"')
     assert return_commands["heartbeat"].startswith(f'python -m app.task_center heartbeat "{assignment_id}"')
     assert return_commands["fail"].startswith(f'python -m app.task_center fail "{assignment_id}"')
+    assert return_commands["fail_with_output_file"].endswith('--output-file "result.md"')
     assert return_commands["release"].startswith(f'python -m app.task_center release "{assignment_id}"')
+    assert claimed_task["return_api_paths"] == {
+        "complete": f"/api/projects/{state.project.id}/tasks/{assignment_id}/complete",
+        "fail": f"/api/projects/{state.project.id}/tasks/{assignment_id}/fail",
+        "heartbeat": f"/api/projects/{state.project.id}/tasks/{assignment_id}/heartbeat",
+        "release": f"/api/projects/{state.project.id}/tasks/{assignment_id}/release",
+    }
 
     heartbeat = client.post(
         f"/api/projects/{state.project.id}/tasks/{assignment_id}/heartbeat",
@@ -522,6 +530,7 @@ def test_project_task_claim_and_complete_protocol() -> None:
     assert completed_task["returned_at"]
     assert completed_task["workitem"]["status"] == "done"
     assert completed_task["return_commands"] == {}
+    assert completed_task["return_api_paths"] == {}
 
     completed_list = client.get(f"/api/projects/{state.project.id}/tasks?status=completed")
     assert completed_list.status_code == 200
@@ -919,6 +928,9 @@ def test_project_task_claim_api_can_include_context() -> None:
     payload = response.json()
     assert payload["task"]["status"] == "claimed"
     assert payload["context"]["assignment"]["id"] == assignment.id
+    assert payload["context"]["assignment"]["return_commands"]["complete_with_output_file"].endswith(
+        '--output-file "result.md"'
+    )
     assert "Return Protocol" in payload["context"]["execution_brief"]
     assert payload["context"]["input_artifacts"][0]["id"] == artifact.id
     assert "content" in payload["context"]["input_artifacts"][0]
