@@ -4,8 +4,8 @@ Last updated: 2026-05-21
 
 ## Stable Checkpoint
 
-- Latest verified code checkpoint: current `dev` LLM provider failure category diagnostics update.
-- Current full test result: `python -m pytest -q --basetemp C:\tmp\conductor_pytest_full_llm_failure_categories` -> `689 passed in 131.42s`.
+- Latest verified code checkpoint: current `dev` pending retest scope handoff update.
+- Current full test result: `python -m pytest -q --basetemp C:\tmp\conductor_pytest_full_pending_retest_scope` -> `689 passed in 131.90s`.
 - Current focus: backend orchestration, auditability, logs, manifest/replay, and task-center reliability.
 - Frontend Board exists, but visual redesign is intentionally not the current priority.
 
@@ -27,6 +27,7 @@ Last updated: 2026-05-21
 - Testing-stage feedback rework now persists explicit inputs on the rework WorkItem and Task Center assignment: failed test artifacts, original implementation artifacts, frozen requirement, and design artifacts.
 - Testing-stage feedback rework now embeds structured failure feedback extracted from failed test reports and execution records: failure signals, missing requirement coverage, exit code, validation command, validation exit code, and suggested fix directions.
 - Task Center context now exposes the same structured testing feedback under `rework_context.testing_feedback` and renders it in Markdown prompts for external CLI/Agent workers.
+- Task Center rework context now exposes `rework_context.pending_retest_scope` and renders Pending Retest Scope in Markdown prompts; project reports and Run Manifest summaries also expose the project-level `pending_test_scope` for audit.
 - Structured testing feedback lookup is centralized in `conductor.testing.failure_feedback`, reducing drift across Task Center, manifest, project report, and replay outputs.
 - Task Center context now includes a machine-readable `delivery_contract` and renders it into CLI prompts, making each external Agent's expected outputs, guardrails, and verification focus explicit.
 - The same delivery contract is shared by direct Runner prompts for Agent CLI document/code execution, keeping internal execution and external Task Center handoff aligned.

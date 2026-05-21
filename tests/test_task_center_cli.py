@@ -955,6 +955,7 @@ def test_task_center_cli_context_marks_rework_feedback_inputs(tmp_path, capsys) 
         workitems=[*state.workitems, failed_workitem, rework],
         task_assignments=[*state.task_assignments, assignment],
         artifacts=[*state.artifacts, failed_artifact, original_artifact],
+        pending_test_scope=["ui_validation"],
         executions=[
             *state.executions,
             Execution(
@@ -976,6 +977,7 @@ def test_task_center_cli_context_marks_rework_feedback_inputs(tmp_path, capsys) 
     assert payload["rework_context"]["is_rework"] is True
     assert payload["rework_context"]["feedback_from"] == ["workitem-failed-ui-test"]
     assert payload["rework_context"]["rework_of"] == "workitem-original-ui"
+    assert payload["rework_context"]["pending_retest_scope"] == ["ui_validation"]
     assert payload["rework_context"]["feedback_artifacts"][0]["id"] == failed_artifact.id
     assert payload["rework_context"]["original_artifacts"][0]["id"] == original_artifact.id
     assert payload["rework_context"]["testing_feedback"][0]["workitem_id"] == failed_workitem.id
@@ -993,6 +995,7 @@ def test_task_center_cli_context_marks_rework_feedback_inputs(tmp_path, capsys) 
     assert "browser form interaction updated visible state" in payload["execution_brief"]
     assert "Rework Context" in payload["execution_brief"]
     assert "Structured Testing Feedback" in payload["execution_brief"]
+    assert "Pending Retest Scope: ui_validation" in payload["execution_brief"]
     assert "Validation Command: python, -m, conductor.harness.static_web_cli" in payload["execution_brief"]
 
     code = main(["context", assignment.id, "--project-root", str(project_root), "--format", "markdown"])
@@ -1001,6 +1004,7 @@ def test_task_center_cli_context_marks_rework_feedback_inputs(tmp_path, capsys) 
     assert code == 0
     assert "## Rework Context" in output
     assert "Feedback From: workitem-failed-ui-test" in output
+    assert "Pending Retest Scope: ui_validation" in output
     assert "validation_exit_code=1" in output
     assert "Validation Command: python, -m, conductor.harness.static_web_cli" in output
     assert "artifact-failed-ui-test" in output

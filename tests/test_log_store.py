@@ -278,6 +278,7 @@ def test_project_report_includes_structured_testing_feedback_for_rework(tmp_path
         project=Project(id="project-feedback-report", goal="fix UI", current_stage="development"),
         project_status=ProjectStatus.IN_PROGRESS,
         current_stage="development",
+        pending_test_scope=["ui_validation"],
         workitems=[failed_test, rework],
         executions=[
             Execution(
@@ -309,6 +310,7 @@ def test_project_report_includes_structured_testing_feedback_for_rework(tmp_path
     report = store.render_project_report(state, [])
 
     assert "structured_testing_feedback: source=workitem-ui-test" in report
+    assert "Pending Test Scope: ui_validation" in report
     assert "validation_exit_code=1" in report
     assert "validation_command=python, -m, conductor.harness.static_web_cli" in report
     assert "Browser form submit did not change visible page state" in report

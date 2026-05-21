@@ -118,6 +118,7 @@ def test_engine_writes_run_manifest(tmp_path) -> None:
     assert "task_center_audit_finding_count" in payload["summary"]
     assert "task_center_audit_error_count" in payload["summary"]
     assert "task_center_audit_warning_count" in payload["summary"]
+    assert "pending_test_scope" in payload["summary"]
     assert payload["artifact_files"]
     assert payload["artifacts"]
     assert "workitem_id" in payload["artifacts"][0]
@@ -986,6 +987,7 @@ def test_manifest_records_structured_testing_feedback_for_rework(tmp_path) -> No
     state = replace(
         state,
         current_stage="development",
+        pending_test_scope=["ui_validation"],
         workitems=[failed_test, rework],
         artifacts=[failed_artifact],
         executions=[
@@ -1018,6 +1020,7 @@ def test_manifest_records_structured_testing_feedback_for_rework(tmp_path) -> No
     assert manifest_rework["testing_feedback"][0]["validation_exit_code"] == "1"
     assert "Browser form submit did not change visible page state" in manifest_rework["testing_feedback"][0]["failing_checks"]
     assert "检查表单/按钮事件绑定" in manifest_rework["testing_feedback"][0]["suggested_actions"][0]
+    assert payload["summary"]["pending_test_scope"] == ["ui_validation"]
 
 
 def test_manifest_records_codex_model_for_bound_agent(tmp_path) -> None:

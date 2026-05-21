@@ -138,6 +138,7 @@ class ProjectLogStore:
             f"- WorkItems: {len(state.workitems)}",
             f"- Executions: {len(state.executions)}",
             f"- Artifacts: {len(state.artifacts)}",
+            f"- Pending Test Scope: {', '.join(state.pending_test_scope) if state.pending_test_scope else '-'}",
             "",
             "## Preflight Gate",
         ]

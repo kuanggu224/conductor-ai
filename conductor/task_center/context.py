@@ -441,14 +441,28 @@ class TaskContextBuilder:
             if rework_of and artifact.get("workitem_id") == rework_of
         ]
         testing_feedback = self._testing_feedback_payloads(state, feedback_from)
+        pending_retest_scope = self._pending_retest_scope(state, feedback_from)
         return {
             "is_rework": bool(feedback_from or rework_of),
             "feedback_from": feedback_from,
             "rework_of": rework_of,
             "feedback_artifacts": feedback_artifacts,
             "original_artifacts": original_artifacts,
+            "pending_retest_scope": pending_retest_scope,
             "testing_feedback": testing_feedback,
         }
+
+    def _pending_retest_scope(self, state: SharedProjectState, feedback_from: list[str]) -> list[str]:
+        """Return the smallest testing WorkItem kinds that should be rerun after this rework."""
+        by_id = {item.id: item for item in state.workitems}
+        scope = [
+            item.kind
+            for workitem_id in feedback_from
+            if (item := by_id.get(workitem_id)) is not None and item.stage == "testing" and item.kind
+        ]
+        if not scope:
+            scope = list(state.pending_test_scope)
+        return list(dict.fromkeys(scope))
 
     def _testing_feedback_payloads(self, state: SharedProjectState, feedback_from: list[str]) -> list[dict[str, object]]:
         """Return machine-readable structured feedback for failed testing WorkItems."""
@@ -670,6 +684,7 @@ class TaskContextBuilder:
             "- This is a rework task. Preserve the frozen requirement scope and fix only the referenced feedback.",
             f"- Rework Of: {context.get('rework_of', '') or '-'}",
             f"- Feedback From: {_join_or_none(_list_payload(context.get('feedback_from')))}",
+            f"- Pending Retest Scope: {_join_or_none(_list_payload(context.get('pending_retest_scope')))}",
             "- Feedback Artifacts:",
             *(artifact_lines or ["- None"]),
             "- Original Artifacts:",

@@ -177,6 +177,7 @@ class RunManifestWriter:
                 "task_center_audit_warning_count": sum(
                     1 for finding in task_center_audit if finding.get("severity") == "warning"
                 ),
+                "pending_test_scope": list(state.pending_test_scope),
                 "workitem_status_counts": self._workitem_status_counts(state),
                 "execution_status_counts": self._execution_status_counts(executions),
                 "failed_workitem_ids": self._failed_workitem_ids(state),
