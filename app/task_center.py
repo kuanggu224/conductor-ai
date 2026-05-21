@@ -427,9 +427,16 @@ def main(argv: list[str] | None = None) -> int:
                 service,
                 agent_id=args.agent_id,
                 claimable_only=args.claimable_only,
+                project_root=args.project_root,
             )
         elif args.command == "claim-for-agent":
-            tasks_payload = _tasks_for_agent_payload(state, service, agent_id=args.agent_id, claimable_only=True)
+            tasks_payload = _tasks_for_agent_payload(
+                state,
+                service,
+                agent_id=args.agent_id,
+                claimable_only=True,
+                project_root=args.project_root,
+            )
             tasks = tasks_payload["tasks"]
             if not tasks:
                 raise TaskCenterError(f"No claimable task assignment available for agent {args.agent_id}", status_code=404)
@@ -667,6 +674,7 @@ def _tasks_for_agent_payload(
     *,
     agent_id: str,
     claimable_only: bool,
+    project_root: str,
 ) -> dict[str, object]:
     activations = [activation for activation in state.agent_activations if activation.agent_id == agent_id]
     if not activations:
@@ -706,6 +714,22 @@ def _tasks_for_agent_payload(
                     "scope": activation.scope,
                     "parallel_safe": activation.parallel_safe,
                     "write_scope": list(activation.write_scope),
+                    "claim_command": _dynamic_agent_claim_command(
+                        project_root=project_root,
+                        agent_id=agent_id,
+                        assignment_id=assignment.id,
+                        with_context=False,
+                    )
+                    if claimable
+                    else "",
+                    "claim_with_context_command": _dynamic_agent_claim_command(
+                        project_root=project_root,
+                        agent_id=agent_id,
+                        assignment_id=assignment.id,
+                        with_context=True,
+                    )
+                    if claimable
+                    else "",
                 }
             )
     return {
@@ -730,6 +754,29 @@ def _tasks_for_agent_payload(
         ],
         "tasks": tasks,
     }
+
+
+def _dynamic_agent_claim_command(
+    *,
+    project_root: str,
+    agent_id: str,
+    assignment_id: str,
+    with_context: bool,
+) -> str:
+    parts = [
+        "python",
+        "-m",
+        "app.task_center",
+        "claim",
+        _quote_cli_arg(assignment_id),
+        "--project-root",
+        _quote_cli_arg(project_root),
+        "--agent-id",
+        _quote_cli_arg(agent_id),
+    ]
+    if with_context:
+        parts.append("--with-context")
+    return " ".join(parts)
 
 
 def _audit_all_payload(

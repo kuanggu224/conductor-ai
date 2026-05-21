@@ -728,6 +728,13 @@ def test_task_center_cli_context_exposes_eligible_dynamic_agents(tmp_path, capsy
     assert tasks_payload["tasks"][0]["claimable"] is True
     assert tasks_payload["tasks"][0]["parallel_safe"] is True
     assert tasks_payload["tasks"][0]["write_scope"] == ["frontend layout files", "component markup"]
+    assert tasks_payload["tasks"][0]["claim_command"].startswith(
+        f'python -m app.task_center claim "{assignment.id}"'
+    )
+    assert f'--project-root "{project_root}"' in tasks_payload["tasks"][0]["claim_command"]
+    assert f'--agent-id "{matching_activation.agent_id}"' in tasks_payload["tasks"][0]["claim_command"]
+    assert "--with-context" not in tasks_payload["tasks"][0]["claim_command"]
+    assert tasks_payload["tasks"][0]["claim_with_context_command"].endswith("--with-context")
 
     code = main(
         [
@@ -861,6 +868,15 @@ def test_task_center_cli_context_exposes_write_scope_conflicts_for_dynamic_agent
     assert f"- Write Scope Conflicts: {claimed_assignment.id}" in markdown
     assert "claimable_for_agent=False" in markdown
     assert f"write_scope_conflicts={claimed_assignment.id}" in markdown
+
+    code = main(["tasks-for-agent", queued_activation.agent_id, "--project-root", str(project_root)])
+    tasks_payload = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert tasks_payload["tasks"][0]["claimable"] is False
+    assert tasks_payload["tasks"][0]["write_scope_conflict_assignment_ids"] == [claimed_assignment.id]
+    assert tasks_payload["tasks"][0]["claim_command"] == ""
+    assert tasks_payload["tasks"][0]["claim_with_context_command"] == ""
 
     code = main(
         [

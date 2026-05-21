@@ -4,8 +4,8 @@ Last updated: 2026-05-21
 
 ## Stable Checkpoint
 
-- Latest verified code checkpoint: current `dev` maintenance operator human-control command update.
-- Current full test result: `python -m pytest -q --basetemp C:\tmp\conductor_pytest_full_operator_human_control_commands` -> `700 passed in 119.04s`.
+- Latest verified code checkpoint: current `dev` dynamic Agent claim command update.
+- Current full test result: `python -m pytest -q --basetemp C:\tmp\conductor_pytest_full_dynamic_agent_claim_commands` -> `700 passed in 123.02s`.
 - Current focus: backend orchestration, auditability, logs, manifest/replay, and task-center reliability.
 - Frontend Board exists, but visual redesign is intentionally not the current priority.
 
@@ -30,6 +30,7 @@ Last updated: 2026-05-21
 - Task Center rework context now exposes `rework_context.pending_retest_scope` and renders Pending Retest Scope in Markdown prompts; project reports and Run Manifest summaries also expose the project-level `pending_test_scope` for audit.
 - Structured testing feedback lookup is centralized in `conductor.testing.failure_feedback`, reducing drift across Task Center, manifest, project report, and replay outputs.
 - Task Center context now includes a machine-readable `delivery_contract` and renders it into CLI prompts, making each external Agent's expected outputs, guardrails, and verification focus explicit.
+- Task Center `tasks-for-agent` now exposes copyable `claim_command` and `claim_with_context_command` for claimable dynamic Agent tasks, while blocked tasks keep those command fields empty.
 - The same delivery contract is shared by direct Runner prompts for Agent CLI document/code execution, keeping internal execution and external Task Center handoff aligned.
 - Development WorkItems now promote frozen requirement/design input artifacts into explicit acceptance criteria, so implementation agents must preserve baseline scope and explain design deviations.
 - Manifest verification now warns when development WorkItems reference frozen requirement/design baselines without explicit handoff acceptance criteria.
