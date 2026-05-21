@@ -1774,6 +1774,18 @@ def test_task_center_cli_audit_all_reports_every_project_and_can_fail(tmp_path, 
                 output_artifact_ids=["artifact-missing"],
             )
         ],
+        artifacts=[
+            Artifact(
+                id="artifact-orphan-external",
+                project_id="project-broken",
+                workitem_id="workitem-broken",
+                agent_id="agent-broken",
+                kind="external_result",
+                title="Orphan external output",
+                content="orphaned output",
+                source_backend="task_center/external",
+            )
+        ],
     )
     state_store.save_state(clean_state)
     state_store.save_state(broken_state)
@@ -1801,7 +1813,9 @@ def test_task_center_cli_audit_all_reports_every_project_and_can_fail(tmp_path, 
     assert payload["error_count"] >= 1
     assert payload["attention_project_ids"] == ["project-broken"]
     assert payload["finding_code_counts"]["missing_output_artifact"] == 1
+    assert payload["finding_code_counts"]["orphan_external_artifact"] == 1
     assert "Restore the output artifact records or rerun the worker return step." in payload["recommendations"]
+    assert any("orphan artifact" in item for item in payload["recommendations"])
     assert report_payload["project_count"] == 2
     assert report_payload["finding_count"] == payload["finding_count"]
     assert report_payload["attention_project_ids"] == ["project-broken"]
@@ -1810,6 +1824,7 @@ def test_task_center_cli_audit_all_reports_every_project_and_can_fail(tmp_path, 
     assert projects["project-clean"]["passed"] is True
     assert projects["project-broken"]["passed"] is False
     assert "missing_output_artifact" in {finding["code"] for finding in projects["project-broken"]["findings"]}
+    assert "orphan_external_artifact" in {finding["code"] for finding in projects["project-broken"]["findings"]}
 
 
 def test_task_center_cli_maintenance_sweeps_then_audits_and_writes_report(tmp_path, capsys) -> None:

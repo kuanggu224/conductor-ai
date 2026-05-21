@@ -104,6 +104,9 @@ for the matching complete/fail/heartbeat/release endpoints.
 CLI/API return paths validate claim status, `agent_id`, and `claim_token`
 before creating an external output artifact, so stale-token or wrong-agent
 returns do not leave orphan artifacts in project state.
+Audit and maintenance reports also flag historical `task_center/external`
+artifacts that are not referenced by any assignment `output_artifact_ids` as
+`orphan_external_artifact`.
 Eligible dynamic Agent entries in context payloads and Markdown prompts include
 `claimable_for_agent` and `write_scope_conflict_assignment_ids`. External CLI
 agents should treat `claimable_for_agent=false` as a hard handoff warning and

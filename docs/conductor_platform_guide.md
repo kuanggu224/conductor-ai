@@ -214,6 +214,7 @@ Run Manifest Verifier 也会检查 Development WorkItem 的 handoff 约束：如
 任务被 claim 后，CLI、Board API 与 context JSON 的 task payload 会提供 `return_commands`，把 complete、complete_with_output_file、fail、fail_with_output_file、heartbeat、release 的命令和当前 `claim_token` 一起返回；Board API task payload 还会提供 `return_api_paths`，减少外部 worker 归还任务和 Artifact 时的手工拼接错误。
 
 CLI/API 在创建外部输出 Artifact 前会先校验任务仍为 claimed，并校验 `agent_id` 与 `claim_token`，错误 worker 或 stale token 的归还请求不会污染 Artifact 列表。
+Task Center audit/maintenance 会进一步识别历史遗留的 `task_center/external` 孤儿产物并报告 `orphan_external_artifact`，让恢复前维护能发现归还链路中的状态污染。
 
 ## 6. 执行后端
 

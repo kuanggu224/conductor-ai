@@ -450,6 +450,38 @@ class TaskCenterService:
                             recommendation="Use Task Center fail command instead of manual state edits.",
                         )
                     )
+        findings.extend(self._audit_orphan_external_artifacts(state))
+        return findings
+
+    def _audit_orphan_external_artifacts(self, state: SharedProjectState) -> list[TaskCenterAuditFinding]:
+        """Return findings for external return artifacts that no assignment references."""
+        referenced_output_artifact_ids = {
+            artifact_id
+            for assignment in state.task_assignments
+            for artifact_id in assignment.output_artifact_ids
+        }
+        findings: list[TaskCenterAuditFinding] = []
+        for artifact in state.artifacts:
+            if artifact.source_backend != "task_center/external":
+                continue
+            if artifact.id in referenced_output_artifact_ids:
+                continue
+            findings.append(
+                TaskCenterAuditFinding(
+                    code="orphan_external_artifact",
+                    severity="error",
+                    assignment_id="",
+                    workitem_id=artifact.workitem_id,
+                    message=(
+                        "Task Center external artifact is not referenced by any "
+                        f"TaskAssignment output_artifact_ids: {artifact.id}"
+                    ),
+                    recommendation=(
+                        "Attach the artifact to the correct returned assignment output_artifact_ids "
+                        "or remove the orphan artifact from project state."
+                    ),
+                )
+            )
         return findings
 
     def _queued_has_claim_state(self, assignment: TaskAssignment) -> bool:

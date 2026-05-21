@@ -358,6 +358,26 @@ def test_task_center_service_audit_checks_artifact_references_and_queued_state()
                 kind="external_result",
                 title="Worker output",
                 content="done",
+                source_backend="task_center/external",
+            ),
+            Artifact(
+                id="artifact-orphan-output",
+                project_id="project-service",
+                workitem_id="workitem-done",
+                agent_id="agent-worker",
+                kind="external_result",
+                title="Orphan worker output",
+                content="orphan",
+                source_backend="task_center/external",
+            ),
+            Artifact(
+                id="artifact-internal-note",
+                project_id="project-service",
+                workitem_id="workitem-done",
+                agent_id="agent-worker",
+                kind="implementation_note",
+                title="Internal note",
+                content="not a task center return",
             )
         ],
     )
@@ -372,6 +392,9 @@ def test_task_center_service_audit_checks_artifact_references_and_queued_state()
     assert "artifact-missing-input" in findings_by_code["missing_input_artifact"].message
     assert findings_by_code["missing_output_artifact"].severity == "error"
     assert "artifact-missing-output" in findings_by_code["missing_output_artifact"].message
+    assert findings_by_code["orphan_external_artifact"].severity == "error"
+    assert "artifact-orphan-output" in findings_by_code["orphan_external_artifact"].message
+    assert "artifact-internal-note" not in findings_by_code["orphan_external_artifact"].message
 
 
 def test_task_center_audit_flags_assignment_lifecycle_field_drift() -> None:
