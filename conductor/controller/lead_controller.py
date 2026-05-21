@@ -639,6 +639,7 @@ class LeadController:
         new_workitems = self._apply_pending_test_scope(latest, next_stage.name, new_workitems)
         new_workitems = self._attach_stage_dependencies(new_workitems, latest.workitems)
         new_workitems = self._attach_stage_input_artifacts(new_workitems, latest)
+        new_workitems = self._attach_stage_handoff_contracts(new_workitems, latest)
         new_assignments = self._build_task_assignments(new_workitems, latest)
         updated_project = replace(
             latest.project,
@@ -1215,6 +1216,49 @@ class LeadController:
             )
             for workitem in new_workitems
         ]
+
+    def _attach_stage_handoff_contracts(
+        self,
+        new_workitems: list[WorkItem],
+        state: SharedProjectState,
+    ) -> list[WorkItem]:
+        """Turn frozen requirement/design inputs into explicit development acceptance constraints."""
+        if not new_workitems:
+            return []
+        artifact_by_id = {artifact.id: artifact for artifact in state.artifacts}
+        design_workitem_ids = {item.id for item in state.workitems if item.stage == "design"}
+        updated: list[WorkItem] = []
+        for workitem in new_workitems:
+            if workitem.stage != "development":
+                updated.append(workitem)
+                continue
+            input_artifacts = [
+                artifact_by_id[artifact_id]
+                for artifact_id in workitem.input_artifact_ids
+                if artifact_id in artifact_by_id
+            ]
+            has_requirement_baseline = any(
+                artifact.kind in {"frozen_requirement_spec", "requirement_spec"}
+                for artifact in input_artifacts
+            )
+            has_design_baseline = any(
+                artifact.kind == "frozen_design_spec"
+                or artifact.kind in {"design_overview", "ui_design", "api_design", "test_design"}
+                or artifact.workitem_id in design_workitem_ids
+                for artifact in input_artifacts
+            )
+            acceptance_criteria = list(workitem.acceptance_criteria)
+            if has_requirement_baseline:
+                acceptance_criteria.append("遵守输入产物中的冻结需求/需求基线范围、非目标和验收标准")
+            if has_design_baseline:
+                acceptance_criteria.append("遵守输入产物中的冻结设计/设计约束，必要偏离必须显式说明")
+            updated.append(
+                replace(
+                    workitem,
+                    acceptance_criteria=list(dict.fromkeys(acceptance_criteria)),
+                )
+            )
+        return updated
 
     def _is_ready_to_execute(self, state: SharedProjectState, workitem: WorkItem) -> bool:
         """Return whether a pending WorkItem can be claimed by an Agent."""

@@ -30,6 +30,7 @@ Last updated: 2026-05-21
 - Structured testing feedback lookup is centralized in `conductor.testing.failure_feedback`, reducing drift across Task Center, manifest, project report, and replay outputs.
 - Task Center context now includes a machine-readable `delivery_contract` and renders it into CLI prompts, making each external Agent's expected outputs, guardrails, and verification focus explicit.
 - The same delivery contract is shared by direct Runner prompts for Agent CLI document/code execution, keeping internal execution and external Task Center handoff aligned.
+- Development WorkItems now promote frozen requirement/design input artifacts into explicit acceptance criteria, so implementation agents must preserve baseline scope and explain design deviations.
 - Code execution reports, project reports, and manifest execution records now include acceptance trace evidence that maps WorkItem acceptance criteria to validation status and changed files.
 - Testing WorkItems now carry a machine-readable `testing_checklist` derived from frozen requirement coverage rules, including rule ids, labels, requirement signals, and required evidence terms.
 - Structured testing feedback now maps missing coverage back to `missing_checklist_items`, so development rework prompts can cite the exact checklist `rule_id` and required evidence that failed.

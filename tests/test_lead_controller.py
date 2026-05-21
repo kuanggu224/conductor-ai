@@ -675,6 +675,8 @@ def test_next_stage_workitems_depend_on_previous_stage() -> None:
     assert all(set(item.dependencies) == design_ids for item in development_items)
     assert all(requirement_artifact_ids.intersection(item.input_artifact_ids) for item in development_items)
     assert all(design_artifact_ids.intersection(item.input_artifact_ids) for item in development_items)
+    assert all("遵守输入产物中的冻结需求/需求基线范围、非目标和验收标准" in item.acceptance_criteria for item in development_items)
+    assert all("遵守输入产物中的冻结设计/设计约束，必要偏离必须显式说明" in item.acceptance_criteria for item in development_items)
     assert all(assignment.dependencies for assignment in state.task_assignments if assignment.workitem_id in {item.id for item in development_items})
     assert development_assignments
     assert all(requirement_artifact_ids.intersection(assignment.input_artifact_ids) for assignment in development_assignments)

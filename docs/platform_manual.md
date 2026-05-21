@@ -131,6 +131,7 @@ requirement -> design -> development -> testing
 - 支持失败分类、重试、返工 WorkItem。
 - 支持外部 Agent 从 Task Center 领取任务并归还 Artifact。
 - 支持静态 Web 小项目端到端验证。
+- Development WorkItem 会把冻结需求和设计输入提升为显式 acceptance criteria，要求实现保持基线范围并说明必要设计偏离。
 
 当前限制：
 
