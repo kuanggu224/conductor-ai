@@ -711,6 +711,7 @@ def test_manifest_verifier_rejects_bad_task_center_audit_links(tmp_path) -> None
                     "workitem_id": "workitem-other",
                     "related_assignment_ids": ["missing-related-assignment"],
                     "related_artifact_ids": ["missing-related-artifact"],
+                    "missing_artifact_ids": "missing-artifact",
                 },
             ],
         },
@@ -734,6 +735,7 @@ def test_manifest_verifier_rejects_bad_task_center_audit_links(tmp_path) -> None
         "task_center_audit[2].related_artifact_ids references unknown Artifact: "
         "missing-related-artifact"
     ) in result.errors
+    assert "task_center_audit[2].missing_artifact_ids must be a list" in result.errors
 
 
 def test_manifest_verifier_rejects_bad_control_plane_links(tmp_path) -> None:

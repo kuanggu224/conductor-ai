@@ -215,6 +215,7 @@ Run Manifest Verifier 也会检查 Development WorkItem 的 handoff 约束：如
 
 CLI/API 在创建外部输出 Artifact 前会先校验任务仍为 claimed，并校验 `agent_id` 与 `claim_token`，错误 worker 或 stale token 的归还请求不会污染 Artifact 列表。
 Task Center audit/maintenance 会进一步识别历史遗留的 `task_center/external` 孤儿产物并报告 `orphan_external_artifact`，同时在 `related_artifact_ids` 中保留结构化引用，让恢复前维护能发现归还链路中的状态污染。
+缺失的输入/输出 Artifact 会进入 `missing_artifact_ids`，便于维护脚本或人类 operator 精确定位需要恢复的 Artifact id。
 
 ## 6. 执行后端
 

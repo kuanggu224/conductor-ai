@@ -1825,6 +1825,12 @@ def test_task_center_cli_audit_all_reports_every_project_and_can_fail(tmp_path, 
     assert projects["project-broken"]["passed"] is False
     assert "missing_output_artifact" in {finding["code"] for finding in projects["project-broken"]["findings"]}
     assert "orphan_external_artifact" in {finding["code"] for finding in projects["project-broken"]["findings"]}
+    missing_finding = next(
+        finding
+        for finding in projects["project-broken"]["findings"]
+        if finding["code"] == "missing_output_artifact"
+    )
+    assert missing_finding["missing_artifact_ids"] == ["artifact-missing"]
     orphan_finding = next(
         finding
         for finding in projects["project-broken"]["findings"]

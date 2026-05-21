@@ -1367,6 +1367,8 @@ class ManifestVerifier:
                 result.errors.append(f"task_center_audit[{index}].related_assignment_ids must be a list")
             if "related_artifact_ids" in finding and not isinstance(finding.get("related_artifact_ids"), list):
                 result.errors.append(f"task_center_audit[{index}].related_artifact_ids must be a list")
+            if "missing_artifact_ids" in finding and not isinstance(finding.get("missing_artifact_ids"), list):
+                result.errors.append(f"task_center_audit[{index}].missing_artifact_ids must be a list")
             if not code:
                 result.errors.append(f"task_center_audit[{index}].code must be non-empty")
             if severity and severity not in {"error", "warning"}:

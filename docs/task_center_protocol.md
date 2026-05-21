@@ -108,6 +108,9 @@ Audit and maintenance reports also flag historical `task_center/external`
 artifacts that are not referenced by any assignment `output_artifact_ids` as
 `orphan_external_artifact`; these findings include `related_artifact_ids` so
 Manifest verification can validate the referenced artifact.
+Findings for missing input/output artifacts include `missing_artifact_ids`,
+keeping absent ids machine-readable without requiring them to exist in archived
+artifacts.
 Eligible dynamic Agent entries in context payloads and Markdown prompts include
 `claimable_for_agent` and `write_scope_conflict_assignment_ids`. External CLI
 agents should treat `claimable_for_agent=false` as a hard handoff warning and

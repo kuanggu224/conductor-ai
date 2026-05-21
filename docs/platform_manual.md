@@ -560,6 +560,7 @@ Task Center context 会把每个 eligible dynamic Agent 的 `claimable_for_agent
 
 CLI/API 归还路径会在创建外部输出 Artifact 之前校验任务仍处于 claimed 状态，并校验 `agent_id` 与 `claim_token`，避免错误 worker 或 stale token 留下未被 assignment 引用的孤儿 Artifact。
 Task Center audit/maintenance 也会把历史遗留的 `task_center/external` 孤儿产物报告为 `orphan_external_artifact`，并用 `related_artifact_ids` 结构化记录对应 Artifact，便于长周期项目恢复前清理状态污染。
+缺失输入/输出 Artifact 会进入 `missing_artifact_ids`，让维护报告保留可机器读取的缺失 id，而不是只把它们写在自然语言 message 中。
 
 Context 顶层还会输出 `handoff_safety`，汇总 `ready_for_handoff`、依赖阻塞、写入范围冲突、warnings 和 guidance；其中 `baseline_handoff` 会标记 Development 任务引用的冻结需求/设计基线是否已经进入 `acceptance_criteria`。Markdown prompt 同步渲染 `## Handoff Safety`，让外部 worker 在领取和开工前就能判断当前任务是否安全。
 

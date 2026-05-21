@@ -68,6 +68,7 @@ class TaskCenterAuditFinding:
     recommendation: str = ""
     related_assignment_ids: list[str] = field(default_factory=list)
     related_artifact_ids: list[str] = field(default_factory=list)
+    missing_artifact_ids: list[str] = field(default_factory=list)
 
 
 class TaskCenterService:
@@ -136,6 +137,7 @@ class TaskCenterService:
                             f"{', '.join(missing_input_artifact_ids)}"
                         ),
                         recommendation="Restore the input artifact files or regenerate task context.",
+                        missing_artifact_ids=list(missing_input_artifact_ids),
                     )
                 )
             missing_output_artifact_ids = [
@@ -153,6 +155,7 @@ class TaskCenterService:
                             f"{', '.join(missing_output_artifact_ids)}"
                         ),
                         recommendation="Restore the output artifact records or rerun the worker return step.",
+                        missing_artifact_ids=list(missing_output_artifact_ids),
                     )
                 )
             if assignment.status == TaskAssignmentStatus.QUEUED and workitem.status != WorkItemStatus.PENDING:

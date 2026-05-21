@@ -390,8 +390,10 @@ def test_task_center_service_audit_checks_artifact_references_and_queued_state()
     assert findings_by_code["queued_workitem_not_pending"].severity == "error"
     assert findings_by_code["missing_input_artifact"].severity == "warning"
     assert "artifact-missing-input" in findings_by_code["missing_input_artifact"].message
+    assert findings_by_code["missing_input_artifact"].missing_artifact_ids == ["artifact-missing-input"]
     assert findings_by_code["missing_output_artifact"].severity == "error"
     assert "artifact-missing-output" in findings_by_code["missing_output_artifact"].message
+    assert findings_by_code["missing_output_artifact"].missing_artifact_ids == ["artifact-missing-output"]
     assert findings_by_code["orphan_external_artifact"].severity == "error"
     assert "artifact-orphan-output" in findings_by_code["orphan_external_artifact"].message
     assert findings_by_code["orphan_external_artifact"].related_artifact_ids == ["artifact-orphan-output"]
