@@ -72,6 +72,7 @@ class LLMBackendDiagnostic:
     encoding: str = ""
     preflight_success: bool | None = None
     preflight_error: str = ""
+    failure_category: str = ""
     health_status: str = "not_checked"
     recommendation: str = ""
 
@@ -267,15 +268,18 @@ def _build_llm_backend_diagnostics(
         )
         if not config.enabled:
             item.health_status = "disabled"
+            item.failure_category = _llm_failure_category(item)
             item.recommendation = f"Enable the {backend} LLM backend before using it for Agent execution."
             diagnostics.append(item)
             continue
         item.health_status = _llm_health_status(item)
+        item.failure_category = _llm_failure_category(item)
         item.recommendation = _llm_recommendation(item)
         if probe_llm and config.enabled and item.timeout_status == "invalid":
             item.server_status = "invalid_timeout"
             item.model_list_error = item.timeout_warning
             item.health_status = _llm_health_status(item)
+            item.failure_category = _llm_failure_category(item)
             item.recommendation = _llm_recommendation(item)
         elif probe_llm and config.enabled:
             probe = model_probe or _probe_openai_models
@@ -292,6 +296,7 @@ def _build_llm_backend_diagnostics(
                 if preflight_error:
                     item.preflight_error = preflight_error
             item.health_status = _llm_health_status(item)
+            item.failure_category = _llm_failure_category(item)
             item.recommendation = _llm_recommendation(item)
         diagnostics.append(item)
     return diagnostics
@@ -375,7 +380,8 @@ def _build_warnings(
                 f"{backend.backend} LLM model `{backend.model}` is not listed by the configured endpoint."
             )
         if backend.preflight_success is False:
-            warnings.append(f"{backend.backend} LLM preflight failed: {backend.preflight_error}")
+            category = f" ({backend.failure_category})" if backend.failure_category else ""
+            warnings.append(f"{backend.backend} LLM preflight failed{category}: {backend.preflight_error}")
     return warnings
 
 
@@ -408,6 +414,20 @@ def _llm_recommendation(backend: LLMBackendDiagnostic) -> str:
         return "Set a positive LLM timeout before probing or running Agent execution."
     if backend.backend == "cloud" and not backend.api_key_present:
         return "Fill the cloud API key in local settings before running cloud LLM Agents."
+    if backend.failure_category == "auth":
+        return "Check provider authentication: API key, token, endpoint permissions, and account access."
+    if backend.failure_category == "quota":
+        return "Check provider quota, billing, rate limits, and retry after any provider cooldown window."
+    if backend.failure_category == "context_length":
+        return "Use a larger-context model or reduce prompt/artifact size before running multi-Agent tasks."
+    if backend.failure_category == "model_not_found":
+        return "Choose one of the listed models from diagnostics or update the configured model name."
+    if backend.failure_category == "timeout":
+        return "Increase the LLM timeout and verify the provider can answer within that window."
+    if backend.failure_category == "network":
+        return "Check base URL, local server process, proxy, DNS, and network reachability."
+    if backend.failure_category == "server_error":
+        return "Check provider status and server logs, then retry after the backend is healthy."
     if backend.preflight_success is False:
         return "Check base URL, API key, model name, timeout, and provider quota, then run preflight again."
     if backend.server_status == "unreachable":
@@ -423,6 +443,38 @@ def _llm_recommendation(backend: LLMBackendDiagnostic) -> str:
     if backend.timeout_status == "low":
         return "Configured timeout is low for multi-Agent prompts; increase it before longer real runs."
     return "Run diagnostics with probe_llm and preflight_llm before real Agent execution."
+
+
+def _llm_failure_category(backend: LLMBackendDiagnostic) -> str:
+    """Classify common provider-specific LLM failures for operator recovery."""
+    if not backend.enabled:
+        return "disabled"
+    if backend.timeout_status == "invalid":
+        return "timeout"
+    if backend.selected_model_available is False:
+        return "model_not_found"
+    text = f"{backend.preflight_error}\n{backend.model_list_error}".lower()
+    if not text.strip():
+        if backend.server_status == "unreachable":
+            return "network"
+        return ""
+    if any(term in text for term in ("401", "403", "unauthorized", "forbidden", "invalid api key", "authentication", "permission denied")):
+        return "auth"
+    if any(term in text for term in ("429", "quota", "rate limit", "rate_limit", "billing", "insufficient credits", "insufficient_quota")):
+        return "quota"
+    if any(term in text for term in ("context length", "maximum context", "too many tokens", "token limit", "context window")):
+        return "context_length"
+    if any(term in text for term in ("model not found", "model does not exist", "unknown model", "no such model")):
+        return "model_not_found"
+    if any(term in text for term in ("timeout", "timed out", "deadline exceeded")):
+        return "timeout"
+    if any(term in text for term in ("connection refused", "connection reset", "dns", "name resolution", "no route", "network", "unreachable")):
+        return "network"
+    if any(term in text for term in ("500", "502", "503", "504", "internal server error", "bad gateway", "service unavailable")):
+        return "server_error"
+    if backend.preflight_success is False or backend.server_status == "unreachable":
+        return "provider_error"
+    return ""
 
 
 def _runtime_encoding_summary() -> str:

@@ -50,6 +50,8 @@ python -m app.diagnostics --preflight-llm
 
 `--probe-cli` 会在 CLI 诊断里输出 `auth_status`、`auth_error` 和 `recommendation`。如果 selected CLI 出现未登录、认证过期、API key 缺失等常见授权失败，preflight gate 会阻断真实运行并给出 login/auth 恢复建议。
 
+`--preflight-llm` 会在 LLM 诊断里输出 `failure_category`，用于区分 auth、quota、context length、model not found、timeout、network、server error 等常见 provider 故障，并给出更具体的恢复建议。
+
 测试项目建议放在 `C:\99_self\conductor_test\...` 下，避免把临时产物写进仓库或 `C:\` 根目录。
 
 ## Task Center

@@ -271,6 +271,71 @@ def test_platform_diagnostics_does_not_fail_when_models_endpoint_is_missing_but_
     assert cloud.health_status == "ready"
 
 
+def test_platform_diagnostics_classifies_llm_quota_preflight_failure(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr("conductor.diagnostics.discover_cli_tools", lambda: [])
+
+    diagnostics = build_platform_diagnostics(
+        cli_config=CLISelectionConfig(),
+        project_root=tmp_path,
+        llm_runtime_config=LLMRuntimeConfig(
+            local=LLMHTTPConfig(
+                base_url="http://127.0.0.1:1234/v1",
+                model_name="local-model",
+                enabled=False,
+            ),
+            cloud=LLMHTTPConfig(
+                base_url="https://example.com/v1",
+                model_name="cloud-model",
+                api_key="secret",
+                timeout_seconds=30,
+                enabled=True,
+            ),
+            usage=LLMUsagePolicy(),
+        ),
+        probe_llm=True,
+        model_probe=lambda *_: ("reachable", ["cloud-model"], 32768, ""),
+        preflight_probe=lambda backend: (False, "HTTP 429 insufficient_quota: billing limit reached"),
+    )
+
+    cloud = {item.backend: item for item in diagnostics.llm_backends}["cloud"]
+    assert diagnostics.ok is False
+    assert cloud.health_status == "failed"
+    assert cloud.failure_category == "quota"
+    assert "quota, billing, rate limits" in cloud.recommendation
+    assert any("cloud LLM preflight failed (quota)" in warning for warning in diagnostics.warnings)
+
+
+def test_platform_diagnostics_classifies_llm_context_length_failure(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr("conductor.diagnostics.discover_cli_tools", lambda: [])
+
+    diagnostics = build_platform_diagnostics(
+        cli_config=CLISelectionConfig(),
+        project_root=tmp_path,
+        llm_runtime_config=LLMRuntimeConfig(
+            local=LLMHTTPConfig(
+                base_url="http://127.0.0.1:1234/v1",
+                model_name="local-model",
+                timeout_seconds=30,
+                enabled=True,
+            ),
+            cloud=LLMHTTPConfig(
+                base_url="https://example.com/v1",
+                model_name="cloud-model",
+                enabled=False,
+            ),
+            usage=LLMUsagePolicy(),
+        ),
+        probe_llm=True,
+        model_probe=lambda *_: ("reachable", ["local-model"], 4096, ""),
+        preflight_probe=lambda backend: (False, "maximum context length exceeded: too many tokens"),
+    )
+
+    local = {item.backend: item for item in diagnostics.llm_backends}["local"]
+    assert diagnostics.ok is False
+    assert local.failure_category == "context_length"
+    assert "larger-context model" in local.recommendation
+
+
 def test_platform_diagnostics_warns_when_configured_llm_model_is_not_listed(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr("conductor.diagnostics.discover_cli_tools", lambda: [])
 

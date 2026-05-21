@@ -495,7 +495,7 @@ python -m app.run_project --diagnose
 python -m app.run_project --diagnose --diagnose-cli --diagnose-llm
 ```
 
-诊断输出会包含 CLI 可用性、角色绑定、CLI auth status、LLM server/model/context window、LLM timeout 健康状态、UTF-8 编码就绪度，以及最近一次 preflight gate 摘要。`--probe-cli` 会从轻量探测输出中识别未登录、认证过期、API key 缺失等常见授权失败，并输出 `auth_status=unauthorized`、`auth_error` 和 login/auth 恢复建议；selected CLI 的未授权状态会进入 preflight gate warnings，避免真实执行开始后才失败。低 timeout 会作为 `timeout_status=low` 返回建议；非法 timeout 会阻断 LLM model probe，避免在配置明显错误时继续发起真实请求。
+诊断输出会包含 CLI 可用性、角色绑定、CLI auth status、LLM server/model/context window、LLM timeout 健康状态、UTF-8 编码就绪度，以及最近一次 preflight gate 摘要。`--probe-cli` 会从轻量探测输出中识别未登录、认证过期、API key 缺失等常见授权失败，并输出 `auth_status=unauthorized`、`auth_error` 和 login/auth 恢复建议；selected CLI 的未授权状态会进入 preflight gate warnings，避免真实执行开始后才失败。`--preflight-llm` 会输出 `failure_category`，区分 auth、quota/rate limit、context length、model not found、timeout、network 和 server error 等 provider 故障，并给出对应恢复建议。低 timeout 会作为 `timeout_status=low` 返回建议；非法 timeout 会阻断 LLM model probe，避免在配置明显错误时继续发起真实请求。
 
 ### 11.6 需求阶段 Benchmark
 
