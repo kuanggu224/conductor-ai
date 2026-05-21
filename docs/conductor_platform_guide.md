@@ -549,7 +549,7 @@ python -m app.run_project `
   --stale-after-seconds 3600
 ```
 
-该入口会在正式推进项目前释放过期 lease 和 stale claim，并把维护后的审计摘要写入输出字段 `pre_run_task_center_maintenance`。如果启用 `--maintenance-fail-on-findings`，维护审计发现错误或警告时会在推进项目前返回退出码 `3`，避免带着坏状态继续运行。`--maintenance-report-output` 会把同一份维护摘要落成 JSON 文件，便于定时任务或外部调度器留存证据；`--maintenance-latest-output` 会写出轻量 latest 指针，便于外部工具读取最近一次恢复前维护状态。
+该入口会在正式推进项目前释放过期 lease 和 stale claim，并把维护后的审计摘要写入输出字段 `pre_run_task_center_maintenance`。如果启用 `--maintenance-fail-on-findings`，维护审计发现错误或警告时会在推进项目前返回退出码 `3`，避免带着坏状态继续运行。`--maintenance-report-output` 会把同一份维护摘要落成 JSON 文件，便于定时任务或外部调度器留存证据；`--maintenance-latest-output` 会写出轻量 latest 指针，便于外部工具读取最近一次恢复前维护状态。恢复前维护 report 和 latest 指针也会包含 `operator_guidance` 与 `operator_commands`，提供可复制的 resume-with-maintenance 和 maintenance-status 命令。
 
 只做运行前检查：
 

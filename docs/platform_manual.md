@@ -483,6 +483,8 @@ python -m app.run_project `
   --stale-after-seconds 3600
 ```
 
+恢复前维护模式可同时释放过期 lease / stale claim、写出维护报告和 latest 指针；报告与 latest 会包含 `operator_guidance` 和 `operator_commands`，便于调度器或人工 operator 直接复制 resume-with-maintenance 和 maintenance-status 命令。
+
 ### 11.5 运行诊断
 
 ```powershell

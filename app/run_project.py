@@ -316,6 +316,12 @@ def main(argv: list[str] | None = None) -> int:
             "stale_after_seconds": args.stale_after_seconds,
             "audit": _task_center_audit_payload(maintenance_findings),
         }
+        _attach_pre_run_maintenance_operator_hints(
+            args,
+            project_root,
+            state.project.id,
+            pre_run_task_center_maintenance,
+        )
         _write_pre_run_maintenance_report_if_requested(args, project_root, pre_run_task_center_maintenance)
         if args.maintenance_fail_on_findings and maintenance_findings:
             payload = _pre_run_maintenance_failure_payload(
@@ -518,7 +524,80 @@ def _pre_run_maintenance_latest_payload(pre_run_task_center_maintenance: dict[st
         "error_count": int(audit.get("error_count", 0)),
         "warning_count": int(audit.get("warning_count", 0)),
         "report_path": str(pre_run_task_center_maintenance.get("report_path", "")),
+        "operator_guidance": str(pre_run_task_center_maintenance.get("operator_guidance", "")),
+        "operator_commands": _list_payload(pre_run_task_center_maintenance.get("operator_commands")),
     }
+
+
+def _attach_pre_run_maintenance_operator_hints(
+    args,
+    project_root: Path,
+    project_id: str,
+    payload: dict[str, object],
+) -> None:
+    report_path = args.maintenance_report_output or ".conductor/maintenance/pre-run.json"
+    latest_path = args.maintenance_latest_output or ".conductor/maintenance/latest-pre-run.json"
+    payload["operator_guidance"] = (
+        "Run pre-run Task Center maintenance before resuming long-running projects; "
+        "use --maintenance-fail-on-findings when automation should stop on audit findings."
+    )
+    payload["operator_commands"] = _pre_run_maintenance_operator_commands(
+        project_root=project_root,
+        project_id=project_id,
+        stale_after_seconds=args.stale_after_seconds,
+        report_path=report_path,
+        latest_path=latest_path,
+        fail_on_findings=bool(args.maintenance_fail_on_findings),
+    )
+
+
+def _pre_run_maintenance_operator_commands(
+    *,
+    project_root: Path,
+    project_id: str,
+    stale_after_seconds: int,
+    report_path: str,
+    latest_path: str,
+    fail_on_findings: bool,
+) -> list[str]:
+    resume = [
+        "python",
+        "-m",
+        "app.run_project",
+        "--project-root",
+        _quote_cli_arg(str(project_root)),
+        "--resume-project-id",
+        _quote_cli_arg(project_id),
+        "--maintenance-task-center",
+        "--stale-after-seconds",
+        str(stale_after_seconds),
+        "--maintenance-report-output",
+        _quote_cli_arg(report_path),
+        "--maintenance-latest-output",
+        _quote_cli_arg(latest_path),
+    ]
+    if fail_on_findings:
+        resume.append("--maintenance-fail-on-findings")
+    status = [
+        "python",
+        "-m",
+        "app.task_center",
+        "maintenance-status",
+        "--project-root",
+        _quote_cli_arg(str(project_root)),
+        "--latest",
+        _quote_cli_arg(latest_path),
+        "--fail-on-findings",
+    ]
+    return [" ".join(resume), " ".join(status)]
+
+
+def _list_payload(value: object) -> list[object]:
+    return value if isinstance(value, list) else []
+
+
+def _quote_cli_arg(value: object) -> str:
+    return '"' + str(value).replace('"', '\\"') + '"'
 
 
 def _write_audit_bundle_index_if_requested(

@@ -822,11 +822,21 @@ def test_run_project_can_run_task_center_maintenance_before_resume(tmp_path, cap
     assert maintenance["audit"]["finding_count"] == 0
     assert maintenance["report_path"] == str(maintenance_report_path.resolve())
     assert maintenance["latest_path"] == str(maintenance_latest_path.resolve())
+    assert maintenance["operator_guidance"].startswith("Run pre-run Task Center maintenance")
+    assert maintenance["operator_commands"][0].startswith("python -m app.run_project")
+    assert f'--project-root "{tmp_path}"' in maintenance["operator_commands"][0]
+    assert f'--resume-project-id "{payload["project_id"]}"' in maintenance["operator_commands"][0]
+    assert '--maintenance-report-output "maintenance/pre-run.json"' in maintenance["operator_commands"][0]
+    assert '--maintenance-latest-output "maintenance/latest.json"' in maintenance["operator_commands"][0]
+    assert maintenance["operator_commands"][1].startswith("python -m app.task_center maintenance-status")
     assert maintenance_report["project_id"] == payload["project_id"]
     assert maintenance_report["released_count"] == 1
+    assert maintenance_report["operator_commands"] == maintenance["operator_commands"]
     assert maintenance_latest["project_id"] == payload["project_id"]
     assert maintenance_latest["status"] == "clean"
     assert maintenance_latest["report_path"] == str(maintenance_report_path.resolve())
+    assert maintenance_latest["operator_guidance"] == maintenance["operator_guidance"]
+    assert maintenance_latest["operator_commands"] == maintenance["operator_commands"]
     assert resumed_payload["task_center_audit"]["finding_count"] == 0
     assert manifest_payload["run_options"]["maintenance_task_center"] is True
     assert manifest_payload["run_options"]["maintenance_fail_on_findings"] is False
@@ -919,6 +929,8 @@ def test_run_project_maintenance_can_stop_before_resume_on_audit_findings(tmp_pa
     assert maintenance_latest["status"] == "needs_attention"
     assert maintenance_latest["finding_count"] >= 1
     assert maintenance_latest["report_path"] == str(maintenance_report_path.resolve())
+    assert maintenance_latest["operator_commands"]
+    assert "--maintenance-fail-on-findings" in maintenance_latest["operator_commands"][0]
     assert "manifest_path" not in resumed_payload
     assert reloaded.executions == []
 
