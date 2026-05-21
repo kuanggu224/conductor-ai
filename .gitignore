@@ -6,11 +6,14 @@ __pycache__/
 .idea/
 .vscode/
 .pytest_cache/
+.pytest_tmp/
 .conductor/
 .conductor_artifacts/
 .conductor_logs/
 .codexbridge/
 .tmp_*/
+.tmp_pytest*/
+.ruff_cache/
 backend-*.log
 frontend-review*.md
 review-frontend*.md

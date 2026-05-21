@@ -1,348 +1,138 @@
 # Conductor
 
-An observable AI task routing and multi-expert orchestration system.
+Conductor 是一个 AI Native 的项目执行系统：它把 AI 组织成一个可控的软件项目团队，由 Controller 管流程，由多 Agent 承担职责，由 Shared State 记录事实，由 Manifest 审计交付过程。
 
-For the current stable checkpoint, verified test count, known gaps, and next priorities, start with [`CURRENT_STATE.md`](CURRENT_STATE.md).
+项目的目标不是做一个更长上下文的聊天工具，而是把自然语言需求推进成可冻结、可追踪、可验证、可恢复的项目交付链路。完整设计说明见 [docs/conductor_platform_guide.md](docs/conductor_platform_guide.md)，当前稳定状态见 [CURRENT_STATE.md](CURRENT_STATE.md)。
 
-This workspace currently contains the Sprint 1 minimal runnable core:
+## 核心理念
 
-- Core domain models for `Project`, `Stage`, `WorkItem`, `Execution`, `Agent`, `RouteDecision`, `SharedProjectState`, `GlobalMemory`, and `ContextPack`
-- A default workflow template with `design -> development -> testing`
-- A rule-driven `LeadController` that can initialize a project and advance it through mock execution
-- An in-memory shared state store
-- A lightweight runner with mock, harness, and CLI-backed execution paths
+- `Project First`：平台以项目为核心对象，而不是以一次对话为核心。
+- `Controller Owns Flow`：Agent 不直接决定项目是否推进，流程由 Controller 和状态机控制。
+- `Shared State Is Source of Truth`：需求、设计、任务、产物、失败、事件和 Agent 行为都落入共享状态。
+- `Artifacts Over Chat`：交付物必须沉淀成 Artifact，并能被下游阶段引用。
+- `Auditability By Default`：Manifest、Replay、Report、Event Log 用来证明系统做过什么、为什么这么做、结果是否可信。
+- `Human In Control`：AI 可以自主执行，但人类必须能暂停、接管、审批和恢复。
 
-## Simple To-do App
+## 当前能力
 
-The workspace also includes a standalone in-memory to-do application:
+- 需求阶段：支持需求评审、修订、质量门禁、冻结需求规格和需求返工。
+- 设计阶段：基于冻结需求生成设计产物，冻结设计会进入开发、测试和 Task Center 上下文。
+- 开发阶段：支持 mock、ShellHarness、StaticWebHarness、LLMHarness、CLI Agent 等执行路径。
+- 测试阶段：支持命令测试、静态 Web smoke、需求覆盖检查、API 行为证据和失败回流返工。
+- Task Center：支持外部 Agent 领取、续租、归还、失败、释放、批量领取、stale sweep 和上下文 prompt 生成。
+- TL Agent：支持动态团队规划，并在并行任务上校验 write scope 冲突。
+- Human Control：提供 CLI/API 控制路径，支持暂停、恢复、接管和项目报告审计。
+- Manifest/Replay：记录运行事实，支持 manifest 校验、审计 bundle 和只读 replay trace。
 
-- API root: `app.todo_app`
-- Start it with: `python -m app.todo_app`
-- Or run the package entrypoint with: `python -m app`
-- The package entrypoint proxies to the to-do app
-- Endpoints:
-  - `GET /`
-  - `GET /health`
-  - `GET /api/todos`
-  - `POST /api/todos`
-  - `GET /api/todos/{todo_id}`
-  - `PATCH /api/todos/{todo_id}`
-  - `DELETE /api/todos/{todo_id}`
+## 推荐运行方式
 
-## Current Run Mode
+默认使用本地确定性路径，不需要真实 LLM 或外部 CLI Agent：
 
-The repository is configured for local, deterministic execution.
-
-- No live LLM calls are required for the default flow
-- No real CLI agent execution is required for the default flow
-- Tests use mock or stubbed backends
-- System configuration can be saved and loaded from `conductor/config/system.config.json`
-
-## How To Run
-
-```bash
+```powershell
 python -m pytest -q
-python -m app.run_project --project-root <project-root> --requirement "Build a reading list"
-python -m app.run_project --project-root <project-root> --resume-project-id <project-id>
-python -m app.run_project --project-root <project-root> --resume-project-id <project-id> --release-stale-tasks --stale-after-seconds 3600
+python -m app.run_project --project-root C:\99_self\conductor_test\demo --requirement "Build a small static web app"
 ```
 
-`--resume-project-id` loads the existing `.conductor/state/<project-id>.state.json`
-under the resolved project root and continues the controller-driven flow instead
-of creating a new project. `--release-stale-tasks` can be used on resume to
-requeue claimed Task Center assignments whose heartbeat has expired.
+继续已有项目：
 
-## Task Center
-
-The Task Center is the lightweight coordination boundary for external agents.
-It is not a distributed queue yet, but it provides a stable claim/return
-protocol over persisted `.conductor/state` files and the Board API.
-
-CLI entrypoint:
-
-```bash
-python -m app.task_center list --project-root <project-root>
-python -m app.task_center summary --project-root <project-root>
-python -m app.task_center list --project-root <project-root> --stale-only --stale-after-seconds 3600
-python -m app.task_center context <assignment-id> --project-root <project-root>
-python -m app.task_center context <assignment-id> --project-root <project-root> --format markdown
-python -m app.task_center context <assignment-id> --project-root <project-root> --prompt-file .conductor/task_center/prompts/task.md
-python -m app.task_center claim-next --project-root <project-root> --agent-id <agent-id> [--role <role>]
-python -m app.task_center claim-next --project-root <project-root> --agent-id <agent-id> --with-context
-python -m app.task_center claim-next --project-root <project-root> --agent-id <agent-id> --with-context --context-format markdown
-python -m app.task_center claim-next --project-root <project-root> --agent-id <agent-id> --prompt-file .conductor/task_center/prompts/next-task.md
-python -m app.task_center claim <assignment-id> --project-root <project-root> --agent-id <agent-id>
-python -m app.task_center complete <assignment-id> --project-root <project-root> --result-summary "done"
-python -m app.task_center complete <assignment-id> --project-root <project-root> --output-file result.md
-python -m app.task_center fail <assignment-id> --project-root <project-root> --blocked-reason "reason"
-python -m app.task_center release <assignment-id> --project-root <project-root> --release-reason "worker interrupted"
-python -m app.task_center release-stale --project-root <project-root> --stale-after-seconds 3600 --release-reason "stale cleanup"
+```powershell
+python -m app.run_project --project-root C:\99_self\conductor_test\demo --resume-project-id <project-id>
 ```
 
-Board API endpoints:
+只做运行前检查：
 
-- `GET /api/projects/{project_id}/tasks`
-- `GET /api/projects/{project_id}/tasks?stale_only=true&stale_after_seconds=3600`
-- `GET /api/projects/{project_id}/tasks/summary`
-- `GET /api/projects/{project_id}/tasks/{assignment_id}/context`
-- `POST /api/projects/{project_id}/tasks/claim-next`
-- `POST /api/projects/{project_id}/tasks/{assignment_id}/claim`
-- `POST /api/projects/{project_id}/tasks/{assignment_id}/complete`
-- `POST /api/projects/{project_id}/tasks/{assignment_id}/fail`
-- `POST /api/projects/{project_id}/tasks/{assignment_id}/release`
-- `POST /api/projects/{project_id}/tasks/release-stale`
-
-Task payloads expose `claimable` and `unmet_dependency_ids`. Summaries expose
-`total`, `queued`, `claimed`, `completed`, `failed`, `blocked`, `claimable`,
-`blocked_by_dependencies`, and `stale_claimed`. Run manifests and project
-reports also include Task Center readiness for audit and replay. File-backed
-Task Center mutations use a per-project lock file and refresh state from disk
-before writes, so stale worker processes are less likely to duplicate-claim the
-same assignment. Corrupt persisted state files are quarantined as
-`*.state.json.corrupt-*` during load so one damaged snapshot does not prevent
-other projects from starting.
-
-## Diagnostics
-
-Use diagnostics before real CLI or LLM-backed runs to verify local bindings and
-runtime configuration:
-
-```bash
+```powershell
+python -m app.run_project --project-root C:\99_self\conductor_test\demo --requirement "Build a small static web app" --preflight-only
 python -m app.diagnostics
 python -m app.diagnostics --probe-cli
 python -m app.diagnostics --preflight-llm
-python -m app.run_project --diagnose
-python -m app.run_project --diagnose --diagnose-cli
-python -m app.run_project --diagnose --diagnose-llm
 ```
 
-Board exposes the same health snapshot for frontends:
+测试项目建议放在 `C:\99_self\conductor_test\...` 下，避免把临时产物写进仓库或 `C:\` 根目录。
 
-- `GET /api/diagnostics`
-- `GET /api/diagnostics?probe_cli=true`
-- `GET /api/diagnostics?probe_llm=true`
-- `GET /api/diagnostics?preflight_llm=true`
+## Task Center
 
-The default API call is read-only and does not touch network services or start
-agent CLIs. The `probe_cli=true` variant runs lightweight `--version` checks.
-The `probe_llm=true` variant checks enabled OpenAI-compatible model endpoints.
-The `preflight_llm=true` variant also runs a lightweight chat-completion probe.
-LLM diagnostics include the configured model, timeout, available model list,
-detected context length, whether the selected model is listed, a compact health
-status, and a remediation recommendation. Diagnostics output also includes the
-persisted `preflight_gate` snapshot for the selected `--project-root`.
+Task Center 是外部 Agent 或人类 worker 接入 Conductor 的轻量任务中心。它不是完整分布式队列，但已经提供稳定的文件状态边界、claim token、lease、heartbeat、stale release 和任务归还协议。
 
-`python -m app.run_project` runs a preflight gate before real Agent execution.
-For `design_cli_only`, `code_cli`, `full_cli`, or explicit `--llm-harness`
-runs, the gate checks the selected CLI/LLM backend and fails before creating a
-project if no real backend is usable. Use `--preflight-only` to run the same
-run-profile gate and exit without creating a project. Use
-`--skip-preflight-gate` only for controlled offline tests. Gate results are persisted at
-`.conductor/diagnostics/run-preflight/preflight-gate.json` under the resolved
-project root. Successful run manifests index the same file as
-`files.preflight_gate` and summarize `summary.preflight_gate_ok` /
-`summary.preflight_gate_errors` / `summary.preflight_gate_recommendations`.
-Project Markdown reports also render a `Preflight Gate` section with the audit
-file path, errors, and recommendations.
-
-### Jiutian LLM Backend
-
-Conductor can use Jiutian through the existing OpenAI-compatible cloud backend.
-Keep the real API key only in `.conductor/llm.config.json`, which is ignored by
-Git.
-
-The Board LLM settings page exposes provider presets for OpenAI, Jiutian, and
-LM Studio. The API reports only whether a key is present; it does not return the
-stored key. Leaving the key field blank while saving preserves the existing
-local key.
-
-Minimal cloud config:
-
-```json
-{
-  "cloud": {
-    "cloud_llm_base_url": "https://jiutian.10086.cn/largemodel/moma/api/v3",
-    "cloud_llm_model": "jiutian-lan-comv3",
-    "cloud_llm_api_key": "<fill locally>",
-    "cloud_llm_timeout": 120.0,
-    "cloud_llm_enabled": true
-  },
-  "usage": {
-    "runner_enabled": true,
-    "preferred_backend": "cloud"
-  },
-  "pricing": {
-    "currency": "CNY",
-    "per_million_tokens": {
-      "jiutian-lan-comv3": {
-        "prompt_tokens": 0.0,
-        "completion_tokens": 0.0
-      }
-    }
-  }
-}
-```
-
-`pricing.per_million_tokens` is optional. When configured, run manifests add
-`summary.llm_cost_estimate` based on actual provider-reported token usage. Keep
-rates local because model pricing changes over time.
-
-Validate the configured key without printing it:
+常用命令：
 
 ```powershell
-python -m app.requirement_benchmark preflight --backend cloud --output-dir .conductor\diagnostics\jiutian-preflight
+python -m app.task_center list --project-root <project-root>
+python -m app.task_center summary --project-root <project-root>
+python -m app.task_center claim-next --project-root <project-root> --agent-id <agent-id> --with-context
+python -m app.task_center context <assignment-id> --project-root <project-root> --format markdown
+python -m app.task_center complete <assignment-id> --project-root <project-root> --result-summary "done"
+python -m app.task_center fail <assignment-id> --project-root <project-root> --blocked-reason "reason"
+python -m app.task_center release <assignment-id> --project-root <project-root> --release-reason "worker interrupted"
+python -m app.task_center release-stale --project-root <project-root> --stale-after-seconds 3600
+python -m app.task_center maintenance --project-root <project-root> --stale-after-seconds 3600
+python -m app.task_center watchdog --project-root <project-root> --interval-seconds 60
 ```
 
-The preflight writes both `cloud.preflight.txt` and `cloud.preflight.json`.
-The JSON file records `success`, `model`, `base_url`, `duration_ms`, `error`,
-and `content`, but never stores the API key.
+Task Center context 会暴露冻结需求、冻结设计、delivery contract、testing checklist、rework feedback、handoff safety，以及动态 Agent/write scope 风险，方便外部 Agent 在明确边界内工作。
 
-Run one platform-vs-direct requirement check with the cloud backend:
+## Manifest、Replay 和审计
+
+校验单个 Manifest：
 
 ```powershell
-python -m app.requirement_benchmark run-suite --cases reading_list --output-dir .conductor\diagnostics\jiutian-reading-list --platform-llm cloud --direct-llm cloud --direct-prompt-mode plain --max-steps 4 --collaboration-max-rounds 1 --static-requirement-review
+python -m app.verify_manifest <project-root>\.conductor\manifests\<project-id>.manifest.json --fail-on-warnings
 ```
 
-To confirm a project actually used Jiutian, inspect the generated run manifest:
-`summary.llm_models` should contain `jiutian-lan-comv3`, and
-`summary.llm_source_backends` should show the LLM path used by the run. The
-manifest verifier warns when an LLM run only records a generic backend label
-such as `cloud` instead of a concrete model name.
-
-### Manifest Verification
-
-Run manifests can be checked without replaying Agent execution:
+生成 replay trace：
 
 ```powershell
-python -m app.verify_manifest C:\path\to\project\.conductor\manifests\project-id.manifest.json
+python -m app.replay_manifest <project-root>\.conductor\manifests\<project-id>.manifest.json --format markdown
 ```
 
-Use `--output` to persist the verification report. Use `--fail-on-warnings`
-when a CI or production gate should fail on warnings such as missing referenced
-files, non-current schema versions, or unindexed returned artifacts.
-
-The verifier checks schema basics, summary counts, `resume_cursor` references,
-WorkItem/Execution/Artifact/TaskAssignment links, sensitive provider credential
-leaks, and referenced report/log/artifact files. It returns exit code `0` when
-the manifest is self-consistent and `2` when hard errors are found. Missing
-referenced files are reported as warnings so moved or archived runs can still be
-inspected.
-
-`python -m app.run_project` also includes `manifest_verification` in its final
-JSON payload immediately after writing the run manifest.
-
-To persist the same verification report as part of a project run:
+项目运行时写入审计 bundle：
 
 ```powershell
-python -m app.run_project --requirement-file requirement.txt --project-root C:\path\to\project --write-manifest-verification
+python -m app.run_project --project-root <project-root> --requirement-file requirement.txt --write-audit-bundle
+python -m app.verify_audit_bundle <project-root>\.conductor\replay\<project-id>.audit.json
 ```
 
-When `--manifest-verification-output` is relative, it is resolved under the
-project root.
+Manifest verifier 会检查 schema、Project/WorkItem/Execution/Artifact/TaskAssignment 链接、delivery contract、acceptance trace、testing checklist、敏感凭据泄露、引用文件和 replay/audit 一致性。
 
-Use `--write-audit-bundle` to write both the manifest verification report and
-the replay trace in one project run. It also writes an audit bundle index JSON
-that points to the manifest, report, verification report, and replay trace, with
-SHA-256 checksums for each component. The final `run_project` JSON includes
-`audit_bundle_verification` immediately after the bundle is written. If that
-verification fails, `run_project` exits with code `2`. Use
-`--audit-fail-on-warnings` to also fail on audit warnings.
+## 真实 LLM 配置
 
-Verify an audit bundle index:
+真实 LLM 配置保存在 `.conductor/llm.config.json`，该文件被 Git 忽略，不要提交 API key。
+
+Jiutian 或 OpenAI-compatible 后端可通过 Board 设置页或本地配置启用。验证前建议先运行：
 
 ```powershell
-python -m app.verify_audit_bundle C:\path\to\project\.conductor\replay\project-id.audit.json
+python -m app.requirement_benchmark preflight --backend cloud --output-dir .conductor\diagnostics\cloud-preflight
 ```
 
-You can also pass a directory to verify every `*.audit.json` under it; the
-aggregate output includes total, failed, and warning-bearing bundle counts.
+运行真实模型验证不建议每次小改都跑完整链路，应在一批后端能力稳定后集中验证。
 
-The audit bundle verifier checks the bundle index and reruns manifest
-verification, so it can detect stale or corrupted bundle components. It also
-checks replay trace identity/pass markers and supports `--fail-on-warnings` for
-CI gates. Its JSON result includes the resolved bundle component file index and
-component checksums. Current audit bundle schema is `1.0`.
+## 项目结构
 
-To write the replay trace as part of a project run:
+- `app/`：命令入口、Board API、诊断和工具命令。
+- `conductor/domain/`：Project、WorkItem、Artifact、Agent、Execution、SharedProjectState 等核心模型。
+- `conductor/controller/`：流程推进、阶段转换、TL Agent 集成和运行决策。
+- `conductor/task_center/`：任务领取、上下文生成、维护和外部 worker 协议。
+- `conductor/execution/`：Runner、Harness、CLI/LLM 执行路径。
+- `conductor/reports/`、`conductor/replay_*`：报告、Manifest、Replay 和审计校验。
+- `docs/`：平台设计、使用手册和协议文档。
+- `tests/`：单元测试和回归测试。
 
-```powershell
-python -m app.run_project --requirement-file requirement.txt --project-root C:\path\to\project --write-replay-trace
-```
+## 当前开发重点
 
-When `--replay-trace-output` is relative, it is resolved under the project root.
+根据平台指南，下一阶段优先级是：
 
-Build a read-only replay trace from the same manifest:
+1. 扩展真实端到端案例，覆盖表单流、文件处理流、API mock 流和失败返工流。
+2. 强化 Development 和 Testing 阶段，让它们接近 Requirement 阶段的闭环质量。
+3. 产品化 Task Center 长周期运行能力，包括维护报告、定时 sweep、恢复策略和守护进程。
+4. 增强动态 Agent 规划，让 TL Agent 根据风险、复杂度和历史表现动态扩缩团队。
+5. 在后端日志、Manifest 和 Task Center 稳定后，再继续推进 Web Board。
 
-```powershell
-python -m app.replay_manifest C:\path\to\project\.conductor\manifests\project-id.manifest.json --format markdown
-```
+## Windows UTF-8
 
-This reconstructs a deterministic Project/WorkItem/Execution/Artifact timeline
-from archived manifest facts, including Task Center assignment states. It does
-not rerun Agent CLI commands and does not write project state. Claim tokens are
-not included in the replay trace.
-
-To archive the trace:
-
-```powershell
-python -m app.replay_manifest C:\path\to\project\.conductor\manifests\project-id.manifest.json --format markdown --output C:\path\to\project\.conductor\replay\project-id.replay.md
-```
-
-### Windows PowerShell UTF-8
-
-If Chinese text appears as mojibake when reading logs or reports in PowerShell,
-enable UTF-8 for the current shell before running Conductor commands:
+如果 PowerShell 显示中文乱码，先启用 UTF-8：
 
 ```powershell
 . .\scripts\windows-utf8.ps1
 ```
 
-Conductor Python entrypoints configure UTF-8 stdio automatically, and the shell
-harness passes UTF-8 defaults to Python-based child processes:
-
-- `PYTHONUTF8=1`
-- `PYTHONIOENCODING=utf-8`
-- `LANG=C.UTF-8`
-- `LC_ALL=C.UTF-8`
-
-The PowerShell script is still useful for commands such as `Get-Content`,
-`type`, and terminal log tailing. On Windows PowerShell 5, `Get-Content`
-otherwise defaults to the ANSI code page unless `-Encoding utf8` is specified.
-
-Verified with the current workspace test suite on April 16, 2026.
-
-## What To Expect
-
-The default flow is:
-
-1. Input a requirement
-2. Create a `Project`
-3. Enter the `design` stage
-4. Generate at least one `WorkItem`
-5. Run the work item through the mock `Runner`
-6. Update shared state
-7. Let `LeadController` decide the next action
-
-Current targeted verification for the manifest verifier:
-`16 passed` with `python -m pytest tests\test_replay_verifier.py -q`.
-
-Current targeted verification for read-only replay trace:
-`21 passed` with `python -m pytest tests\test_replay_trace.py tests\test_replay_verifier.py -q`.
-
-Current full verification after preflight gate, diagnostics, manifest hardening,
-task-center recovery work, Human Control, Board Task Center APIs, and manifest
-verification:
-`623 passed` with `python -m pytest -q`.
-
-## Project Layout
-
-- `conductor/domain/`
-- `conductor/controller/`
-- `conductor/workflow/`
-- `conductor/execution/`
-- `conductor/agents/`
-- `conductor/state/`
-- `conductor/memory/`
-- `conductor/context/`
-- `conductor/board/`
-- `tests/`
+Conductor 的 Python 入口会配置 UTF-8 stdio；这个脚本主要用于 `Get-Content`、`type` 和终端日志查看。
