@@ -544,6 +544,7 @@ TL Agent 会在阶段开始、运行时失败、反馈返工等节点生成 `age
 - 运行时失败或 retry 触发的 `failure_triage` / `release_risk` 复核席位。
 - 历史角色失败率触发的独立质量复核。
 - 缺失 testing checklist evidence 的返工触发 `rework_acceptance_guard`。
+- 带 required evidence 的 testing checklist 触发 `evidence_trace_guard`，专门审计测试证据是否逐条覆盖。
 - 前后端并行实现触发 `integration_contract_guard`，由 solution designer 复核 API/UI/data 契约和交接边界。
 
 并行开发席位必须声明 `write_scope`。Run Manifest Verifier 会拒绝同一个 `agent_team_plan` 内重叠的 `parallel_development` 写入范围，作为外部 CLI Agent 并行领取任务前后的冲突审计边界。

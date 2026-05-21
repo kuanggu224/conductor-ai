@@ -55,6 +55,7 @@ class TechnicalLeadAgent:
         blockers = list(state.blockers)
         history_risks = self._history_risk_roles(state)
         rework_evidence_items = self._rework_evidence_items(stage_workitems)
+        testing_checklist_items = self._testing_checklist_items(stage, stage_workitems)
         integration_risk = self._integration_risk_detected(stage, candidate.agent_specs, stage_workitems)
         specs = list(candidate.agent_specs)
         reasons = ["TL reviewed current stage, work scope, risk, and retry state.", *candidate.reasons]
@@ -65,6 +66,7 @@ class TechnicalLeadAgent:
             f"blockers={len(blockers)}",
             f"history_risks={len(history_risks)}",
             f"rework_evidence_items={len(rework_evidence_items)}",
+            f"testing_checklist_items={len(testing_checklist_items)}",
             f"integration_risk={int(integration_risk)}",
         ]
 
@@ -81,17 +83,26 @@ class TechnicalLeadAgent:
         specs.extend(self._recovery_specs(planner, stage, failed, retried))
         specs.extend(self._history_risk_specs(planner, stage, history_risks))
         specs.extend(self._rework_evidence_specs(planner, stage, rework_evidence_items))
+        specs.extend(self._testing_checklist_specs(planner, stage, testing_checklist_items))
         specs.extend(self._integration_risk_specs(planner, stage, stage_workitems, integration_risk))
         specs = self._dedupe_specs(specs)
         return replace(
             candidate,
-            complexity_level=self._tl_complexity_level(candidate.complexity_level, failed, retried, specs, rework_evidence_items),
+            complexity_level=self._tl_complexity_level(
+                candidate.complexity_level,
+                failed,
+                retried,
+                specs,
+                rework_evidence_items,
+                testing_checklist_items,
+            ),
             reasons=self._dedupe(
                 [
                     *reasons,
                     *self._runtime_reasons(failed, retried),
                     *self._history_risk_reasons(history_risks),
                     *self._rework_evidence_reasons(rework_evidence_items),
+                    *self._testing_checklist_reasons(testing_checklist_items),
                     *self._integration_risk_reasons(integration_risk),
                 ]
             ),
@@ -228,6 +239,41 @@ class TechnicalLeadAgent:
             )
         ]
 
+    def _testing_checklist_items(self, stage: str, workitems: list) -> list:
+        """Return testing WorkItems with explicit checklist evidence contracts."""
+        if stage != "testing":
+            return []
+        return [
+            item
+            for item in workitems
+            if any(
+                isinstance(check, dict) and check.get("required_evidence_terms")
+                for check in item.testing_checklist
+            )
+        ]
+
+    def _testing_checklist_specs(
+        self,
+        planner: AgentTeamPlanner,
+        stage: str,
+        checklist_items: list,
+    ) -> list[DynamicAgentSpec]:
+        """Add an evidence trace guard when testing requires concrete checklist evidence."""
+        if stage != "testing" or not checklist_items:
+            return []
+        return [
+            planner.build_spec(
+                role="tester",
+                instance_id="evidence_trace_guard",
+                stage=stage,
+                mission="Audit that each testing checklist rule has concrete observable evidence.",
+                reason="TL detected machine-readable testing checklist evidence requirements.",
+                scope="testing checklist rules, required evidence terms, acceptance trace, false-pass risk",
+                mode="sequential_review",
+                workitem_kinds=list(dict.fromkeys(item.kind for item in checklist_items)),
+            )
+        ]
+
     def _integration_risk_detected(
         self,
         stage: str,
@@ -291,10 +337,11 @@ class TechnicalLeadAgent:
         retried: list,
         specs: list[DynamicAgentSpec],
         rework_evidence_items: list | None = None,
+        testing_checklist_items: list | None = None,
     ) -> str:
         if failed or len(retried) >= 2 or len(specs) >= 5:
             return "complex"
-        if rework_evidence_items or retried or len(specs) >= 3:
+        if rework_evidence_items or testing_checklist_items or retried or len(specs) >= 3:
             return "standard"
         return candidate_level
 
@@ -317,6 +364,12 @@ class TechnicalLeadAgent:
             return []
         ids = ", ".join(item.id for item in rework_items)
         return [f"TL detected development rework with missing checklist evidence targets: {ids}."]
+
+    def _testing_checklist_reasons(self, checklist_items: list) -> list[str]:
+        if not checklist_items:
+            return []
+        ids = ", ".join(item.id for item in checklist_items)
+        return [f"TL detected testing checklist evidence contracts requiring trace audit: {ids}."]
 
     def _integration_risk_reasons(self, integration_risk: bool) -> list[str]:
         if not integration_risk:

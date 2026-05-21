@@ -4,8 +4,8 @@ Last updated: 2026-05-21
 
 ## Stable Checkpoint
 
-- Latest verified code checkpoint: current `dev` handoff-safety update.
-- Current full test result: `python -m pytest -q --basetemp C:\tmp\conductor_pytest_full_task_handoff` -> `680 passed in 123.78s`.
+- Latest verified code checkpoint: current `dev` TL testing evidence guard update.
+- Current full test result: `python -m pytest -q --basetemp C:\tmp\conductor_pytest_full_tl_evidence` -> `681 passed in 123.71s`.
 - Current focus: backend orchestration, auditability, logs, manifest/replay, and task-center reliability.
 - Frontend Board exists, but visual redesign is intentionally not the current priority.
 
@@ -40,6 +40,7 @@ Last updated: 2026-05-21
 - Run Manifest schema is now `1.36`; WorkItem and retry history records include relationship fields, structured testing feedback, and testing checklists for rework audit/replay; execution records include delivery contracts plus acceptance traces.
 - Human Control now has CLI and Board API control paths, Board snapshot exposure, Manifest records, and Markdown project report audit output.
 - TL dynamic team planning now adds a `rework_acceptance_guard` tester seat when development feedback rework carries explicit missing checklist evidence targets.
+- TL dynamic team planning now adds an `evidence_trace_guard` tester seat when testing WorkItems carry machine-readable checklist evidence contracts.
 - Task Center Board API now covers dynamic Agent task discovery/claiming, batch claim, explicit lease renewal, expired lease release, stale release, and combined sweep maintenance.
 - Manifest verification now validates execution delivery contracts and acceptance traces, including required input artifact references, list-shaped fields, trace status values, and evidence field types.
 - Manifest verification also validates WorkItem testing checklist structure so malformed checklist fields are surfaced before replay/resume.

@@ -203,7 +203,7 @@ Conductor 的多 Agent 不是多人闲聊，而是结构化职责协作。
 - 多 Agent 并行开发的冲突控制和归并协议。
 - 人类随时接管与审批工作流。
 
-当前 TL 动态规划已经能识别运行时失败、历史角色失败率，以及带有缺失 testing checklist evidence 的开发返工任务。对于这类返工，TL 会追加 `rework_acceptance_guard` tester 席位，专门检查返工是否补齐缺失验收证据和回归风险。对于同时拆出前端和后端并行开发的复杂实现，TL 会追加 `integration_contract_guard` solution_designer 席位，提前复核 API/UI/data 契约、校验边界和交接风险，避免并行 agent 各自实现后在集成阶段才暴露冲突。
+当前 TL 动态规划已经能识别运行时失败、历史角色失败率、带有缺失 testing checklist evidence 的开发返工任务，以及带机器可读 testing checklist 的测试任务。对于开发返工，TL 会追加 `rework_acceptance_guard` tester 席位，专门检查返工是否补齐缺失验收证据和回归风险；对于测试 checklist 证据契约，TL 会追加 `evidence_trace_guard` tester 席位，审计每条 required evidence 是否有可观察证据支撑。对于同时拆出前端和后端并行开发的复杂实现，TL 会追加 `integration_contract_guard` solution_designer 席位，提前复核 API/UI/data 契约、校验边界和交接风险，避免并行 agent 各自实现后在集成阶段才暴露冲突。
 
 并行开发席位必须声明 `write_scope`。Run Manifest Verifier 会校验同一个 `agent_team_plan` 内的 `parallel_development` 席位写入范围不能重叠；如果两个并行 Agent 声称写同一 scope，审计会直接失败，避免把冲突留到归并阶段才发现。
 

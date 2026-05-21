@@ -283,3 +283,41 @@ def test_tl_agent_adds_rework_acceptance_guard_for_missing_checklist_evidence() 
     assert guard.collaboration_mode == "sequential_review"
     assert guard.workitem_kinds == ["ui_implementation"]
     assert any("missing checklist evidence targets: workitem-rework" in reason for reason in plan.reasons)
+
+
+def test_tl_agent_adds_testing_evidence_trace_guard_for_checklist_contracts() -> None:
+    planner = AgentTeamPlanner()
+    tl_agent = TechnicalLeadAgent()
+    state = SharedProjectState(
+        project=Project(id="project-tl-test-evidence", goal="Validate API behavior.", current_stage="testing"),
+        project_status=ProjectStatus.IN_PROGRESS,
+        current_stage="testing",
+        workitems=[
+            WorkItem(
+                id="workitem-api-validation",
+                description="Validate endpoint behavior and evidence trace.",
+                stage="testing",
+                kind="api_validation",
+                testing_checklist=[
+                    {
+                        "rule_id": "api_behavior",
+                        "label": "API endpoint behavior",
+                        "status": "pending",
+                        "required_evidence_terms": ["endpoint path", "HTTP status code", "response payload"],
+                    }
+                ],
+            )
+        ],
+    )
+
+    plan = tl_agent.plan_agent_team(state, planner, trigger="stage_start")
+
+    assert plan.decision_source == "tl_agent"
+    assert "testing_checklist_items=1" in plan.decision_summary
+    assert plan.complexity_level == "standard"
+    guard = next(spec for spec in plan.agent_specs if spec.instance_id == "evidence_trace_guard")
+    assert guard.role == "tester"
+    assert guard.collaboration_mode == "sequential_review"
+    assert guard.workitem_kinds == ["api_validation"]
+    assert "required evidence terms" in guard.scope
+    assert any("testing checklist evidence contracts requiring trace audit" in reason for reason in plan.reasons)
