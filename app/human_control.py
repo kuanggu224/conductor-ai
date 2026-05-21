@@ -27,7 +27,10 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--project-id", help="Project id. Optional when the state directory contains one project.")
 
     subparsers.add_parser("status", parents=[common], help="Print the active human-control state.")
-    subparsers.add_parser("status-all", parents=[common], help="Print human-control state for every project.")
+    status_all = subparsers.add_parser("status-all", parents=[common], help="Print human-control state for every project.")
+    status_all.add_argument("--active-only", action="store_true", help="Only include projects with an active human hold.")
+    status_all.add_argument("--fail-on-active", action="store_true", help="Exit with code 3 when any project is held.")
+    status_all.add_argument("--output", help="Write the status-all JSON payload to a file. Relative paths use --project-root.")
 
     pause = subparsers.add_parser("pause", parents=[common], help="Pause automatic controller advancement.")
     pause.add_argument("--actor", default="human")
@@ -67,9 +70,12 @@ def main(argv: list[str] | None = None) -> int:
         store = FileStateStore(_resolve_state_dir(args))
         service = HumanControlService(store)
         if args.command == "status-all":
-            payload = _status_all_payload(store, service)
+            payload = _status_all_payload(store, service, active_only=args.active_only)
+            if args.output:
+                output_path = _write_json_output(args.output, args.project_root, payload)
+                payload["output_path"] = str(output_path)
             print(json.dumps(payload, ensure_ascii=False, indent=2))
-            return 0
+            return 3 if args.fail_on_active and payload["active_count"] else 0
 
         state = _resolve_state(store, args.project_id)
 
@@ -185,20 +191,28 @@ def _status_payload(state: SharedProjectState, service: HumanControlService) -> 
     }
 
 
-def _status_all_payload(store: FileStateStore, service: HumanControlService) -> dict[str, object]:
+def _status_all_payload(
+    store: FileStateStore,
+    service: HumanControlService,
+    *,
+    active_only: bool = False,
+) -> dict[str, object]:
     projects: list[dict[str, object]] = []
     active_project_ids: list[str] = []
     active_actions: list[dict[str, object]] = []
     total_action_count = 0
     for state in store.list_states():
         project = _project_status_payload(state, service)
-        projects.append(project)
         total_action_count += int(project["action_count"])
         if project["active"]:
             active_project_ids.append(str(project["project_id"]))
             active_actions.append(dict(project["active_action"]))
+        if active_only and not project["active"]:
+            continue
+        projects.append(project)
     return {
         "ok": True,
+        "active_only": active_only,
         "project_count": len(projects),
         "active_count": len(active_project_ids),
         "active_project_ids": active_project_ids,
@@ -228,6 +242,20 @@ def _action_payload(action: HumanControlAction | None) -> dict[str, object]:
     if action is None:
         return {}
     return asdict(action) | {"action": action.action.value}
+
+
+def _write_json_output(path_arg: str, project_root: str, payload: dict[str, object]) -> Path:
+    output_path = _resolve_project_output_path(path_arg, project_root)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return output_path
+
+
+def _resolve_project_output_path(path_arg: str, project_root: str) -> Path:
+    path = Path(path_arg).expanduser()
+    if path.is_absolute():
+        return path.resolve()
+    return (Path(project_root).expanduser().resolve() / path).resolve()
 
 
 if __name__ == "__main__":

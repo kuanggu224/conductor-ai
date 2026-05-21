@@ -178,6 +178,7 @@ def test_human_control_cli_status_all_reports_active_holds(tmp_path, capsys) -> 
 
     assert code == 0
     assert payload["project_count"] == 3
+    assert payload["active_only"] is False
     assert payload["active_count"] == 2
     assert payload["active_project_ids"] == ["project-b", "project-c"]
     assert payload["action_count"] == 2
@@ -205,6 +206,7 @@ def test_human_control_cli_status_all_allows_empty_workspace(tmp_path, capsys) -
     assert code == 0
     assert payload == {
         "ok": True,
+        "active_only": False,
         "project_count": 0,
         "active_count": 0,
         "active_project_ids": [],
@@ -212,3 +214,49 @@ def test_human_control_cli_status_all_allows_empty_workspace(tmp_path, capsys) -
         "action_count": 0,
         "projects": [],
     }
+
+
+def test_human_control_cli_status_all_can_filter_active_and_fail_for_scheduler(tmp_path, capsys) -> None:
+    project_root = tmp_path / "workspace"
+    _seed_project(project_root, project_id="project-clean")
+    held_state = _seed_project(project_root, project_id="project-held")
+    store = FileStateStore(project_root / ".conductor" / "state")
+    HumanControlService(store).pause(held_state.project.id, actor="operator", reason="review delivery")
+
+    code = main(
+        [
+            "status-all",
+            "--project-root",
+            str(project_root),
+            "--active-only",
+            "--fail-on-active",
+            "--output",
+            "human-control/status.json",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+    output_path = project_root / "human-control" / "status.json"
+    output_payload = json.loads(output_path.read_text(encoding="utf-8"))
+
+    assert code == 3
+    assert payload["active_only"] is True
+    assert payload["project_count"] == 1
+    assert payload["active_count"] == 1
+    assert payload["active_project_ids"] == ["project-held"]
+    assert [item["project_id"] for item in payload["projects"]] == ["project-held"]
+    assert payload["projects"][0]["hold_reason"] == "human_paused: review delivery"
+    assert payload["output_path"] == str(output_path)
+    assert "output_path" not in output_payload
+    assert output_payload["active_project_ids"] == ["project-held"]
+
+
+def test_human_control_cli_status_all_fail_on_active_passes_when_clean(tmp_path, capsys) -> None:
+    project_root = tmp_path / "workspace"
+    _seed_project(project_root, project_id="project-clean")
+
+    code = main(["status-all", "--project-root", str(project_root), "--fail-on-active"])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert payload["active_count"] == 0
+    assert payload["project_count"] == 1

@@ -4,8 +4,8 @@ Last updated: 2026-05-21
 
 ## Stable Checkpoint
 
-- Latest verified code checkpoint: current `dev` Human Control multi-project status update.
-- Current full test result: `python -m pytest -q --basetemp C:\tmp\conductor_pytest_full_human_control_status_all` -> `698 passed in 119.78s`.
+- Latest verified code checkpoint: current `dev` Human Control scheduler-friendly status rollup update.
+- Current full test result: `python -m pytest -q --basetemp C:\tmp\conductor_pytest_full_human_control_scheduler_status` -> `700 passed in 120.55s`.
 - Current focus: backend orchestration, auditability, logs, manifest/replay, and task-center reliability.
 - Frontend Board exists, but visual redesign is intentionally not the current priority.
 
@@ -40,7 +40,7 @@ Last updated: 2026-05-21
 - Structured testing feedback now maps missing coverage back to `missing_checklist_items`, so development rework prompts can cite the exact checklist `rule_id` and required evidence that failed.
 - Development feedback rework now promotes missing checklist evidence into WorkItem acceptance criteria and Task Center prompts, making the repair target auditable before the next test pass.
 - Run Manifest schema is now `1.37`; WorkItem and retry history records include relationship fields, structured testing feedback, testing checklists, and summary pending test scope for rework audit/replay; execution records include delivery contracts plus acceptance traces.
-- Human Control now has CLI and Board API control paths, multi-project `status-all` hold rollups, Board snapshot exposure, Manifest records, and Markdown project report audit output.
+- Human Control now has CLI and Board API control paths, scheduler-friendly multi-project `status-all` hold rollups, Board snapshot exposure, Manifest records, and Markdown project report audit output.
 - TL decisions now mark `escalate_project` as `human_action_required`, and LeadController uses that TL decision to request a matching Human Control approval gate before blocking the project.
 - TL dynamic team planning now adds a `rework_acceptance_guard` tester seat when development feedback rework carries explicit missing checklist evidence targets.
 - TL dynamic team planning now adds an `evidence_trace_guard` tester seat when testing WorkItems carry machine-readable checklist evidence contracts.
