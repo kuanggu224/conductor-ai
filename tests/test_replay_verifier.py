@@ -506,7 +506,7 @@ def test_manifest_verifier_rejects_bad_summary_pending_test_scope(tmp_path) -> N
     manifest_path = _write_manifest(
         tmp_path,
         {
-            "schema_version": "1.37",
+            "schema_version": "1.38",
             "summary": {
                 "final_status": "completed",
                 "workitem_count": 1,
@@ -540,7 +540,7 @@ def test_manifest_verifier_accepts_matching_summary_pending_test_scope(tmp_path)
     manifest_path = _write_manifest(
         tmp_path,
         {
-            "schema_version": "1.37",
+            "schema_version": "1.38",
             "summary": {
                 "final_status": "completed",
                 "workitem_count": 1,
@@ -799,6 +799,11 @@ def test_manifest_verifier_rejects_inconsistent_agent_team_plan_specs(tmp_path) 
                     "project_id": "project-1",
                     "stage": "development",
                     "reasons": [],
+                    "parallel_protocol": {
+                        "enabled": False,
+                        "lanes": [{"agent_id": "agent-frontend-ghost", "write_scope": ["src/ghost.ts"]}],
+                        "merge_order": ["agent-frontend-ghost"],
+                    },
                     "agent_specs": [
                         {
                             "role": "frontend_engineer",
@@ -853,6 +858,16 @@ def test_manifest_verifier_rejects_inconsistent_agent_team_plan_specs(tmp_path) 
         "agent_team_plans[0].agent_specs[3] parallel_development write_scope overlaps "
         "with agent-frontend-a: SRC/STATE.ts"
     ) in result.errors
+    assert (
+        "agent_team_plans[0].parallel_protocol.enabled must be true when parallel_development specs exist"
+    ) in result.errors
+    assert (
+        "agent_team_plans[0].parallel_protocol.lanes missing parallel agent ids: "
+        "agent-frontend-a, agent-frontend-c"
+    ) in result.errors
+    assert (
+        "agent_team_plans[0].parallel_protocol.lanes references non-parallel agent ids: agent-frontend-ghost"
+    ) in result.warnings
 
 
 def test_manifest_verifier_warns_for_unpaired_tl_human_gate(tmp_path) -> None:
@@ -4511,7 +4526,7 @@ def test_manifest_verifier_warns_for_non_current_schema_version(tmp_path) -> Non
     result = verify_manifest(manifest_path)
 
     assert result.passed is True
-    assert "manifest schema_version 1.0 differs from current 1.37" in result.warnings
+    assert "manifest schema_version 1.0 differs from current 1.38" in result.warnings
 
 
 def test_manifest_verifier_rejects_api_key_fields(tmp_path) -> None:

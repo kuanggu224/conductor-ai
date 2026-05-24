@@ -31,6 +31,12 @@ def test_agent_team_planner_generates_same_role_frontend_instances() -> None:
     assert all(spec.parallel_safe for spec in frontend_specs)
     assert all(spec.write_scope for spec in frontend_specs)
     assert all(spec.collaboration_mode == "parallel_development" for spec in frontend_specs)
+    assert plan.parallel_protocol["enabled"] is True
+    assert len(plan.parallel_protocol["lanes"]) == 2
+    assert plan.parallel_protocol["merge_order"] == [spec.agent_id for spec in frontend_specs]
+    assert "Each lane must claim through Task Center before editing." in plan.parallel_protocol["shared_contracts"]
+    assert plan.global_strategy["posture"] == "expand_parallel"
+    assert plan.global_strategy["parallel_lane_count"] == 2
 
 
 def test_agent_team_planner_generates_testing_peer_instances() -> None:
@@ -141,6 +147,12 @@ def test_tl_agent_owns_dynamic_team_plan_decision() -> None:
     assert plan.decision_source == "tl_agent"
     assert plan.decided_by == "tl_agent"
     assert "candidate_specs=" in plan.decision_summary
+    assert "posture=coordinate_parallel_delivery" in plan.decision_summary
+    assert plan.global_strategy["posture"] == "coordinate_parallel_delivery"
+    assert plan.global_strategy["recommended_next_action"] == "claim_lanes_then_integrate"
+    assert plan.parallel_protocol["enabled"] is True
+    assert plan.parallel_protocol["integration_owner"]
+    assert plan.parallel_protocol["guard_lanes"]
     assert any(spec.role == "frontend_engineer" for spec in plan.agent_specs)
     assert any(spec.role == "backend_engineer" for spec in plan.agent_specs)
 
@@ -157,6 +169,8 @@ def test_tl_agent_marks_escalation_as_human_action_required() -> None:
 
     assert decision.action == "escalate_project"
     assert decision.human_action_required is True
+    assert decision.strategy["posture"] == "hold"
+    assert decision.strategy["recommended_next_action"] == "wait_for_human_control"
 
 
 def test_tl_agent_adds_integration_contract_guard_for_parallel_frontend_backend_work() -> None:
@@ -190,11 +204,14 @@ def test_tl_agent_adds_integration_contract_guard_for_parallel_frontend_backend_
 
     assert plan.decision_source == "tl_agent"
     assert "integration_risk=1" in plan.decision_summary
+    assert plan.global_strategy["risk_drivers"] == ["integration_contract"]
     guard = next(spec for spec in plan.agent_specs if spec.instance_id == "integration_contract_guard")
     assert guard.role == "solution_designer"
     assert guard.collaboration_mode == "sequential_review"
     assert guard.workitem_kinds == ["ui_implementation", "api_implementation"]
     assert "API contracts" in guard.scope
+    assert plan.parallel_protocol["integration_owner"] == guard.agent_id
+    assert "Frontend/backend changes must pass integration contract review before final validation." in plan.parallel_protocol["shared_contracts"]
     assert any("integration contract guard" in reason for reason in plan.reasons)
 
 

@@ -72,6 +72,7 @@ class TaskContextBuilder:
         )
         frozen_requirement_baseline = self._frozen_requirement_baseline(input_artifacts)
         frozen_design_baseline = self._frozen_design_baseline(input_artifacts)
+        parallel_protocol = self._parallel_protocol_for_assignment(state, assignment)
         eligible_agent_activations = self._eligible_agent_activations(state, assignment, workitem, task_center)
         handoff_safety = self._handoff_safety(
             task_center,
@@ -101,12 +102,14 @@ class TaskContextBuilder:
                 frozen_design_baseline,
                 eligible_agent_activations,
                 handoff_safety,
+                parallel_protocol,
                 rework_context,
                 delivery_contract,
             ),
             "frozen_requirement_baseline": frozen_requirement_baseline,
             "frozen_design_baseline": frozen_design_baseline,
             "eligible_agent_activations": eligible_agent_activations,
+            "parallel_protocol": parallel_protocol,
             "handoff_safety": handoff_safety,
             "rework_context": rework_context,
             "delivery_contract": delivery_contract,
@@ -297,6 +300,8 @@ class TaskContextBuilder:
                     "scope": activation.scope,
                     "parallel_safe": activation.parallel_safe,
                     "write_scope": list(activation.write_scope),
+                    "parallel_lane": self._parallel_lane_for_agent(state, activation.agent_id),
+                    "parallel_protocol": self._parallel_summary_for_agent(state, activation.agent_id),
                     "preferred_backend": activation.preferred_backend,
                     "execution_backend": activation.execution_backend,
                     "claimable_for_agent": task_center.claimable(
@@ -308,6 +313,69 @@ class TaskContextBuilder:
                 }
             )
         return matches
+
+    def _parallel_protocol_for_assignment(
+        self,
+        state: SharedProjectState,
+        assignment: TaskAssignment,
+    ) -> dict[str, object]:
+        """Return the current-stage parallel protocol relevant to this assignment."""
+        plan = self._latest_team_plan_for_stage(state, state.current_stage or "")
+        protocol = dict(getattr(plan, "parallel_protocol", {}) if plan else {})
+        if not protocol:
+            return {"enabled": False, "lanes": [], "merge_order": [], "shared_contracts": [], "validation_gates": []}
+        matching_lanes = [
+            lane
+            for lane in _list_payload(protocol.get("lanes"))
+            if isinstance(lane, dict)
+            and (
+                str(lane.get("role", "")) == assignment.role
+                or str(lane.get("agent_id", "")) == (assignment.assigned_agent_id or "")
+            )
+        ]
+        return {
+            "enabled": bool(protocol.get("enabled", False)),
+            "stage": str(protocol.get("stage", "")),
+            "integration_owner": str(protocol.get("integration_owner", "")),
+            "merge_order": _list_payload(protocol.get("merge_order")),
+            "shared_contracts": _list_payload(protocol.get("shared_contracts")),
+            "validation_gates": _list_payload(protocol.get("validation_gates")),
+            "matching_lanes": matching_lanes,
+        }
+
+    def _parallel_lane_for_agent(self, state: SharedProjectState, agent_id: str) -> dict[str, object]:
+        """Return the declared parallel lane for one dynamic Agent, if any."""
+        summary = self._parallel_summary_for_agent(state, agent_id)
+        return _dict_payload(summary.get("lane"))
+
+    def _parallel_summary_for_agent(self, state: SharedProjectState, agent_id: str) -> dict[str, object]:
+        plan = self._latest_team_plan_for_stage(state, state.current_stage or "")
+        protocol = dict(getattr(plan, "parallel_protocol", {}) if plan else {})
+        if not protocol:
+            return {"enabled": False, "lane": {}, "merge_order_index": -1, "integration_owner": ""}
+        lane = next(
+            (
+                _dict_payload(item)
+                for item in _list_payload(protocol.get("lanes"))
+                if isinstance(item, dict) and str(item.get("agent_id", "")) == agent_id
+            ),
+            {},
+        )
+        merge_order = [str(item) for item in _list_payload(protocol.get("merge_order"))]
+        return {
+            "enabled": bool(protocol.get("enabled", False)),
+            "lane": lane,
+            "merge_order_index": merge_order.index(agent_id) if agent_id in merge_order else -1,
+            "integration_owner": str(protocol.get("integration_owner", "")),
+            "shared_contracts": _list_payload(protocol.get("shared_contracts")),
+            "validation_gates": _list_payload(protocol.get("validation_gates")),
+        }
+
+    def _latest_team_plan_for_stage(self, state: SharedProjectState, stage: str):
+        for plan in reversed(state.agent_team_plans):
+            if plan.stage == stage:
+                return plan
+        return None
 
     def _handoff_safety(
         self,
@@ -647,6 +715,26 @@ class TaskContextBuilder:
             f"- Guidance: {safety.get('guidance', '')}",
         ]
 
+    def _parallel_protocol_markdown(self, protocol: dict[str, object]) -> list[str]:
+        """Render the parallel development protocol for external workers."""
+        if not protocol.get("enabled", False):
+            return ["- Parallel Protocol: disabled"]
+        lanes = []
+        for lane in _list_payload(protocol.get("matching_lanes")):
+            lane_payload = _dict_payload(lane)
+            lanes.append(
+                f"{lane_payload.get('agent_id', '')}({lane_payload.get('instance_id', '')}) "
+                f"scope={_join_or_none(_list_payload(lane_payload.get('write_scope')))}"
+            )
+        return [
+            "- Parallel Protocol: enabled",
+            f"- Integration Owner: {protocol.get('integration_owner', '')}",
+            f"- Merge Order: {_join_or_none(_list_payload(protocol.get('merge_order')))}",
+            f"- Matching Lanes: {_join_or_none(lanes)}",
+            f"- Shared Contracts: {_join_or_none(_list_payload(protocol.get('shared_contracts')))}",
+            f"- Validation Gates: {_join_or_none(_list_payload(protocol.get('validation_gates')))}",
+        ]
+
     def _handoff_guidance(
         self,
         *,
@@ -752,6 +840,7 @@ class TaskContextBuilder:
         frozen_design_baseline: dict[str, object],
         eligible_agent_activations: list[dict[str, object]],
         handoff_safety: dict[str, object],
+        parallel_protocol: dict[str, object],
         rework_context: dict[str, object],
         delivery_contract: dict[str, object],
     ) -> str:
@@ -761,6 +850,7 @@ class TaskContextBuilder:
         frozen_design = self._frozen_design_brief(frozen_design_baseline)
         eligible_agents = "\n".join(self._eligible_agent_markdown(eligible_agent_activations))
         handoff_brief = "\n".join(self._handoff_safety_markdown(handoff_safety))
+        parallel_brief = "\n".join(self._parallel_protocol_markdown(parallel_protocol))
         rework_brief = "\n".join(self._rework_markdown(rework_context))
         contract_brief = "\n".join(render_delivery_contract_markdown(delivery_contract))
         return (
@@ -772,6 +862,8 @@ class TaskContextBuilder:
             f"{eligible_agents}\n\n"
             "Handoff Safety:\n"
             f"{handoff_brief}\n\n"
+            "Parallel Development Protocol:\n"
+            f"{parallel_brief}\n\n"
             "Delivery Contract:\n"
             f"{contract_brief}\n\n"
             "Frozen Requirement Baseline:\n"

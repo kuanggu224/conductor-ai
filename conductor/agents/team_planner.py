@@ -46,14 +46,23 @@ class AgentTeamPlanner:
             reasons.append("multiple WorkItems in current stage")
 
         specs = self._dedupe_specs(specs)
+        complexity_level = self._complexity_level(features, specs, workitems)
         return AgentTeamPlan(
             id=f"team-plan-{target_stage}-{len(state.agent_team_plans) + 1:03d}",
             project_id=state.project.id,
             stage=target_stage,
             trigger=trigger,
-            complexity_level=self._complexity_level(features, specs, workitems),
+            complexity_level=complexity_level,
             reasons=reasons or ["default stage team is sufficient"],
             agent_specs=specs,
+            parallel_protocol=self._parallel_protocol(target_stage, specs),
+            global_strategy=self._global_strategy(
+                target_stage,
+                complexity_level=complexity_level,
+                features=features,
+                workitems=workitems,
+                specs=specs,
+            ),
         )
 
     def profile_for_spec(self, base_profile: AgentProfile, spec: DynamicAgentSpec) -> AgentProfile:
@@ -309,6 +318,91 @@ class AgentTeamPlanner:
         if score <= 5:
             return "standard"
         return "complex"
+
+    def _parallel_protocol(self, stage: str, specs: list[DynamicAgentSpec]) -> dict[str, object]:
+        """Return an explicit protocol for safe parallel execution."""
+        parallel_specs = [spec for spec in specs if spec.collaboration_mode == "parallel_development"]
+        if not parallel_specs:
+            return {
+                "enabled": False,
+                "stage": stage,
+                "lanes": [],
+                "merge_order": [],
+                "shared_contracts": [],
+                "integration_owner": "",
+                "validation_gates": [],
+            }
+        lanes = [
+            {
+                "agent_id": spec.agent_id,
+                "role": spec.role,
+                "instance_id": spec.instance_id,
+                "write_scope": list(spec.write_scope),
+                "handoff_required": True,
+                "return_contract": list(spec.output_contract),
+            }
+            for spec in parallel_specs
+        ]
+        roles = {spec.role for spec in parallel_specs}
+        shared_contracts = [
+            "Each lane must claim through Task Center before editing.",
+            "Each lane must heartbeat or release before another lane may reuse its write scope.",
+            "Each lane must return changed files and validation evidence before integration.",
+        ]
+        if {"frontend_engineer", "backend_engineer"} <= roles:
+            shared_contracts.append("Frontend/backend lanes must confirm API/UI/data contract compatibility before merge.")
+        return {
+            "enabled": True,
+            "stage": stage,
+            "lanes": lanes,
+            "merge_order": [spec.agent_id for spec in parallel_specs],
+            "shared_contracts": shared_contracts,
+            "integration_owner": self._integration_owner(parallel_specs),
+            "validation_gates": [
+                "write scopes are disjoint",
+                "all claimed lanes returned or released",
+                "shared contracts reviewed before final validation",
+            ],
+        }
+
+    def _integration_owner(self, specs: list[DynamicAgentSpec]) -> str:
+        """Select the conservative owner for integration sequencing."""
+        for role in ("solution_designer", "backend_engineer", "frontend_engineer"):
+            owner = next((spec.agent_id for spec in specs if spec.role == role), "")
+            if owner:
+                return owner
+        return specs[0].agent_id if specs else ""
+
+    def _global_strategy(
+        self,
+        stage: str,
+        *,
+        complexity_level: str,
+        features: set[str],
+        workitems: list[WorkItem],
+        specs: list[DynamicAgentSpec],
+    ) -> dict[str, object]:
+        """Return a planner-level strategy summary for TL review."""
+        parallel_count = len([spec for spec in specs if spec.collaboration_mode == "parallel_development"])
+        return {
+            "stage": stage,
+            "posture": "expand_parallel" if parallel_count else "linear_control",
+            "complexity_level": complexity_level,
+            "primary_risks": sorted(features),
+            "recommended_next_action": "claim_parallel_lanes" if parallel_count else "execute_stage_sequence",
+            "coordination_policy": (
+                "Use Task Center claim/heartbeat/return protocol for every parallel lane."
+                if parallel_count
+                else "Keep work sequential unless TL adds runtime guard seats."
+            ),
+            "evidence_gates": [
+                "artifact outputs are linked to WorkItems",
+                "acceptance criteria remain traceable",
+                "Task Center audit is clean before release",
+            ],
+            "workitem_count": len(workitems),
+            "parallel_lane_count": parallel_count,
+        }
 
     def _dedupe_specs(self, specs: list[DynamicAgentSpec]) -> list[DynamicAgentSpec]:
         result: list[DynamicAgentSpec] = []

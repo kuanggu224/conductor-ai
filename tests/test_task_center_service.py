@@ -4,7 +4,9 @@ from datetime import datetime, timedelta, timezone
 
 from conductor.domain.models import (
     AgentActivation,
+    AgentTeamPlan,
     Artifact,
+    DynamicAgentSpec,
     Project,
     ProjectStatus,
     SharedProjectState,
@@ -15,6 +17,7 @@ from conductor.domain.models import (
 )
 from conductor.state.store import InMemoryStateStore
 from conductor.state.file_store import FileStateStore
+from conductor.task_center.context import TaskContextBuilder
 from conductor.task_center.service import TaskCenterError, TaskCenterService
 
 
@@ -168,6 +171,87 @@ def test_task_center_service_blocks_parallel_write_scope_conflicts() -> None:
         assert "assignment-layout-a" in str(error)
     else:
         raise AssertionError("Expected TaskCenterError")
+
+
+def test_task_context_exposes_parallel_protocol_for_dynamic_agents() -> None:
+    store = InMemoryStateStore()
+    state = SharedProjectState(
+        project=Project(id="project-parallel-protocol", goal="Build parallel UI", current_stage="development"),
+        project_status=ProjectStatus.IN_PROGRESS,
+        current_stage="development",
+        workitems=[
+            WorkItem(id="workitem-ui", description="Implement UI layout", stage="development", kind="ui_implementation"),
+        ],
+        task_assignments=[
+            TaskAssignment(id="assignment-ui", workitem_id="workitem-ui", role="frontend_engineer"),
+        ],
+        agent_activations=[
+            AgentActivation(
+                role="frontend_engineer",
+                agent_id="agent-frontend-layout",
+                stage="development",
+                reason="parallel UI lane",
+                related_workitem_kinds=["ui_implementation"],
+                instance_id="ui_layout",
+                dynamic=True,
+                parallel_safe=True,
+                write_scope=["templates"],
+            )
+        ],
+        agent_team_plans=[
+            AgentTeamPlan(
+                id="team-plan-development-001",
+                project_id="project-parallel-protocol",
+                stage="development",
+                trigger="stage_start",
+                complexity_level="standard",
+                agent_specs=[
+                    DynamicAgentSpec(
+                        role="frontend_engineer",
+                        agent_id="agent-frontend-layout",
+                        instance_id="ui_layout",
+                        stage="development",
+                        mission="Implement layout",
+                        reason="parallel UI lane",
+                        scope="templates",
+                        collaboration_mode="parallel_development",
+                        parallel_safe=True,
+                        write_scope=["templates"],
+                    )
+                ],
+                parallel_protocol={
+                    "enabled": True,
+                    "stage": "development",
+                    "lanes": [
+                        {
+                            "agent_id": "agent-frontend-layout",
+                            "role": "frontend_engineer",
+                            "instance_id": "ui_layout",
+                            "write_scope": ["templates"],
+                            "handoff_required": True,
+                        }
+                    ],
+                    "merge_order": ["agent-frontend-layout"],
+                    "integration_owner": "agent-frontend-layout",
+                    "shared_contracts": ["Claim before editing"],
+                    "validation_gates": ["write scopes are disjoint"],
+                },
+            )
+        ],
+    )
+    store.save_state(state)
+    service = TaskCenterService(store)
+
+    payload = TaskContextBuilder().build(state, "assignment-ui", service=service)
+
+    assert payload["parallel_protocol"]["enabled"] is True
+    assert payload["parallel_protocol"]["integration_owner"] == "agent-frontend-layout"
+    assert payload["parallel_protocol"]["matching_lanes"][0]["agent_id"] == "agent-frontend-layout"
+    activation = payload["eligible_agent_activations"][0]
+    assert activation["parallel_protocol"]["merge_order_index"] == 0
+    assert activation["parallel_lane"]["write_scope"] == ["templates"]
+    assert "Parallel Development Protocol" in payload["execution_brief"]
+    assert "Claim before editing" in payload["execution_brief"]
 
 
 def test_task_center_audit_flags_claimed_write_scope_conflicts() -> None:

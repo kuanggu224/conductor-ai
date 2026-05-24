@@ -59,6 +59,8 @@ Last updated: 2026-05-24
 - TL dynamic team planning now adds a `rework_acceptance_guard` tester seat when development feedback rework carries explicit missing checklist evidence targets.
 - TL dynamic team planning now adds an `evidence_trace_guard` tester seat when testing WorkItems carry machine-readable checklist evidence contracts.
 - TL dynamic team planning now adds an `implementation_coordination_guard` solution designer seat when development scope is broad enough to require explicit multi-Agent write-scope, dependency, handoff, and merge-risk review.
+- Agent team plans now persist a structured `parallel_protocol` with lanes, merge order, integration owner, shared contracts, and validation gates; Task Center context exposes the matching protocol to external workers.
+- TL decisions and TL-owned team plans now persist strategy fields (`strategy` / `global_strategy`) that summarize posture, risk drivers, next action, expansion policy, de-escalation criteria, and evidence gates.
 - Task Center Board API now covers dynamic Agent task discovery/claiming, batch claim, explicit lease renewal, expired lease release, stale release, and combined sweep maintenance.
 - `run_project --maintenance-task-center` now writes `attention_project_ids`, `finding_code_counts`, `recommendations`, pending retest scope rollups, active human-control hold rollups, operator guidance, and copyable maintenance/status commands into pre-run maintenance reports and latest pointers.
 - Task Center maintenance, watchdog, maintenance-status fallback, and run-project pre-run maintenance operator commands now include a scheduler-friendly `human_control status-all --active-only --fail-on-active` check.

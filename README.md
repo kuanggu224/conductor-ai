@@ -20,7 +20,7 @@ Conductor 是一个 AI Native 的项目执行系统：它把 AI 组织成一个�
 - 开发阶段：支持 mock、ShellHarness、StaticWebHarness、LLMHarness、CLI Agent 等执行路径。
 - 测试阶段：支持命令测试、静态 Web smoke、需求覆盖检查、testing checklist 证据契约、API 行为证据和失败回流返工，返工反馈会携带验证命令和退出码证据。
 - Task Center：支持外部 Agent 领取、续租、归还、失败、释放、批量领取、stale sweep 和上下文 prompt 生成。
-- TL Agent：支持动态团队规划，并按运行失败、历史风险、开发范围复杂度、返工证据、测试证据契约和并行集成风险扩缩团队。
+- TL Agent：支持动态团队规划，并按运行失败、历史风险、开发范围复杂度、返工证据、测试证据契约和并行集成风险扩缩团队；TL 决策会写出 strategy，team plan 会写出 global_strategy 和 parallel_protocol，便于审计整体技术策略和并行开发协议。
 - Human Control：提供 CLI/API 控制路径，支持暂停、恢复、接管、TL 驱动的升级审批、多项目 hold 汇总和项目报告审计。
 - Manifest/Replay：记录运行事实，支持 manifest 校验、审计 bundle 和只读 replay trace。
 

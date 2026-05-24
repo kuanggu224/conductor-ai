@@ -1419,7 +1419,12 @@ class ManifestVerifier:
             plan_stage = str(plan.get("stage", ""))
             self._verify_project_scoped_record("agent_team_plans", index, plan, project_id, plan_id, result)
             self._warn_non_list_fields(plan, f"agent_team_plans[{index}]", ("reasons", "agent_specs"), result)
+            if "parallel_protocol" in plan and not isinstance(plan.get("parallel_protocol"), dict):
+                result.warnings.append(f"agent_team_plans[{index}].parallel_protocol must be an object")
+            if "global_strategy" in plan and not isinstance(plan.get("global_strategy"), dict):
+                result.warnings.append(f"agent_team_plans[{index}].global_strategy must be an object")
             plan_agent_ids: set[str] = set()
+            parallel_agent_ids: set[str] = set()
             parallel_write_scope_owner: dict[str, str] = {}
             for spec_index, spec in enumerate(self._list(plan.get("agent_specs", []))):
                 if not isinstance(spec, dict):
@@ -1440,6 +1445,7 @@ class ManifestVerifier:
                         f"does not match plan stage={plan_stage}"
                     )
                 if str(spec.get("collaboration_mode", "")) == "parallel_development":
+                    parallel_agent_ids.add(spec_agent_id)
                     write_scope = self._string_list(spec.get("write_scope", []))
                     if not write_scope:
                         result.errors.append(
@@ -1472,12 +1478,21 @@ class ManifestVerifier:
                     ),
                     result,
                 )
+            if isinstance(plan.get("parallel_protocol"), dict):
+                self._verify_parallel_protocol(
+                    plan_index=index,
+                    protocol=plan.get("parallel_protocol", {}),
+                    parallel_agent_ids=parallel_agent_ids,
+                    result=result,
+                )
         for index, decision in enumerate(tl_decisions):
             if not isinstance(decision, dict):
                 continue
             decision_id = str(decision.get("id", ""))
             self._verify_project_scoped_record("tl_decisions", index, decision, project_id, decision_id, result)
             self._warn_non_list_fields(decision, f"tl_decisions[{index}]", ("recommendations",), result)
+            if "strategy" in decision and not isinstance(decision.get("strategy"), dict):
+                result.warnings.append(f"tl_decisions[{index}].strategy must be an object")
             self._warn_missing_human_gate_for_tl_decision(index, decision, human_control_actions, result)
         for index, action in enumerate(human_control_actions):
             if not isinstance(action, dict):
@@ -1492,6 +1507,60 @@ class ManifestVerifier:
             if "payload" in action and not isinstance(action.get("payload"), dict):
                 result.warnings.append(f"human_control_actions[{index}].payload must be an object")
             self._warn_human_gate_without_tl_decision(index, action, tl_decisions, result)
+
+    def _verify_parallel_protocol(
+        self,
+        *,
+        plan_index: int,
+        protocol: dict[str, Any],
+        parallel_agent_ids: set[str],
+        result: ManifestVerificationResult,
+    ) -> None:
+        """Verify that the archived parallel protocol matches parallel Agent lanes."""
+        enabled = bool(protocol.get("enabled", False))
+        lanes = self._list(protocol.get("lanes", []))
+        lane_agent_ids: set[str] = set()
+        for lane_index, lane in enumerate(lanes):
+            if not isinstance(lane, dict):
+                result.warnings.append(f"agent_team_plans[{plan_index}].parallel_protocol.lanes[{lane_index}] must be an object")
+                continue
+            lane_agent_id = str(lane.get("agent_id", ""))
+            if not lane_agent_id:
+                result.errors.append(
+                    f"agent_team_plans[{plan_index}].parallel_protocol.lanes[{lane_index}].agent_id must be non-empty"
+                )
+            lane_agent_ids.add(lane_agent_id)
+            if "write_scope" in lane and not isinstance(lane.get("write_scope"), list):
+                result.warnings.append(
+                    f"agent_team_plans[{plan_index}].parallel_protocol.lanes[{lane_index}].write_scope must be a list"
+                )
+        if parallel_agent_ids and not enabled:
+            result.errors.append(
+                f"agent_team_plans[{plan_index}].parallel_protocol.enabled must be true when parallel_development specs exist"
+            )
+        missing_lane_ids = sorted(agent_id for agent_id in parallel_agent_ids if agent_id not in lane_agent_ids)
+        if missing_lane_ids:
+            result.errors.append(
+                f"agent_team_plans[{plan_index}].parallel_protocol.lanes missing parallel agent ids: "
+                + ", ".join(missing_lane_ids)
+            )
+        unknown_lane_ids = sorted(agent_id for agent_id in lane_agent_ids if agent_id and agent_id not in parallel_agent_ids)
+        if unknown_lane_ids:
+            result.warnings.append(
+                f"agent_team_plans[{plan_index}].parallel_protocol.lanes references non-parallel agent ids: "
+                + ", ".join(unknown_lane_ids)
+            )
+        for agent_id in self._string_list(protocol.get("merge_order", [])):
+            if agent_id not in parallel_agent_ids:
+                result.warnings.append(
+                    f"agent_team_plans[{plan_index}].parallel_protocol.merge_order references non-parallel agent: {agent_id}"
+                )
+        self._warn_non_list_fields(
+            protocol,
+            f"agent_team_plans[{plan_index}].parallel_protocol",
+            ("lanes", "guard_lanes", "merge_order", "shared_contracts", "validation_gates"),
+            result,
+        )
 
     def _verify_parallel_write_scope_disjoint(
         self,

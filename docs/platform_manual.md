@@ -560,6 +560,8 @@ TL Agent 会在阶段开始、运行时失败、反馈返工等节点生成 `age
 
 并行开发席位必须声明 `write_scope`。Run Manifest Verifier 会拒绝同一个 `agent_team_plan` 内重叠的 `parallel_development` 写入范围，作为外部 CLI Agent 并行领取任务前后的冲突审计边界。
 
+TL 接管后的 `agent_team_plan` 还会持久化 `parallel_protocol` 和 `global_strategy`。`parallel_protocol` 明确记录并行 lane、merge order、integration owner、shared contracts 和 validation gates；Manifest Verifier 会检查并行开发 spec 是否有对应 lane，避免计划里允许并行但协议缺失。`global_strategy` 则记录 TL 的整体 posture、risk drivers、recommended next action、expansion policy、deescalation criteria 和 evidence gates，让动态扩缩团队不只是命中规则，而是留下类似真实技术负责人做出的阶段策略说明。
+
 Run Manifest Verifier 也会检查 Development WorkItem 的 handoff 约束：如果开发任务引用冻结需求或冻结设计输入，却没有在 `acceptance_criteria` 中显式要求保持需求/设计基线，会产生 warning。
 
 Task Center context 会把每个 eligible dynamic Agent 的 `claimable_for_agent` 和 `write_scope_conflict_assignment_ids` 写入 JSON 与 Markdown prompt。`tasks-for-agent` 与 Board API 动态 Agent task list 对每个 claimable 任务输出精确 `claim_command`、`claim_with_context_command` 和 API claim path，不可领取任务保持命令为空；任务被 claim 后，CLI、Board API 和 context JSON task payload 会输出带当前 `agent_id` / `claim_token` 的 `return_commands`，覆盖 complete、complete_with_output_file、fail、fail_with_output_file、heartbeat 和 release，Board API task payload 还会提供 `return_api_paths`。外部 CLI Agent 在 prompt 或任务列表里看到 `claimable_for_agent=false` 时，应先等待或释放冲突 assignment，而不是直接开始修改文件。返工任务的 `rework_context.testing_feedback` 会同步输出失败测试的验证命令和退出码，`rework_context.pending_retest_scope` 会给出修复后应优先复跑的最小测试范围，便于 worker 按同一证据链复验。

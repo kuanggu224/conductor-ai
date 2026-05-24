@@ -205,7 +205,9 @@ Conductor 的多 Agent 不是多人闲聊，而是结构化职责协作。
 
 当前 TL 动态规划已经能识别运行时失败、历史角色失败率、开发范围复杂度、milestone feature-slice 约束、带有缺失 testing checklist evidence 的开发返工任务，以及带机器可读 testing checklist 的测试任务。对于 feature-slice 计划，TL 会在设计、开发、测试阶段分别追加 `feature_slice_scope_guard`、`feature_slice_delivery_guard` 或 `feature_slice_evidence_guard`，让 feature slice 顺序、依赖、交付边界和验证证据进入团队决策；对于开发返工，TL 会追加 `rework_acceptance_guard` tester 席位，专门检查返工是否补齐缺失验收证据和回归风险；对于测试 checklist 证据契约，TL 会追加 `evidence_trace_guard` tester 席位，审计每条 required evidence 是否有可观察证据支撑。对于同时拆出前端和后端并行开发的复杂实现，TL 会追加 `integration_contract_guard` solution_designer 席位，提前复核 API/UI/data 契约、校验边界和交接风险；当 development 阶段 WorkItem、实现类型、验收点或输入基线显示开发范围较宽时，TL 会追加 `implementation_coordination_guard` solution_designer 席位，先审查 write scope、依赖顺序、交接边界和归并风险，避免多 Agent 各自开工后才暴露冲突。
 
-并行开发席位必须声明 `write_scope`。Run Manifest Verifier 会校验同一个 `agent_team_plan` 内的 `parallel_development` 席位写入范围不能重叠；如果两个并行 Agent 声称写同一 scope，审计会直接失败，避免把冲突留到归并阶段才发现。
+并行开发席位必须声明 `write_scope`。Run Manifest Verifier 会校验同一个 `agent_team_plan` 内的 `parallel_development` 席位写入范围不能重叠；如果两个并行 Agent 声称写同一 scope，审计会直接失败，避免把冲突留到归并阶段才发现。TL 接管后的 team plan 还会持久化 `parallel_protocol`：其中包含并行 lanes、merge order、integration owner、shared contracts 和 validation gates；Verifier 会校验并行 spec 必须有对应 lane，Task Center context 也会把匹配 lane 和协议摘要交给外部 worker，避免并行 Agent 只知道自己的 write scope 却不知道集成顺序和交付门禁。
+
+TL Agent 的计划现在还会写出 `global_strategy`，TL decision 会写出 `strategy`。这些字段描述当前 posture、risk drivers、recommended next action、expansion policy、deescalation criteria 和 evidence gates，让 TL 的输出从“触发若干规则 seat”升级为可审计的阶段技术策略：什么时候扩并行 lane、什么时候加 guard、什么时候 hold、什么时候先做证据门禁，都能在 Manifest 和 state 中复盘。
 
 Run Manifest Verifier 也会检查 Development WorkItem 的 handoff 约束：如果开发任务引用冻结需求或冻结设计输入，却没有在 `acceptance_criteria` 中显式要求保持需求/设计基线，会产生 warning，避免基线只作为隐含输入存在。Task Center context 同步在 `handoff_safety.baseline_handoff` 中暴露这类缺口，并在 Markdown prompt 的 `## Handoff Safety` 中渲染，外部 worker 开工前即可看到基线约束是否完整。
 

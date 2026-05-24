@@ -496,7 +496,7 @@ def test_run_project_can_write_audit_bundle(tmp_path, capsys) -> None:
     assert len(bundle["checksums"]["report"]) == 64
     assert len(bundle["checksums"]["manifest_verification"]) == 64
     assert len(bundle["checksums"]["replay_trace"]) == 64
-    assert bundle["summary"]["manifest_schema_version"] == "1.37"
+    assert bundle["summary"]["manifest_schema_version"] == "1.38"
     assert bundle["summary"]["manifest_final_status"] == payload["status"]
     assert bundle["summary"]["pending_test_scope"] == []
     assert bundle["summary"]["human_control_action_count"] == 0

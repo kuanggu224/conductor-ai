@@ -122,6 +122,13 @@ write-scope conflicts, warnings, and guidance. Markdown prompts render the same
 summary under `## Handoff Safety`, so external workers can make a claim/no-claim
 decision from the prompt without separately querying Task Center.
 
+When the current TL-owned team plan enables parallel development, context
+payloads also include `parallel_protocol`. It exposes the matching lanes for the
+assignment, merge order, integration owner, shared contracts, and validation
+gates. Dynamic Agent entries include their own `parallel_lane` and
+`parallel_protocol` summary so an external worker can see not only its
+write-scope boundary, but also how that lane must be returned and integrated.
+
 Expected CLI transition failures are emitted as machine-readable JSON on stderr:
 
 - `ok=false`
@@ -413,7 +420,7 @@ generates compatible fallback commands from `--project-root`, `--latest`, and
 
 ## Audit Outputs
 
-Run Manifest schema `1.37` records:
+Run Manifest schema `1.38` records:
 
 - `task_assignments[].claimable`
 - `task_assignments[].unmet_dependency_ids`

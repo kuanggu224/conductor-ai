@@ -277,6 +277,8 @@ class FileStateStore(InMemoryStateStore):
             decided_by=data.get("decided_by", ""),
             decision_summary=data.get("decision_summary", ""),
             fallback_reason=data.get("fallback_reason", ""),
+            parallel_protocol=dict(data.get("parallel_protocol", {})),
+            global_strategy=dict(data.get("global_strategy", {})),
         )
 
     def _dynamic_agent_spec(self, data: dict[str, Any]) -> DynamicAgentSpec:
@@ -309,6 +311,7 @@ class FileStateStore(InMemoryStateStore):
             summary=data.get("summary", ""),
             recommendations=list(data.get("recommendations", [])),
             human_action_required=bool(data.get("human_action_required", False)),
+            strategy=dict(data.get("strategy", {})),
             created_at=data.get("created_at", ""),
         )
 

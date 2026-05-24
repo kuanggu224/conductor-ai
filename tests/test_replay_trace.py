@@ -196,7 +196,7 @@ def test_replay_trace_includes_artifact_lineage(tmp_path) -> None:
 def test_replay_trace_includes_rework_and_testing_feedback(tmp_path) -> None:
     manifest_path = _write_manifest(tmp_path)
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    payload["schema_version"] = "1.37"
+    payload["schema_version"] = "1.38"
     payload["status"] = "in_progress"
     payload["final_status"] = "in_progress"
     payload["summary"]["final_status"] = "in_progress"

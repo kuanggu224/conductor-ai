@@ -606,6 +606,7 @@ class RunManifestWriter:
             "summary": decision.summary,
             "recommendations": list(decision.recommendations),
             "human_action_required": decision.human_action_required,
+            "strategy": dict(getattr(decision, "strategy", {})),
             "created_at": decision.created_at,
         }
 
@@ -622,6 +623,8 @@ class RunManifestWriter:
             "decided_by": getattr(plan, "decided_by", ""),
             "decision_summary": getattr(plan, "decision_summary", ""),
             "fallback_reason": getattr(plan, "fallback_reason", ""),
+            "parallel_protocol": dict(getattr(plan, "parallel_protocol", {})),
+            "global_strategy": dict(getattr(plan, "global_strategy", {})),
             "agent_specs": [
                 {
                     "role": spec.role,

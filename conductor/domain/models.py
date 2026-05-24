@@ -192,6 +192,8 @@ class AgentTeamPlan:
     decided_by: str = ""
     decision_summary: str = ""
     fallback_reason: str = ""
+    parallel_protocol: dict[str, object] = field(default_factory=dict)
+    global_strategy: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -247,6 +249,7 @@ class TLDecision:
     summary: str
     recommendations: list[str] = field(default_factory=list)
     human_action_required: bool = False
+    strategy: dict[str, object] = field(default_factory=dict)
     created_at: str = ""
 
 

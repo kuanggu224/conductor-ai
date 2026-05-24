@@ -46,7 +46,7 @@
 - 支持读取模型直出文本文件作为 direct baseline。
 - 支持输出 JSON 和 Markdown 对比报告。
 - 需求评分支持中英文 aspect 同义词匹配、中文关键词变体匹配、`metrics.keyword_matches` 命中证据和范围扩张检测，Markdown 对比报告会展示 keyword coverage、缺失关键词、命中 alias 和 scope expansion，避免中文需求产物被英文标签或同义表达误判，也避免下游文档静默加入原始需求未要求的功能。
-- Run Manifest schema 已升级到 `1.37`，包含 `requirement_evaluations`、`summary.requirement_quality_score`、preflight gate 索引、preflight 修复建议、`retry_history`、`scope_contract_results`、`prompt_hash`、`summary.llm_context_windows`、`summary.llm_token_usage`、`summary.llm_cost_estimate`、`summary.pending_test_scope`、`resume_cursor` 和运行审计摘要。
+- Run Manifest schema 已升级到 `1.38`，包含 `requirement_evaluations`、`summary.requirement_quality_score`、preflight gate 索引、preflight 修复建议、`retry_history`、`scope_contract_results`、`prompt_hash`、`summary.llm_context_windows`、`summary.llm_token_usage`、`summary.llm_cost_estimate`、`summary.pending_test_scope`、`resume_cursor` 和运行审计摘要。
 - `python -m app.requirement_benchmark run-suite` 的 `requirement-generated-suite.json` 会记录 `run_config.requirement_review_mode`、`run_config.dynamic_requirement_review_enabled`、`platform_runs[].requirement_review_mode` 和 `platform_runs[].collaboration_max_rounds`，便于对比 static review 与 dynamic review。
 - `requirement_spec` 的协作 accepted 后还会执行需求质量评分；评分未通过时不会冻结需求规格。
 - 需求协作/质量门禁失败时，会自动创建新的 `requirement_spec` 返工 WorkItem，并把失败原因和上轮产物作为返工上下文。

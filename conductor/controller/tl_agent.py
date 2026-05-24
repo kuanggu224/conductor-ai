@@ -25,6 +25,7 @@ class TechnicalLeadAgent:
         )
         risk_level = self._risk_level(state, failed, blockers)
         recommendations = self._recommendations(action, failed, blockers, pending, running)
+        strategy = self._decision_strategy(state, action, risk_level, failed, blockers, pending, running)
         created_at = datetime.now(timezone.utc).isoformat()
         return TLDecision(
             id=f"tl-{len(state.tl_decisions) + 1:04d}",
@@ -35,6 +36,7 @@ class TechnicalLeadAgent:
             summary=self._summary(action, risk_level, failed, blockers, pending, running),
             recommendations=recommendations,
             human_action_required=human_action_required,
+            strategy=strategy,
             created_at=created_at,
         )
 
@@ -86,6 +88,21 @@ class TechnicalLeadAgent:
                 decision_source="tl_agent",
                 decided_by="tl_agent",
                 decision_summary="TL held team planning until blockers are resolved; " + ", ".join(summary_parts),
+                parallel_protocol={
+                    **dict(candidate.parallel_protocol),
+                    "enabled": False,
+                    "hold_reason": "project_blocked",
+                    "validation_gates": ["resolve blockers before assigning parallel lanes"],
+                },
+                global_strategy={
+                    "stage": stage,
+                    "posture": "hold",
+                    "risk_level": "high",
+                    "recommended_next_action": "resolve_blockers",
+                    "human_review_required": True,
+                    "primary_risks": ["blockers"],
+                    "evidence_gates": ["blockers cleared before team expansion"],
+                },
             )
 
         specs.extend(self._recovery_specs(planner, stage, failed, retried))
@@ -96,18 +113,34 @@ class TechnicalLeadAgent:
         specs.extend(self._integration_risk_specs(planner, stage, stage_workitems, integration_risk))
         specs.extend(self._coordination_risk_specs(planner, stage, stage_workitems, coordination_risk))
         specs = self._dedupe_specs(specs)
+        complexity_level = self._tl_complexity_level(
+            candidate.complexity_level,
+            failed,
+            retried,
+            specs,
+            rework_evidence_items,
+            testing_checklist_items,
+            feature_slice_items,
+            coordination_risk,
+        )
+        strategy = self._team_global_strategy(
+            stage=stage,
+            candidate=candidate,
+            specs=specs,
+            complexity_level=complexity_level,
+            failed=failed,
+            retried=retried,
+            blockers=blockers,
+            history_risks=history_risks,
+            rework_evidence_items=rework_evidence_items,
+            testing_checklist_items=testing_checklist_items,
+            feature_slice_items=feature_slice_items,
+            integration_risk=integration_risk,
+            coordination_risk=coordination_risk,
+        )
         return replace(
             candidate,
-            complexity_level=self._tl_complexity_level(
-                candidate.complexity_level,
-                failed,
-                retried,
-                specs,
-                rework_evidence_items,
-                testing_checklist_items,
-                feature_slice_items,
-                coordination_risk,
-            ),
+            complexity_level=complexity_level,
             reasons=self._dedupe(
                 [
                     *reasons,
@@ -123,9 +156,228 @@ class TechnicalLeadAgent:
             agent_specs=specs,
             decision_source="tl_agent",
             decided_by="tl_agent",
-            decision_summary="TL accepted and adjusted dynamic team plan; " + ", ".join(summary_parts),
+            decision_summary=(
+                "TL accepted and adjusted dynamic team plan; "
+                + ", ".join([*summary_parts, f"posture={strategy.get('posture', '')}", f"next={strategy.get('recommended_next_action', '')}"])
+            ),
             fallback_reason="",
+            parallel_protocol=self._tl_parallel_protocol(stage, candidate.parallel_protocol, specs, integration_risk, coordination_risk),
+            global_strategy=strategy,
         )
+
+    def _decision_strategy(
+        self,
+        state: SharedProjectState,
+        action: str,
+        risk_level: str,
+        failed: list,
+        blockers: list[str],
+        pending: list,
+        running: list,
+    ) -> dict[str, object]:
+        """Return a TL-level strategy for the current control action."""
+        if action in {"human_hold", "escalate_project"}:
+            next_action = "wait_for_human_control"
+            posture = "hold"
+        elif blockers or state.project_status == ProjectStatus.BLOCKED:
+            next_action = "resolve_blockers"
+            posture = "hold"
+        elif failed:
+            next_action = "triage_failed_work"
+            posture = "stabilize"
+        elif running:
+            next_action = "observe_running_work"
+            posture = "observe"
+        elif pending:
+            next_action = "continue_execution"
+            posture = "execute"
+        else:
+            next_action = "advance_or_finalize"
+            posture = "advance"
+        return {
+            "stage": state.current_stage or "",
+            "posture": posture,
+            "risk_level": risk_level,
+            "recommended_next_action": next_action,
+            "human_review_required": action in {"human_hold", "escalate_project"} or bool(blockers),
+            "workload": {
+                "pending": len(pending),
+                "running": len(running),
+                "failed": len(failed),
+                "blockers": len(blockers),
+            },
+            "quality_gates": self._decision_quality_gates(action, failed, blockers),
+        }
+
+    def _decision_quality_gates(self, action: str, failed: list, blockers: list[str]) -> list[str]:
+        gates = ["preserve artifact traceability", "keep Task Center audit clean"]
+        if action == "advance_stage":
+            gates.append("stage artifacts are frozen before moving forward")
+        if failed:
+            gates.append("failed WorkItems have triage evidence before retry")
+        if blockers:
+            gates.append("blockers require explicit human or TL resolution")
+        return gates
+
+    def _team_global_strategy(
+        self,
+        *,
+        stage: str,
+        candidate: AgentTeamPlan,
+        specs: list[DynamicAgentSpec],
+        complexity_level: str,
+        failed: list,
+        retried: list,
+        blockers: list[str],
+        history_risks: list[tuple[str, int, int]],
+        rework_evidence_items: list,
+        testing_checklist_items: list,
+        feature_slice_items: list,
+        integration_risk: bool,
+        coordination_risk: bool,
+    ) -> dict[str, object]:
+        """Return the TL-owned global strategy behind the dynamic team decision."""
+        parallel_specs = [spec for spec in specs if spec.collaboration_mode == "parallel_development"]
+        guard_specs = [spec for spec in specs if spec.collaboration_mode != "parallel_development"]
+        risk_drivers = self._dedupe(
+            [
+                *(["failed_work"] if failed else []),
+                *(["retry_history"] if retried else []),
+                *(["blockers"] if blockers else []),
+                *(["weak_role_history"] if history_risks else []),
+                *(["rework_evidence_gap"] if rework_evidence_items else []),
+                *(["testing_evidence_contract"] if testing_checklist_items else []),
+                *(["feature_slice_constraints"] if feature_slice_items else []),
+                *(["integration_contract"] if integration_risk else []),
+                *(["coordination_scope"] if coordination_risk else []),
+            ]
+        )
+        if blockers:
+            posture = "hold"
+            next_action = "resolve_blockers"
+        elif failed or rework_evidence_items:
+            posture = "stabilize"
+            next_action = "triage_and_rework"
+        elif integration_risk or coordination_risk or parallel_specs:
+            posture = "coordinate_parallel_delivery"
+            next_action = "claim_lanes_then_integrate"
+        elif testing_checklist_items:
+            posture = "evidence_gate"
+            next_action = "audit_testing_evidence"
+        else:
+            posture = "controlled_execution"
+            next_action = "execute_stage_sequence"
+        return {
+            **dict(candidate.global_strategy),
+            "stage": stage,
+            "posture": posture,
+            "complexity_level": complexity_level,
+            "risk_drivers": risk_drivers,
+            "recommended_next_action": next_action,
+            "parallel_lane_count": len(parallel_specs),
+            "guard_seat_count": len(guard_specs),
+            "expansion_policy": self._expansion_policy(complexity_level, len(parallel_specs), len(guard_specs)),
+            "deescalation_criteria": [
+                "all claimed lanes returned or released",
+                "Task Center audit has no error findings",
+                "required testing evidence is present before release",
+            ],
+            "evidence_gates": self._dedupe(
+                [
+                    *[str(item) for item in _list_payload(candidate.global_strategy.get("evidence_gates"))],
+                    "parallel protocol validation gates pass",
+                    "TL guard seats return review evidence when present",
+                ]
+            ),
+        }
+
+    def _tl_parallel_protocol(
+        self,
+        stage: str,
+        candidate_protocol: dict[str, object],
+        specs: list[DynamicAgentSpec],
+        integration_risk: bool,
+        coordination_risk: bool,
+    ) -> dict[str, object]:
+        """Strengthen planner protocol with TL integration and merge controls."""
+        protocol = dict(candidate_protocol)
+        parallel_specs = [spec for spec in specs if spec.collaboration_mode == "parallel_development"]
+        guard_specs = [spec for spec in specs if spec.collaboration_mode != "parallel_development"]
+        protocol["enabled"] = bool(parallel_specs)
+        protocol["stage"] = stage
+        protocol["lanes"] = [
+            {
+                "agent_id": spec.agent_id,
+                "role": spec.role,
+                "instance_id": spec.instance_id,
+                "write_scope": list(spec.write_scope),
+                "handoff_required": True,
+                "return_contract": list(spec.output_contract),
+            }
+            for spec in parallel_specs
+        ]
+        protocol["guard_lanes"] = [
+            {
+                "agent_id": spec.agent_id,
+                "role": spec.role,
+                "instance_id": spec.instance_id,
+                "scope": spec.scope,
+            }
+            for spec in guard_specs
+        ]
+        protocol["integration_owner"] = self._integration_owner(specs)
+        protocol["merge_order"] = self._merge_order(parallel_specs, integration_risk)
+        protocol["shared_contracts"] = self._dedupe(
+            [
+                *[str(item) for item in _list_payload(protocol.get("shared_contracts"))],
+                "No Agent may edit outside its declared write_scope.",
+                "Every parallel lane must return changed_files and validation evidence before integration.",
+                *(
+                    ["Frontend/backend changes must pass integration contract review before final validation."]
+                    if integration_risk
+                    else []
+                ),
+            ]
+        )
+        protocol["validation_gates"] = self._dedupe(
+            [
+                *[str(item) for item in _list_payload(protocol.get("validation_gates"))],
+                "Task Center shows no write_scope_conflict findings",
+                *(
+                    ["implementation_coordination_guard reviews dependency order and merge risk"]
+                    if coordination_risk
+                    else []
+                ),
+            ]
+        )
+        return protocol
+
+    def _expansion_policy(self, complexity_level: str, parallel_count: int, guard_count: int) -> str:
+        if complexity_level == "complex" or guard_count >= 2:
+            return "expand_with_guardrails"
+        if parallel_count:
+            return "parallelize_disjoint_lanes"
+        return "keep_small_team"
+
+    def _integration_owner(self, specs: list[DynamicAgentSpec]) -> str:
+        for instance_id in ("integration_contract_guard", "implementation_coordination_guard"):
+            owner = next((spec.agent_id for spec in specs if spec.instance_id == instance_id), "")
+            if owner:
+                return owner
+        for role in ("solution_designer", "backend_engineer", "frontend_engineer"):
+            owner = next((spec.agent_id for spec in specs if spec.role == role), "")
+            if owner:
+                return owner
+        return specs[0].agent_id if specs else ""
+
+    def _merge_order(self, parallel_specs: list[DynamicAgentSpec], integration_risk: bool) -> list[str]:
+        if not integration_risk:
+            return [spec.agent_id for spec in parallel_specs]
+        priority = {"backend_engineer": 0, "frontend_engineer": 1}
+        return [
+            spec.agent_id
+            for spec in sorted(parallel_specs, key=lambda item: (priority.get(item.role, 9), item.agent_id))
+        ]
 
     def _recovery_specs(
         self,
@@ -555,6 +807,10 @@ class TechnicalLeadAgent:
             if value and value not in result:
                 result.append(value)
         return result
+
+
+def _list_payload(value: object) -> list[object]:
+    return value if isinstance(value, list) else []
 
 
 __all__ = ["TechnicalLeadAgent"]
