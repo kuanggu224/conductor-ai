@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from conductor.agents.agent import Agent
@@ -1010,6 +1011,8 @@ class CollaborationRunner:
         round_index: int,
     ) -> str:
         """Build an actionable design baseline for offline smoke runs."""
+        if self._is_fullstack_workitem(workitem):
+            return self._build_mock_fullstack_design_revision(workitem, draft, reviews, round_index)
         if self._is_api_workitem(workitem):
             return self._build_mock_api_design_revision(workitem, draft, reviews, round_index)
         review_summary = "\n".join(f"- {review.role}: {review.decision.value}" for review in reviews) or "- No review notes."
@@ -1062,6 +1065,8 @@ class CollaborationRunner:
         round_index: int,
     ) -> str:
         """Build a deterministic requirement baseline for offline smoke runs."""
+        if self._is_fullstack_workitem(workitem):
+            return self._build_mock_fullstack_requirement_revision(workitem, reviews, round_index)
         if self._is_api_workitem(workitem):
             return self._build_mock_api_requirement_revision(workitem, reviews, round_index)
         review_summary = "\n".join(f"- {review.role}: {review.decision.value}" for review in reviews) or "- No review notes."
@@ -1182,6 +1187,95 @@ class CollaborationRunner:
             "- Reviewer concerns are resolved through explicit API scope, contract tests, validation cases, and endpoint evidence requirements.\n"
         )
 
+    def _build_mock_fullstack_requirement_revision(
+        self,
+        workitem: WorkItem,
+        reviews: list[ReviewContribution],
+        round_index: int,
+    ) -> str:
+        """Build a deterministic full-stack requirement baseline for offline web/API runs."""
+        review_summary = "\n".join(f"- {review.role}: {review.decision.value}" for review in reviews) or "- No review notes."
+        criteria = "\n".join(f"- {item}" for item in workitem.acceptance_criteria) or "- Downstream stages must verify the stated full-stack requirement."
+        return (
+            f"# Requirement Specification - {workitem.id}\n\n"
+            f"## Revision Round\n{round_index}\n\n"
+            "## Goal\n"
+            "Deliver the smallest useful full-stack web app that proves a browser frontend is integrated with a backend API.\n\n"
+            "## Requirement Understanding\n"
+            f"{workitem.description}\n\n"
+            "The product must include a visible browser workflow and JSON HTTP endpoints, with evidence that the frontend uses the backend API instead of local-only state.\n\n"
+            "## Scope Boundary\n"
+            "- In scope: FastAPI backend, /api/items JSON endpoints, static browser page, form submission, list rendering, query filtering, delete action, and stats evidence.\n"
+            "- Out of scope / non-goals: authentication, accounts, payments, cloud services, external integrations, external production databases, and background jobs unless explicitly requested.\n"
+            "- The deliverable must contain both browser interactions and backend API behavior in one verified flow.\n\n"
+            "## Non-Goals\n"
+            "- No login, account, payment, notification, recommendation, or admin system.\n"
+            "- A client-only implementation is insufficient for this profile.\n"
+            "- External network dependencies are excluded; validation runs locally.\n\n"
+            "## Acceptance Criteria\n"
+            f"{criteria}\n"
+            "- Given valid form input, when the user submits the page, then the frontend calls POST /api/items and the created item becomes visible.\n"
+            "- Given existing items, when the browser asks for the list or stats, then GET /api/items and GET /api/items/stats return concrete JSON payloads.\n"
+            "- Given a query filter, when the user types a non-matching term, then the visible list updates through backend-backed state.\n"
+            "- Given a delete action, when the user removes an item, then DELETE /api/items/{id} is called and the item disappears.\n\n"
+            "## Edge / Error Cases\n"
+            "- Blank required titles must be rejected by the API with a 4xx status code and must not create visible records.\n"
+            "- Missing item ids must return 404.\n"
+            "- Invalid filters must be handled predictably and must not break the browser page.\n\n"
+            "## Downstream Handoff Constraints\n"
+            "- Design must preserve this full-stack requirement baseline as the contract for later stages.\n"
+            "- Backend implementation must include app.py, index.html, static/app.js, static/style.css, and pytest full-stack contract tests.\n"
+            "- Testing must print endpoint/status/payload evidence plus browser interaction evidence for create, filter, delete, and stats.\n\n"
+            "## Review Resolution\n"
+            f"{review_summary}\n"
+            "- Reviewer concerns are resolved through explicit frontend/API scope, contract tests, browser evidence, and excluded-scope boundaries.\n"
+        )
+
+    def _build_mock_fullstack_design_revision(
+        self,
+        workitem: WorkItem,
+        draft: str,
+        reviews: list[ReviewContribution],
+        round_index: int,
+    ) -> str:
+        """Build an actionable full-stack design baseline for offline web/API runs."""
+        review_summary = "\n".join(f"- {review.role}: {review.decision.value}" for review in reviews) or "- No review notes."
+        criteria = "\n".join(f"- {item}" for item in workitem.acceptance_criteria) or "- Preserve the frozen requirement and produce an implementable full-stack handoff."
+        return (
+            f"# Overall Design - {workitem.id}\n\n"
+            f"## Revision Round\n{round_index}\n\n"
+            "## Goal\n"
+            "Define a FastAPI-backed browser app that downstream development and testing agents can execute without adding unrelated scope.\n\n"
+            "## Requirement Understanding\n"
+            f"{workitem.description}\n\n"
+            "The workflow is a local full-stack app: a static browser page renders items while all create/list/filter/delete/stats behavior is served by JSON API routes.\n\n"
+            "## Scope Boundary\n"
+            "- In scope: app.py FastAPI routes, static page/assets, frontend fetch calls, in-memory validation state, browser integration test, and API contract evidence.\n"
+            "- Out of scope / non-goals: login/auth, accounts, payments, remote services, external production databases, and deployment automation.\n"
+            "- Constraint: keep the generated app deterministic and self-contained for offline validation.\n\n"
+            "## Solution\n"
+            "- Architecture: app.py serves index.html, mounts /static, and exposes /api/items plus /api/items/stats.\n"
+            "- Frontend: static/app.js owns DOM events and uses fetch for create, list/query, stats refresh, toggle, and delete.\n"
+            "- Data model: item id, title, content, completed flag, and created_at timestamp with blank-title validation.\n"
+            "- Contract tests: tests/test_fullstack_contract.py uses FastAPI TestClient plus Playwright against a local uvicorn server.\n"
+            "- Validation command: pytest runs in the project root and emits endpoint/status/payload plus browser interaction evidence.\n\n"
+            "## Acceptance And Test Plan\n"
+            f"{criteria}\n"
+            "- Test GET / and GET /static/app.js return 200 and prove frontend fetch calls exist.\n"
+            "- Test browser form submission creates an item through POST /api/items and updates visible state.\n"
+            "- Test GET /api/items/stats returns a JSON payload after browser creation.\n"
+            "- Test browser filtering and delete actions update the visible list.\n\n"
+            "## Risks And Assumptions\n"
+            "- Assumption: local in-memory API state is acceptable for the full-stack smoke profile.\n"
+            "- Risk: tests that only inspect files cannot prove integration, so Playwright must exercise the running page.\n"
+            "- Risk: hidden stdout would weaken evidence, so pytest must expose status and payload prints.\n\n"
+            "## Review Resolution\n"
+            f"{review_summary}\n"
+            "- Reviewer concerns are resolved through explicit routes, frontend fetch boundary, browser/API tests, and evidence requirements.\n\n"
+            "## Previous Draft Summary\n"
+            f"{draft[:800]}\n"
+        )
+
     def _build_mock_api_design_revision(
         self,
         workitem: WorkItem,
@@ -1251,6 +1345,34 @@ class CollaborationRunner:
         api_terms = ("api", "rest", "http", "endpoint", "backend", "server", "service", "fastapi")
         frontend_only_terms = ("browser-only", "static web", "localstorage", "local storage", "no backend")
         return any(term in text for term in api_terms) and not any(term in text for term in frontend_only_terms)
+
+    def _is_fullstack_workitem(self, workitem: WorkItem) -> bool:
+        """Return whether a mock collaboration artifact should preserve frontend/API scope."""
+        text = f"{workitem.kind} {workitem.description}".lower()
+        api_terms = ("api", "rest", "http", "endpoint", "backend", "server", "service", "fastapi")
+        ui_terms = ("frontend", "browser", "web", "ui", "page", "form", "fullstack", "full-stack")
+        frontend_only_terms = (
+            "browser-only",
+            "static web",
+            "localstorage",
+            "local storage",
+            "no backend",
+            "without backend",
+            "no server",
+            "without server",
+        )
+        return (
+            any(term in text for term in api_terms)
+            and any(self._contains_full_word(text, term) for term in ui_terms)
+            and not any(term in text for term in frontend_only_terms)
+        )
+
+    def _contains_full_word(self, text: str, term: str) -> bool:
+        """Return whether a term appears as a standalone word or explicit phrase."""
+        if not term.replace("-", "").isalnum():
+            return term in text
+        pattern = rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])"
+        return re.search(pattern, text) is not None
 
     def _is_sqlite_api_workitem(self, workitem: WorkItem) -> bool:
         """Return whether an API collaboration baseline should preserve SQLite persistence scope."""

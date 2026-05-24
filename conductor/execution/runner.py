@@ -88,6 +88,7 @@ class Runner:
         shell_harness: BaseHarness | None = None,
         enable_tester_harness: bool = False,
         enable_static_web_delivery: bool = False,
+        enable_fullstack_web_delivery: bool = False,
         enable_api_mock_delivery: bool = False,
         enable_api_sqlite_delivery: bool = False,
         cli_selection_config: CLISelectionConfig | None = None,
@@ -106,6 +107,7 @@ class Runner:
         self.shell_harness = shell_harness or ShellHarness()
         self.enable_tester_harness = enable_tester_harness
         self.enable_static_web_delivery = enable_static_web_delivery
+        self.enable_fullstack_web_delivery = enable_fullstack_web_delivery
         self.enable_api_mock_delivery = enable_api_mock_delivery
         self.enable_api_sqlite_delivery = enable_api_sqlite_delivery
         self.cli_selection_config = cli_selection_config or CLISelectionConfig()
@@ -456,6 +458,10 @@ class Runner:
             self.state_store.add_event(project_id, f"WorkItem {workitem.id} 使用 StaticWebDelivery 生成真实静态 Web 交付物")
             return self._run_static_web_delivery(project_id, workitem, agent, project_root)
 
+        if self._should_use_fullstack_web_delivery(project_id, workitem, agent):
+            self.state_store.add_event(project_id, f"WorkItem {workitem.id} uses FullstackWebDelivery for a verifiable frontend/API integration")
+            return self._run_fullstack_web_delivery(project_id, workitem, agent, project_root)
+
         if self._should_use_api_sqlite_delivery(project_id, workitem, agent):
             self.state_store.add_event(project_id, f"WorkItem {workitem.id} uses ApiSqliteDelivery for a verifiable SQLite API service")
             return self._run_api_sqlite_delivery(project_id, workitem, agent, project_root)
@@ -535,6 +541,76 @@ class Runner:
             execution_duration_ms=validation.duration_ms,
             changed_files=changed_files,
             validation_command=validation_command,
+            validation_exit_code=validation.exit_code,
+            validation_success=validation.success,
+            cli_stdout_tail=self._tail(validation.stdout),
+            cli_stderr_tail=self._tail(validation.stderr),
+        )
+
+    def _should_use_fullstack_web_delivery(self, project_id: str, workitem: WorkItem, agent: Agent) -> bool:
+        """Return whether the built-in full-stack web backend should produce frontend and API files."""
+        if not (
+            self.enable_fullstack_web_delivery
+            and agent.role == "backend_engineer"
+            and workitem.kind == "api_implementation"
+        ):
+            return False
+        requirement_text = self._static_web_requirement_text(project_id).lower()
+        api_terms = ("api", "rest", "http", "endpoint", "backend", "server", "service", "fastapi")
+        ui_terms = ("frontend", "browser", "web", "ui", "page", "form", "fullstack", "full-stack")
+        backend_negation = ("no backend", "without backend", "no server", "without server")
+        return (
+            any(term in requirement_text for term in api_terms)
+            and any(self._contains_full_word(requirement_text, term) for term in ui_terms)
+            and not any(term in requirement_text for term in backend_negation)
+        )
+
+    def _contains_full_word(self, text: str, term: str) -> bool:
+        """Return whether a term appears as a standalone word or explicit phrase."""
+        if not term.replace("-", "").isalnum():
+            return term in text
+        pattern = rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])"
+        return re.search(pattern, text) is not None
+
+    def _run_fullstack_web_delivery(
+        self,
+        project_id: str,
+        workitem: WorkItem,
+        agent: Agent,
+        project_root: str,
+    ) -> WorkItemRunResult:
+        """Generate a concrete FastAPI + static frontend app and validate it with pytest."""
+        root = Path(project_root)
+        changed_files = self._write_fullstack_web_app(root)
+        validation_command = [sys.executable, "-m", "pytest", "-q"]
+        validation_request = HarnessRequest(
+            command=validation_command,
+            working_directory=str(root),
+            timeout_seconds=240.0,
+            description=f"fullstack_web_delivery:{workitem.id}",
+            stream_callback=self._build_stream_callback(project_id),
+            environment=self._validation_environment(),
+        )
+        validation = self.shell_harness.run(validation_request)
+        report = self._build_fullstack_web_delivery_report(
+            workitem=workitem,
+            agent=agent,
+            changed_files=changed_files,
+            validation=validation,
+            validation_command=validation_command,
+        )
+        return WorkItemRunResult(
+            content=report,
+            source_backend="fullstack_web_delivery",
+            succeeded=validation.success,
+            failure=None if validation.success else validation_failed(validation),
+            cli_name="fullstack_web_delivery",
+            working_directory=str(root),
+            execution_command=list(validation_command),
+            execution_exit_code=validation.exit_code,
+            execution_duration_ms=validation.duration_ms,
+            changed_files=changed_files,
+            validation_command=list(validation_command),
             validation_exit_code=validation.exit_code,
             validation_success=validation.success,
             cli_stdout_tail=self._tail(validation.stdout),
@@ -655,6 +731,457 @@ class Runner:
             cli_stdout_tail=self._tail(validation.stdout),
             cli_stderr_tail=self._tail(validation.stderr),
         )
+
+    def _write_fullstack_web_app(self, root: Path) -> list[str]:
+        """Write a small FastAPI-backed browser app plus full-stack tests."""
+        root.mkdir(parents=True, exist_ok=True)
+        static_dir = root / "static"
+        tests_dir = root / "tests"
+        static_dir.mkdir(parents=True, exist_ok=True)
+        tests_dir.mkdir(parents=True, exist_ok=True)
+        files = {
+            "app.py": self._fullstack_web_app_py(),
+            "index.html": self._fullstack_web_index_html(),
+            "static/app.js": self._fullstack_web_app_js(),
+            "static/style.css": self._fullstack_web_style_css(),
+            "pytest.ini": "[pytest]\naddopts = -s\n",
+            "tests/test_fullstack_contract.py": self._fullstack_web_contract_tests_py(),
+        }
+        changed: list[str] = []
+        for relative_path, content in files.items():
+            path = root / relative_path
+            previous = path.read_text(encoding="utf-8", errors="replace") if path.exists() else None
+            if previous != content:
+                path.write_text(content, encoding="utf-8")
+                changed.append(relative_path)
+        return changed
+
+    def _fullstack_web_app_py(self) -> str:
+        return '''"""Generated FastAPI full-stack web app for Conductor validation."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
+
+
+ROOT = Path(__file__).resolve().parent
+app = FastAPI(title="Conductor Fullstack Web")
+app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
+
+_items: list[dict[str, object]] = []
+_next_id = 1
+
+
+class ItemCreate(BaseModel):
+    title: str = Field(min_length=1)
+    content: str = ""
+    completed: bool = False
+
+
+class ItemPatch(BaseModel):
+    title: str | None = None
+    content: str | None = None
+    completed: bool | None = None
+
+
+def reset_state() -> None:
+    global _next_id
+    _items.clear()
+    _next_id = 1
+
+
+def _normalize_title(title: str) -> str:
+    normalized = title.strip()
+    if not normalized:
+        raise HTTPException(status_code=422, detail="title must not be blank")
+    return normalized
+
+
+def _find_item(item_id: int) -> dict[str, object]:
+    for item in _items:
+        if item["id"] == item_id:
+            return item
+    raise HTTPException(status_code=404, detail="item not found")
+
+
+@app.get("/")
+def index() -> FileResponse:
+    return FileResponse(ROOT / "index.html")
+
+
+@app.post("/api/items", status_code=201)
+def create_item(payload: ItemCreate) -> dict[str, object]:
+    global _next_id
+    item = {
+        "id": _next_id,
+        "title": _normalize_title(payload.title),
+        "content": payload.content,
+        "completed": payload.completed,
+    }
+    _next_id += 1
+    _items.append(item)
+    return {"item": item}
+
+
+@app.get("/api/items")
+def list_items(
+    status: str = Query("all", pattern="^(all|active|completed)$"),
+    q: str = "",
+) -> dict[str, object]:
+    query = q.strip().lower()
+    items = list(reversed(_items))
+    if status == "active":
+        items = [item for item in items if not item["completed"]]
+    elif status == "completed":
+        items = [item for item in items if item["completed"]]
+    if query:
+        items = [
+            item
+            for item in items
+            if query in str(item["title"]).lower() or query in str(item["content"]).lower()
+        ]
+    return {"items": items}
+
+
+@app.get("/api/items/stats")
+def item_stats() -> dict[str, int]:
+    completed = sum(1 for item in _items if item["completed"])
+    return {"total": len(_items), "completed": completed, "active": len(_items) - completed}
+
+
+@app.patch("/api/items/{item_id}")
+def update_item(item_id: int, payload: ItemPatch) -> dict[str, object]:
+    item = _find_item(item_id)
+    if payload.title is not None:
+        item["title"] = _normalize_title(payload.title)
+    if payload.content is not None:
+        item["content"] = payload.content
+    if payload.completed is not None:
+        item["completed"] = payload.completed
+    return {"item": item}
+
+
+@app.delete("/api/items/{item_id}")
+def delete_item(item_id: int) -> dict[str, object]:
+    item = _find_item(item_id)
+    _items.remove(item)
+    return {"deleted": True}
+'''
+
+    def _fullstack_web_index_html(self) -> str:
+        return """<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Fullstack Task Tracker</title>
+    <link rel="stylesheet" href="/static/style.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <header>
+        <h1>Fullstack Task Tracker</h1>
+        <p id="summary">Loading API state...</p>
+      </header>
+      <form id="itemForm" class="panel">
+        <label>Title
+          <input id="title" name="title" required placeholder="Task title">
+        </label>
+        <label>Content
+          <textarea id="content" name="content" placeholder="Task notes"></textarea>
+        </label>
+        <button type="submit">Add item</button>
+        <p id="error" role="alert"></p>
+      </form>
+      <section class="toolbar" aria-label="Filters">
+        <label>Status
+          <select id="statusFilter">
+            <option value="all">All</option>
+            <option value="active">Active</option>
+            <option value="completed">Completed</option>
+          </select>
+        </label>
+        <label>Search
+          <input id="queryFilter" name="queryFilter" placeholder="Search items">
+        </label>
+      </section>
+      <section id="emptyState" class="empty">No records yet.</section>
+      <section id="items" class="items" aria-live="polite"></section>
+    </main>
+    <script src="/static/app.js"></script>
+  </body>
+</html>
+"""
+
+    def _fullstack_web_app_js(self) -> str:
+        return """const form = document.querySelector("#itemForm");
+const titleInput = document.querySelector("#title");
+const contentInput = document.querySelector("#content");
+const statusFilter = document.querySelector("#statusFilter");
+const queryFilter = document.querySelector("#queryFilter");
+const items = document.querySelector("#items");
+const summary = document.querySelector("#summary");
+const emptyState = document.querySelector("#emptyState");
+const error = document.querySelector("#error");
+
+async function api(path, options = {}) {
+  const response = await fetch(path, {
+    headers: { "Content-Type": "application/json" },
+    ...options,
+  });
+  const text = await response.text();
+  const payload = text ? JSON.parse(text) : {};
+  if (!response.ok) {
+    throw new Error(payload.detail || `HTTP ${response.status}`);
+  }
+  return payload;
+}
+
+async function loadItems() {
+  const params = new URLSearchParams({
+    status: statusFilter.value,
+    q: queryFilter.value.trim(),
+  });
+  const payload = await api(`/api/items?${params.toString()}`);
+  render(payload.items);
+}
+
+function render(records) {
+  items.innerHTML = "";
+  emptyState.hidden = records.length > 0;
+  summary.textContent = `${records.length} visible item${records.length === 1 ? "" : "s"}`;
+  for (const record of records) {
+    const card = document.createElement("article");
+    card.className = "item-card";
+    card.dataset.itemId = record.id;
+    card.innerHTML = `
+      <div>
+        <h2>${escapeHtml(record.title)}</h2>
+        <p>${escapeHtml(record.content || "")}</p>
+        <p class="meta">${record.completed ? "Completed" : "Active"}</p>
+      </div>
+      <div class="actions">
+        <button type="button" data-action="toggle">${record.completed ? "Mark active" : "Complete"}</button>
+        <button type="button" data-action="delete">Delete</button>
+      </div>
+    `;
+    items.appendChild(card);
+  }
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+form.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  error.textContent = "";
+  try {
+    await api("/api/items", {
+      method: "POST",
+      body: JSON.stringify({
+        title: titleInput.value,
+        content: contentInput.value,
+        completed: false,
+      }),
+    });
+    form.reset();
+    await loadItems();
+  } catch (err) {
+    error.textContent = err.message;
+  }
+});
+
+items.addEventListener("click", async (event) => {
+  const button = event.target.closest("button");
+  const card = event.target.closest("[data-item-id]");
+  if (!button || !card) {
+    return;
+  }
+  const id = card.dataset.itemId;
+  if (button.dataset.action === "delete") {
+    await api(`/api/items/${id}`, { method: "DELETE" });
+  } else {
+    await api(`/api/items/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ completed: button.textContent.includes("Complete") }),
+    });
+  }
+  await loadItems();
+});
+
+statusFilter.addEventListener("change", loadItems);
+queryFilter.addEventListener("input", loadItems);
+
+loadItems().catch((err) => {
+  error.textContent = err.message;
+});
+"""
+
+    def _fullstack_web_style_css(self) -> str:
+        return """body {
+  margin: 0;
+  font-family: Inter, Segoe UI, Arial, sans-serif;
+  color: #17202a;
+  background: #f5f7fb;
+}
+.app-shell {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 28px;
+}
+header, .panel, .toolbar, .item-card {
+  background: #ffffff;
+  border: 1px solid #d9e1ec;
+  border-radius: 8px;
+  padding: 16px;
+}
+.panel, .toolbar {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+input, textarea, select, button {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px;
+  margin-top: 4px;
+  font: inherit;
+}
+button {
+  cursor: pointer;
+  border: 0;
+  border-radius: 6px;
+  background: #1457d9;
+  color: #ffffff;
+}
+.items {
+  display: grid;
+  gap: 12px;
+}
+.item-card {
+  display: grid;
+  grid-template-columns: 1fr 180px;
+  gap: 16px;
+}
+.actions {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+.meta, .empty, #error {
+  color: #5f6b76;
+}
+@media (max-width: 720px) {
+  .item-card {
+    grid-template-columns: 1fr;
+  }
+}
+"""
+
+    def _fullstack_web_contract_tests_py(self) -> str:
+        return '''"""Full-stack contract tests for the generated FastAPI web app."""
+
+from __future__ import annotations
+
+import socket
+import threading
+import time
+from contextlib import closing
+from urllib.request import urlopen
+
+import uvicorn
+from fastapi.testclient import TestClient
+from playwright.sync_api import sync_playwright
+
+from app import app, reset_state
+
+
+def _free_port() -> int:
+    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def _start_server(port: int) -> tuple[uvicorn.Server, threading.Thread]:
+    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
+    server = uvicorn.Server(config)
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        try:
+            with urlopen(f"http://127.0.0.1:{port}/", timeout=1) as response:
+                if response.status == 200:
+                    return server, thread
+        except Exception:
+            time.sleep(0.1)
+    raise RuntimeError("fullstack test server did not start")
+
+
+def test_fullstack_frontend_calls_backend_api_contract() -> None:
+    reset_state()
+    client = TestClient(app)
+    html_response = client.get("/")
+    script_response = client.get("/static/app.js")
+    print(f"GET / -> status_code={html_response.status_code} response payload=html")
+    print(f"GET /static/app.js -> status_code={script_response.status_code} response payload=javascript")
+    assert html_response.status_code == 200
+    assert script_response.status_code == 200
+    assert "fetch(" in script_response.text
+    assert "/api/items" in script_response.text
+
+    port = _free_port()
+    server, thread = _start_server(port)
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(f"http://127.0.0.1:{port}/", wait_until="networkidle")
+            page.fill("#title", "Write backend")
+            page.fill("#content", "Finish API integration")
+            page.click("button[type=submit]")
+            page.wait_for_selector("text=Write backend")
+            print("Browser form interaction updated visible state: Write backend")
+
+            stats = page.evaluate(
+                """async () => {
+                    const response = await fetch('/api/items/stats');
+                    return {status: response.status, payload: await response.json()};
+                }"""
+            )
+            print(f"GET /api/items/stats -> status_code={stats['status']} response payload={stats['payload']}")
+            assert stats["status"] == 200
+            assert stats["payload"]["total"] == 1
+
+            page.fill("#queryFilter", "__no_match_filter__")
+            page.wait_for_timeout(300)
+            assert not page.locator("text=Write backend").is_visible()
+            print("Browser filter interaction changed visible results")
+
+            page.fill("#queryFilter", "")
+            page.wait_for_selector("text=Write backend")
+            page.click("button[data-action=delete]")
+            page.wait_for_timeout(300)
+            assert not page.locator("text=Write backend").is_visible()
+            print("Browser delete interaction removed visible item")
+
+            browser.close()
+    finally:
+        server.should_exit = True
+        thread.join(timeout=5)
+
+    print("Fullstack frontend API integration verified -> browser fetch /api/items and /api/items/stats")
+'''
 
     def _write_api_mock_app(self, root: Path) -> list[str]:
         """Write a small FastAPI CRUD mock plus contract tests into the project root."""
@@ -1566,6 +2093,27 @@ button {
             cli_name="api_sqlite_delivery",
             changed_files=changed_files,
             cli_stdout="Generated FastAPI SQLite service and API contract tests.",
+            cli_stderr="",
+            validation_result=validation,
+            validation_command=validation_command,
+            success=validation.success,
+        )
+
+    def _build_fullstack_web_delivery_report(
+        self,
+        *,
+        workitem: WorkItem,
+        agent: Agent,
+        changed_files: list[str],
+        validation: HarnessResult,
+        validation_command: list[str],
+    ) -> str:
+        return self._build_code_execution_report(
+            workitem=workitem,
+            agent=agent,
+            cli_name="fullstack_web_delivery",
+            changed_files=changed_files,
+            cli_stdout="Generated FastAPI full-stack web app and browser/API contract tests.",
             cli_stderr="",
             validation_result=validation,
             validation_command=validation_command,
@@ -3007,10 +3555,10 @@ button {
                 package = {}
             if isinstance(package.get("scripts"), dict) and package["scripts"].get("test"):
                 return ["npm", "test"]
-        if self._looks_like_static_web_project(root):
-            return [sys.executable, "-m", "conductor.harness.static_web_cli"]
         if (root / "pytest.ini").exists() or (root / "conftest.py").exists() or any(root.glob("test*.py")) or (root / "tests").exists():
             return [sys.executable, "-m", "pytest", "-q"]
+        if self._looks_like_static_web_project(root):
+            return [sys.executable, "-m", "conductor.harness.static_web_cli"]
         if self._pyproject_declares_pytest(root) and shutil.which("uv"):
             return ["uv", "run", "python", "-m", "pytest", "-q"]
         if shutil.which("pytest"):

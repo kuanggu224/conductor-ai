@@ -62,6 +62,7 @@ def test_execution_scope_config_round_trip(tmp_path) -> None:
 def test_resolve_run_profiles() -> None:
     mock = resolve_run_profile("mock")
     static_web = resolve_run_profile("static_web")
+    fullstack_web = resolve_run_profile("fullstack_web")
     api_mock = resolve_run_profile("api_mock")
     api_sqlite = resolve_run_profile("api_sqlite")
     design = resolve_run_profile("design_cli_only")
@@ -72,6 +73,9 @@ def test_resolve_run_profiles() -> None:
     assert static_web.cli_roles == []
     assert static_web.enable_static_web_delivery is True
     assert static_web.require_real_code_outputs is False
+    assert fullstack_web.cli_roles == []
+    assert fullstack_web.enable_fullstack_web_delivery is True
+    assert fullstack_web.require_real_code_outputs is False
     assert api_mock.cli_roles == []
     assert api_mock.enable_api_mock_delivery is True
     assert api_mock.require_real_code_outputs is False

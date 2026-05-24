@@ -17,6 +17,7 @@ class RunProfile(StrEnum):
 
     MOCK = "mock"
     STATIC_WEB = "static_web"
+    FULLSTACK_WEB = "fullstack_web"
     API_MOCK = "api_mock"
     API_SQLITE = "api_sqlite"
     DESIGN_CLI_ONLY = "design_cli_only"
@@ -33,6 +34,7 @@ class RunProfileConfig:
     require_real_design_outputs: bool = False
     require_real_code_outputs: bool = False
     enable_static_web_delivery: bool = False
+    enable_fullstack_web_delivery: bool = False
     enable_api_mock_delivery: bool = False
     enable_api_sqlite_delivery: bool = False
 
@@ -51,6 +53,12 @@ def resolve_run_profile(profile: str | RunProfile) -> RunProfileConfig:
             profile=run_profile,
             cli_roles=[],
             enable_static_web_delivery=True,
+        )
+    if run_profile == RunProfile.FULLSTACK_WEB:
+        return RunProfileConfig(
+            profile=run_profile,
+            cli_roles=[],
+            enable_fullstack_web_delivery=True,
         )
     if run_profile == RunProfile.API_MOCK:
         return RunProfileConfig(

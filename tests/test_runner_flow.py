@@ -51,6 +51,30 @@ class FakeApiEvidenceHarness(BaseHarness):
         )
 
 
+class FakeFullstackEvidenceHarness(BaseHarness):
+    name = "shell"
+
+    def run(self, request: HarnessRequest) -> HarnessResult:
+        return HarnessResult(
+            success=True,
+            exit_code=0,
+            stdout="\n".join(
+                [
+                    "GET / -> status_code=200 response payload=html",
+                    "GET /static/app.js -> status_code=200 response payload=javascript",
+                    "Browser form interaction updated visible state: Write backend",
+                    "GET /api/items/stats -> status_code=200 response payload={'total': 1}",
+                    "Browser filter interaction changed visible results",
+                    "Browser delete interaction removed visible item",
+                    "Fullstack frontend API integration verified -> browser fetch /api/items and /api/items/stats",
+                    "1 passed",
+                ]
+            ),
+            stderr="",
+            duration_ms=18,
+        )
+
+
 class FakePartialStaticValidationHarness(BaseHarness):
     name = "static_web"
 
@@ -1190,6 +1214,71 @@ def test_runner_api_sqlite_delivery_generates_persistent_fastapi_service(tmp_pat
     assert (project_root / "items.db").exists()
     assert "POST /api/items -> status_code=201 response payload=" in execution.cli_stdout_tail
     assert "SQLite persistence verified -> database=items.db row_count=2" in execution.cli_stdout_tail
+
+
+def test_runner_fullstack_web_delivery_generates_frontend_api_integration(tmp_path) -> None:
+    project_root = tmp_path / "todo-fullstack"
+    state_store = InMemoryStateStore()
+    runner = Runner(
+        state_store,
+        shell_harness=FakeFullstackEvidenceHarness(),
+        artifact_store=ArtifactStore(project_root / ".conductor" / "artifacts"),
+        enable_fullstack_web_delivery=True,
+    )
+    controller = LeadController(
+        workflow_template=WorkflowTemplate(),
+        state_store=state_store,
+        runner=runner,
+    )
+    state = controller.initialize_project(
+        "Build a fullstack web app for todo items with a browser frontend, form interactions, and a backend REST API with stats.",
+        project_root=str(project_root),
+    )
+    frozen = Artifact(
+        id="artifact-frozen-requirement",
+        project_id=state.project.id,
+        workitem_id="workitem-requirement",
+        agent_id="agent-requirement-designer",
+        kind="frozen_requirement_spec",
+        title="Frozen Requirement",
+        content=state.project.goal,
+    )
+    workitem = WorkItem(
+        id="workitem-api",
+        description="Implement todo fullstack web app with browser UI and backend REST API",
+        stage="development",
+        kind="api_implementation",
+    )
+    state = replace(state, workitems=[workitem], artifacts=[frozen])
+    state_store.save_state(state)
+    agent = Agent(
+        id="agent-backend",
+        role="backend_engineer",
+        capabilities=[Capability.CODING],
+        backend="mock",
+        execution_backend="mock",
+    )
+
+    execution = runner.run(state.project.id, workitem, agent)
+
+    assert execution.status == ExecutionStatus.SUCCESS
+    assert execution.source_backend == "fullstack_web_delivery"
+    assert execution.changed_files == [
+        "app.py",
+        "index.html",
+        "static/app.js",
+        "static/style.css",
+        "pytest.ini",
+        "tests/test_fullstack_contract.py",
+    ]
+    assert execution.validation_success is True
+    assert (project_root / "app.py").exists()
+    assert (project_root / "index.html").exists()
+    assert (project_root / "static" / "app.js").exists()
+    assert (project_root / "tests" / "test_fullstack_contract.py").exists()
+    assert "Browser form interaction updated visible state: Write backend" in execution.cli_stdout_tail
+    assert "GET /api/items/stats -> status_code=200 response payload=" in execution.cli_stdout_tail
+    assert "Fullstack frontend API integration verified" in execution.cli_stdout_tail
 
 
 def test_runner_static_web_delivery_adds_csv_import_when_required(tmp_path) -> None:

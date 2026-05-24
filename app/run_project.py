@@ -901,7 +901,8 @@ def _build_llm_runtime_config(args, *, run_profile=None):
     runtime_config = load_llm_runtime_config()
     if (
         run_profile is not None
-        and run_profile.profile in {RunProfile.MOCK, RunProfile.STATIC_WEB, RunProfile.API_MOCK, RunProfile.API_SQLITE}
+        and run_profile.profile
+        in {RunProfile.MOCK, RunProfile.STATIC_WEB, RunProfile.FULLSTACK_WEB, RunProfile.API_MOCK, RunProfile.API_SQLITE}
         and not args.llm_harness
     ):
         runtime_config.usage.runner_enabled = False
