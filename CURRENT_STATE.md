@@ -62,6 +62,7 @@ Last updated: 2026-05-24
 - Task Center Board API now covers dynamic Agent task discovery/claiming, batch claim, explicit lease renewal, expired lease release, stale release, and combined sweep maintenance.
 - `run_project --maintenance-task-center` now writes `attention_project_ids`, `finding_code_counts`, `recommendations`, pending retest scope rollups, active human-control hold rollups, operator guidance, and copyable maintenance/status commands into pre-run maintenance reports and latest pointers.
 - Task Center maintenance, watchdog, maintenance-status fallback, and run-project pre-run maintenance operator commands now include a scheduler-friendly `human_control status-all --active-only --fail-on-active` check.
+- Board snapshots now expose an `operation_console` with maintenance, Task Center, and human-control operator actions, including API method/path metadata and copyable CLI commands.
 - Manifest verification now validates execution delivery contracts and acceptance traces, including required input artifact references, list-shaped fields, trace status values, and evidence field types.
 - Manifest verification also validates WorkItem testing checklist structure so malformed checklist fields are surfaced before replay/resume.
 - Manifest verification now validates `summary.pending_test_scope` shape, duplicates, and references to known testing WorkItem kinds.

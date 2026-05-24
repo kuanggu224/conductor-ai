@@ -184,6 +184,7 @@ type BoardSnapshot = {
   preflight_gate: BoardPreflightGateView
   run_audit: BoardRunAuditView
   human_control: BoardHumanControlView
+  operation_console: BoardOperationConsoleView
   execution_runtime: BoardExecutionRuntimeView
   design_collaboration: BoardDesignCollaborationView
 }
@@ -276,6 +277,37 @@ type BoardHumanControlView = {
 ```
 
 `human_control.active=true` 表示 Controller 当前应停止自动推进，前端应突出展示 `hold_reason` 和 `action_label`。`available_actions` 和 `operator_guidance` 给出当前 operator 可执行动作和下一步提示；项目列表可直接使用 `human_control_active` 和 `human_control_label` 标记等待人工处理的项目。
+
+### 4.2.4 BoardOperationConsoleView
+
+```ts
+type BoardOperationConsoleView = {
+  available: boolean
+  attention_count: number
+  guidance: string
+  actions: BoardOperationActionView[]
+}
+
+type BoardOperationActionView = {
+  id: string
+  label: string
+  category: "maintenance" | "task_center" | "human_control" | string
+  api_method: "GET" | "POST" | ""
+  api_path: string
+  command: string
+  enabled: boolean
+  reason: string
+  severity: "info" | "warning" | "danger" | string
+}
+```
+
+`operation_console` is the Board-facing operator command surface. It consolidates
+maintenance health checks, Task Center actions, and human-control actions into a
+single renderable list. Frontends should render enabled actions as controls when
+`api_method` and `api_path` are present, and expose `command` as a copyable CLI
+fallback for local operators or schedulers. `attention_count > 0` means the
+project has failed work, blocking delivery-readiness issues, stale or expired
+task claims, or an active human-control hold.
 
 ### 4.3 BoardWorkItemView
 

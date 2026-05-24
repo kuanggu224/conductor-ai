@@ -142,6 +142,77 @@ def test_board_service_exposes_active_human_control_state() -> None:
     assert summaries[0].human_control_label == "等待人工审批"
 
 
+def test_board_service_exposes_operation_console_actions() -> None:
+    stale_claimed_at = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+    expired_at = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+    state = SharedProjectState(
+        project=Project(
+            id="project-operation-console",
+            goal="operate board",
+            current_stage="development",
+            project_root="C:/demo/project",
+        ),
+        project_status=ProjectStatus.IN_PROGRESS,
+        current_stage="development",
+        workitems=[
+            WorkItem(id="workitem-claimable", description="Ready task", stage="development", kind="api_implementation"),
+            WorkItem(
+                id="workitem-failed",
+                description="Failed validation",
+                stage="testing",
+                kind="automated_test",
+                status=WorkItemStatus.FAILED,
+                failure_type="validation_failed",
+            ),
+            WorkItem(id="workitem-stale", description="Stale external task", stage="development"),
+        ],
+        task_assignments=[
+            TaskAssignment(id="assignment-claimable", workitem_id="workitem-claimable", role="backend_engineer"),
+            TaskAssignment(
+                id="assignment-stale",
+                workitem_id="workitem-stale",
+                role="backend_engineer",
+                status=TaskAssignmentStatus.CLAIMED,
+                assigned_agent_id="agent-backend",
+                claimed_at=stale_claimed_at,
+                lease_seconds=60,
+                lease_expires_at=expired_at,
+            ),
+        ],
+        human_control_actions=[
+            HumanControlAction(
+                id="human-pause",
+                project_id="project-operation-console",
+                action=HumanControlActionType.PAUSE,
+                actor="operator",
+                reason="inspect delivery",
+                stage="development",
+                created_at="2026-05-20T00:00:00+00:00",
+            )
+        ],
+    )
+
+    snapshot = BoardService().build_snapshot(state)
+    actions = {action.id: action for action in snapshot.operation_console.actions}
+
+    assert snapshot.operation_console.available is True
+    assert snapshot.operation_console.attention_count >= 4
+    assert "Operator attention is required" in snapshot.operation_console.guidance
+    assert actions["maintenance-status"].command.startswith("python -m app.task_center maintenance-status")
+    assert '--project-root "C:/demo/project"' in actions["maintenance"].command
+    assert actions["task-summary"].api_method == "GET"
+    assert actions["task-summary"].api_path == "/api/projects/project-operation-console/tasks/summary"
+    assert actions["claim-next"].enabled is True
+    assert actions["claim-next"].api_path == "/api/projects/project-operation-console/tasks/claim-next"
+    assert "--agent-id <agent-id>" in actions["claim-next"].command
+    assert actions["task-sweep"].enabled is True
+    assert actions["task-sweep"].api_path == "/api/projects/project-operation-console/tasks/sweep"
+    assert actions["human-control-status"].api_path == "/api/projects/project-operation-console/human-control"
+    assert actions["human-control-resume"].api_method == "POST"
+    assert actions["human-control-resume"].api_path == "/api/projects/project-operation-console/human-control/resume"
+    assert "python -m app.human_control resume" in actions["human-control-resume"].command
+
+
 def test_board_service_exposes_run_audit_risk_summary(tmp_path) -> None:
     state = SharedProjectState(
         project=Project(id="project-audit", goal="audit risk", current_stage="design", project_root=str(tmp_path)),

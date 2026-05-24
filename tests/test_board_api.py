@@ -26,7 +26,10 @@ def test_project_api_returns_snapshot_payload() -> None:
     assert "execution_runtime" in payload["snapshot"]
     assert "run_audit" in payload["snapshot"]
     assert "human_control" in payload["snapshot"]
+    assert "operation_console" in payload["snapshot"]
     assert payload["snapshot"]["human_control"]["active"] is False
+    assert payload["snapshot"]["operation_console"]["available"] is True
+    assert payload["snapshot"]["operation_console"]["actions"]
     assert payload["snapshot"]["run_audit"]["risk_level"] in {"normal", "medium", "high"}
     assert isinstance(payload["snapshot"]["run_audit"]["failed_workitem_ids"], list)
     assert "task_status" in payload

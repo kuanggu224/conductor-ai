@@ -219,6 +219,31 @@ class BoardHumanControlView:
 
 
 @dataclass(slots=True)
+class BoardOperationActionView:
+    """Operator-facing action exposed by the Board operation console."""
+
+    id: str
+    label: str
+    category: str
+    api_method: str = ""
+    api_path: str = ""
+    command: str = ""
+    enabled: bool = True
+    reason: str = ""
+    severity: str = "info"
+
+
+@dataclass(slots=True)
+class BoardOperationConsoleView:
+    """Compact operator console for Board automation and recovery actions."""
+
+    available: bool = True
+    attention_count: int = 0
+    guidance: str = ""
+    actions: list[BoardOperationActionView] = field(default_factory=list)
+
+
+@dataclass(slots=True)
 class BoardDesignCollaborationView:
     """需求/设计阶段会议桌视图。"""
 
@@ -263,6 +288,7 @@ class BoardSnapshot:
     preflight_gate: BoardPreflightGateView = field(default_factory=BoardPreflightGateView)
     run_audit: BoardRunAuditView = field(default_factory=BoardRunAuditView)
     human_control: BoardHumanControlView = field(default_factory=BoardHumanControlView)
+    operation_console: BoardOperationConsoleView = field(default_factory=BoardOperationConsoleView)
     execution_runtime: BoardExecutionRuntimeView = field(default_factory=BoardExecutionRuntimeView)
     design_collaboration: BoardDesignCollaborationView = field(default_factory=BoardDesignCollaborationView)
 

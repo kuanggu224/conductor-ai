@@ -10,6 +10,8 @@ from conductor.board.models import (
     BoardExecutionRuntimeView,
     BoardMeetingAgentView,
     BoardHumanControlView,
+    BoardOperationActionView,
+    BoardOperationConsoleView,
     BoardPreflightGateView,
     BoardProjectAgentView,
     BoardProjectSummary,
@@ -203,6 +205,39 @@ class BoardService:
             and artifact.source_backend.startswith("agent_cli/")
         ]
         task_center = TaskCenterService(_BoardStateStore(state))
+        task_center_summary = task_center.summary(state)
+        task_assignments = [
+            BoardTaskAssignmentView(
+                id=assignment.id,
+                workitem_id=assignment.workitem_id,
+                role=assignment.role,
+                role_label=label_role(assignment.role),
+                status=assignment.status.value,
+                status_label=TASK_ASSIGNMENT_STATUS_LABELS.get(assignment.status.value, assignment.status.value),
+                assigned_agent_id=assignment.assigned_agent_id or "-",
+                assigned_agent_label=AGENT_LABELS.get(assignment.assigned_agent_id or "-", assignment.assigned_agent_id or "-"),
+                claim_token=assignment.claim_token,
+                claimable=task_center.claimable(state, assignment),
+                write_scope_conflict_assignment_ids=task_center.write_scope_conflicts(state, assignment),
+                unmet_dependency_ids=task_center.unmet_dependency_ids(state, assignment),
+                dependencies=assignment.dependencies,
+                input_artifact_ids=assignment.input_artifact_ids,
+                output_artifact_ids=assignment.output_artifact_ids,
+                claim_reason=assignment.claim_reason,
+                blocked_reason=assignment.blocked_reason or "",
+                claimed_age_seconds=task_center.claimed_age_seconds(assignment),
+                last_heartbeat_at=assignment.last_heartbeat_at,
+                heartbeat_age_seconds=task_center.heartbeat_age_seconds(assignment),
+                lease_seconds=assignment.lease_seconds,
+                lease_expires_at=assignment.lease_expires_at,
+                lease_expired=task_center.lease_expired(assignment),
+                stale_claimed=task_center.stale_claimed(assignment),
+                prompt_file=assignment.prompt_file,
+            )
+            for assignment in state.task_assignments
+        ]
+        run_audit = self._build_run_audit_view(state)
+        human_control = self._build_human_control_view(state)
         return BoardSnapshot(
             project_id=state.project.id,
             project_goal=state.project.goal,
@@ -270,40 +305,17 @@ class BoardService:
             ],
             project_agents=self._build_project_agents(state),
             activation_nodes=self._build_activation_nodes(state),
-            task_center_summary=task_center.summary(state),
-            task_assignments=[
-                BoardTaskAssignmentView(
-                    id=assignment.id,
-                    workitem_id=assignment.workitem_id,
-                    role=assignment.role,
-                    role_label=label_role(assignment.role),
-                    status=assignment.status.value,
-                    status_label=TASK_ASSIGNMENT_STATUS_LABELS.get(assignment.status.value, assignment.status.value),
-                    assigned_agent_id=assignment.assigned_agent_id or "-",
-                    assigned_agent_label=AGENT_LABELS.get(assignment.assigned_agent_id or "-", assignment.assigned_agent_id or "-"),
-                    claim_token=assignment.claim_token,
-                    claimable=task_center.claimable(state, assignment),
-                    write_scope_conflict_assignment_ids=task_center.write_scope_conflicts(state, assignment),
-                    unmet_dependency_ids=task_center.unmet_dependency_ids(state, assignment),
-                    dependencies=assignment.dependencies,
-                    input_artifact_ids=assignment.input_artifact_ids,
-                    output_artifact_ids=assignment.output_artifact_ids,
-                    claim_reason=assignment.claim_reason,
-                    blocked_reason=assignment.blocked_reason or "",
-                    claimed_age_seconds=task_center.claimed_age_seconds(assignment),
-                    last_heartbeat_at=assignment.last_heartbeat_at,
-                    heartbeat_age_seconds=task_center.heartbeat_age_seconds(assignment),
-                    lease_seconds=assignment.lease_seconds,
-                    lease_expires_at=assignment.lease_expires_at,
-                    lease_expired=task_center.lease_expired(assignment),
-                    stale_claimed=task_center.stale_claimed(assignment),
-                    prompt_file=assignment.prompt_file,
-                )
-                for assignment in state.task_assignments
-            ],
+            task_center_summary=task_center_summary,
+            task_assignments=task_assignments,
             preflight_gate=self._build_preflight_gate_view(state),
-            run_audit=self._build_run_audit_view(state),
-            human_control=self._build_human_control_view(state),
+            run_audit=run_audit,
+            human_control=human_control,
+            operation_console=self._build_operation_console_view(
+                state,
+                task_center_summary=task_center_summary,
+                run_audit=run_audit,
+                human_control=human_control,
+            ),
             execution_runtime=self._build_execution_runtime_view(state, cli_config, llm_runtime_config),
             design_collaboration=self._build_design_collaboration_view(state, artifacts),
         )
@@ -381,6 +393,217 @@ class BoardService:
             operator_commands=service.operator_command_templates(state),
             action_count=len(state.human_control_actions),
         )
+
+    def _build_operation_console_view(
+        self,
+        state: SharedProjectState,
+        *,
+        task_center_summary: dict[str, int],
+        run_audit: BoardRunAuditView,
+        human_control: BoardHumanControlView,
+    ) -> BoardOperationConsoleView:
+        """Build Board-facing commands and API actions for human operators."""
+        project_id = state.project.id
+        project_root = state.project.project_root or "."
+        actions: list[BoardOperationActionView] = [
+            BoardOperationActionView(
+                id="maintenance-status",
+                label="Check maintenance status",
+                category="maintenance",
+                command=self._task_center_command(
+                    "maintenance-status",
+                    project_root=project_root,
+                    extra=[
+                        "--latest",
+                        ".conductor/maintenance/latest.json",
+                        "--fail-on-findings",
+                    ],
+                ),
+                severity="info",
+            ),
+            BoardOperationActionView(
+                id="maintenance",
+                label="Run workspace maintenance",
+                category="maintenance",
+                command=self._task_center_command(
+                    "maintenance",
+                    project_root=project_root,
+                    extra=[
+                        "--output",
+                        ".conductor/maintenance/report.json",
+                        "--latest-output",
+                        ".conductor/maintenance/latest.json",
+                    ],
+                ),
+                severity="warning" if self._operation_attention_count(task_center_summary, run_audit, human_control) else "info",
+            ),
+            BoardOperationActionView(
+                id="task-summary",
+                label="Refresh task summary",
+                category="task_center",
+                api_method="GET",
+                api_path=f"/api/projects/{project_id}/tasks/summary",
+                command=self._task_center_command("summary", project_root=project_root, project_id=project_id),
+                severity="info",
+            ),
+            BoardOperationActionView(
+                id="claim-next",
+                label="Claim next task",
+                category="task_center",
+                api_method="POST",
+                api_path=f"/api/projects/{project_id}/tasks/claim-next",
+                command=self._task_center_command(
+                    "claim-next",
+                    project_root=project_root,
+                    project_id=project_id,
+                    extra=["--agent-id", "<agent-id>", "--claim-reason", "board operation console"],
+                ),
+                enabled=task_center_summary.get("claimable", 0) > 0,
+                reason=(
+                    f"{task_center_summary.get('claimable', 0)} claimable task(s)"
+                    if task_center_summary.get("claimable", 0) > 0
+                    else "No claimable task assignments"
+                ),
+                severity="info",
+            ),
+            BoardOperationActionView(
+                id="task-sweep",
+                label="Release stale or expired claims",
+                category="task_center",
+                api_method="POST",
+                api_path=f"/api/projects/{project_id}/tasks/sweep",
+                command=self._task_center_command("sweep", project_root=project_root, project_id=project_id),
+                enabled=(
+                    task_center_summary.get("stale_claimed", 0) + task_center_summary.get("lease_expired", 0)
+                )
+                > 0,
+                reason=(
+                    f"{task_center_summary.get('stale_claimed', 0)} stale, "
+                    f"{task_center_summary.get('lease_expired', 0)} expired lease(s)"
+                ),
+                severity=(
+                    "warning"
+                    if task_center_summary.get("stale_claimed", 0) + task_center_summary.get("lease_expired", 0) > 0
+                    else "info"
+                ),
+            ),
+            BoardOperationActionView(
+                id="human-control-status",
+                label="Inspect human-control state",
+                category="human_control",
+                api_method="GET",
+                api_path=f"/api/projects/{project_id}/human-control",
+                command=self._human_control_command("status", project_root=project_root, project_id=project_id),
+                severity="warning" if human_control.active else "info",
+            ),
+        ]
+        actions.extend(self._human_control_operation_actions(state, human_control))
+        attention_count = self._operation_attention_count(task_center_summary, run_audit, human_control)
+        guidance = (
+            "Operator attention is required. Review failed work, blockers, task leases, and human-control holds."
+            if attention_count
+            else "No immediate operator action required. Use maintenance-status for scheduled health checks."
+        )
+        if human_control.operator_guidance:
+            guidance = f"{guidance} Human control: {human_control.operator_guidance}"
+        return BoardOperationConsoleView(
+            available=True,
+            attention_count=attention_count,
+            guidance=guidance,
+            actions=actions,
+        )
+
+    def _human_control_operation_actions(
+        self,
+        state: SharedProjectState,
+        human_control: BoardHumanControlView,
+    ) -> list[BoardOperationActionView]:
+        project_id = state.project.id
+        project_root = state.project.project_root or "."
+        commands_by_action = dict(zip(human_control.available_actions, human_control.operator_commands))
+        labels = {
+            "pause": "Pause automation",
+            "resume": "Resume automation",
+            "request_approval": "Request approval",
+            "approve": "Approve gate",
+            "reject": "Reject gate",
+            "override": "Override gate",
+        }
+        severity_by_action = {
+            "pause": "warning",
+            "resume": "info",
+            "request_approval": "warning",
+            "approve": "info",
+            "reject": "danger",
+            "override": "danger",
+        }
+        actions: list[BoardOperationActionView] = []
+        for action in human_control.available_actions:
+            api_action = action.replace("_", "-")
+            actions.append(
+                BoardOperationActionView(
+                    id=f"human-control-{api_action}",
+                    label=labels.get(action, action),
+                    category="human_control",
+                    api_method="POST",
+                    api_path=f"/api/projects/{project_id}/human-control/{api_action}",
+                    command=commands_by_action.get(
+                        action,
+                        self._human_control_command(api_action, project_root=project_root, project_id=project_id),
+                    ),
+                    enabled=True,
+                    reason=human_control.hold_reason or human_control.operator_guidance,
+                    severity=severity_by_action.get(action, "info"),
+                )
+            )
+        return actions
+
+    def _operation_attention_count(
+        self,
+        task_center_summary: dict[str, int],
+        run_audit: BoardRunAuditView,
+        human_control: BoardHumanControlView,
+    ) -> int:
+        """Return a compact count of actionable operator concerns."""
+        return (
+            len(run_audit.failed_workitem_ids)
+            + run_audit.delivery_readiness_blocking_count
+            + task_center_summary.get("stale_claimed", 0)
+            + task_center_summary.get("lease_expired", 0)
+            + (1 if human_control.active else 0)
+        )
+
+    def _task_center_command(
+        self,
+        command: str,
+        *,
+        project_root: str,
+        project_id: str = "",
+        extra: list[str] | None = None,
+    ) -> str:
+        parts = ["python", "-m", "app.task_center", command, "--project-root", self._quote_cli_arg(project_root)]
+        if project_id:
+            parts.extend(["--project-id", project_id])
+        parts.extend(self._quote_command_args(extra or []))
+        return " ".join(parts)
+
+    def _human_control_command(self, command: str, *, project_root: str, project_id: str) -> str:
+        parts = ["python", "-m", "app.human_control", command, "--project-root", self._quote_cli_arg(project_root)]
+        if project_id:
+            parts.extend(["--project-id", project_id])
+        return " ".join(parts)
+
+    def _quote_command_args(self, values: list[str]) -> list[str]:
+        quoted: list[str] = []
+        for value in values:
+            if value.startswith("--") or value.startswith("<") or value.isdigit():
+                quoted.append(value)
+            else:
+                quoted.append(self._quote_cli_arg(value))
+        return quoted
+
+    def _quote_cli_arg(self, value: object) -> str:
+        return '"' + str(value).replace('"', '\\"') + '"'
 
     def _build_run_audit_view(self, state: SharedProjectState) -> BoardRunAuditView:
         """Build a compact run risk summary from current state."""
