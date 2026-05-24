@@ -198,6 +198,39 @@ def test_tl_agent_adds_integration_contract_guard_for_parallel_frontend_backend_
     assert any("integration contract guard" in reason for reason in plan.reasons)
 
 
+def test_tl_agent_adds_feature_slice_delivery_guard() -> None:
+    planner = AgentTeamPlanner()
+    tl_agent = TechnicalLeadAgent()
+    state = SharedProjectState(
+        project=Project(id="project-tl-feature-slice", goal="Build multi-feature todo app.", current_stage="development"),
+        project_status=ProjectStatus.IN_PROGRESS,
+        current_stage="development",
+        workitems=[
+            WorkItem(
+                id="workitem-api",
+                description="Implement API according to feature slices.",
+                stage="development",
+                kind="api_implementation",
+                acceptance_criteria=[
+                    "Implement feature slices in milestone order: create_item -> list_items -> filter_items -> delete_item -> stats"
+                ],
+            )
+        ],
+    )
+
+    plan = tl_agent.plan_agent_team(state, planner, trigger="stage_start")
+
+    assert plan.decision_source == "tl_agent"
+    assert "feature_slice_items=1" in plan.decision_summary
+    assert plan.complexity_level in {"standard", "complex"}
+    guard = next(spec for spec in plan.agent_specs if spec.instance_id == "feature_slice_delivery_guard")
+    assert guard.role == "solution_designer"
+    assert guard.collaboration_mode == "sequential_review"
+    assert guard.workitem_kinds == ["api_implementation"]
+    assert "feature slice order" in guard.scope
+    assert any("milestone feature-slice constraints in development" in reason for reason in plan.reasons)
+
+
 def test_tl_agent_adds_runtime_failure_triage_agent() -> None:
     planner = AgentTeamPlanner()
     tl_agent = TechnicalLeadAgent()

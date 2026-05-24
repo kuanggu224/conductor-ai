@@ -554,6 +554,7 @@ TL Agent 会在阶段开始、运行时失败、反馈返工等节点生成 `age
 - 开发范围较宽时触发 `implementation_coordination_guard`，由 solution designer 复核 write scope、依赖顺序、交接边界和归并风险。
 - 缺失 testing checklist evidence 的返工触发 `rework_acceptance_guard`。
 - 带 required evidence 的 testing checklist 触发 `evidence_trace_guard`，专门审计测试证据是否逐条覆盖。
+- 带 milestone feature-slice 约束的设计、开发、测试任务会触发 `feature_slice_scope_guard`、`feature_slice_delivery_guard` 或 `feature_slice_evidence_guard`，让 TL 对 feature slice 顺序、依赖、交付边界和验证证据做显式团队决策。
 - 前后端并行实现触发 `integration_contract_guard`，由 solution designer 复核 API/UI/data 契约和交接边界。
 
 并行开发席位必须声明 `write_scope`。Run Manifest Verifier 会拒绝同一个 `agent_team_plan` 内重叠的 `parallel_development` 写入范围，作为外部 CLI Agent 并行领取任务前后的冲突审计边界。

@@ -60,6 +60,7 @@ class TechnicalLeadAgent:
         history_risks = self._history_risk_roles(state)
         rework_evidence_items = self._rework_evidence_items(stage_workitems)
         testing_checklist_items = self._testing_checklist_items(stage, stage_workitems)
+        feature_slice_items = self._feature_slice_items(stage_workitems)
         integration_risk = self._integration_risk_detected(stage, candidate.agent_specs, stage_workitems)
         coordination_risk = self._coordination_risk_detected(stage, stage_workitems)
         specs = list(candidate.agent_specs)
@@ -72,6 +73,7 @@ class TechnicalLeadAgent:
             f"history_risks={len(history_risks)}",
             f"rework_evidence_items={len(rework_evidence_items)}",
             f"testing_checklist_items={len(testing_checklist_items)}",
+            f"feature_slice_items={len(feature_slice_items)}",
             f"integration_risk={int(integration_risk)}",
             f"coordination_risk={int(coordination_risk)}",
         ]
@@ -90,6 +92,7 @@ class TechnicalLeadAgent:
         specs.extend(self._history_risk_specs(planner, stage, history_risks))
         specs.extend(self._rework_evidence_specs(planner, stage, rework_evidence_items))
         specs.extend(self._testing_checklist_specs(planner, stage, testing_checklist_items))
+        specs.extend(self._feature_slice_specs(planner, stage, feature_slice_items))
         specs.extend(self._integration_risk_specs(planner, stage, stage_workitems, integration_risk))
         specs.extend(self._coordination_risk_specs(planner, stage, stage_workitems, coordination_risk))
         specs = self._dedupe_specs(specs)
@@ -102,6 +105,7 @@ class TechnicalLeadAgent:
                 specs,
                 rework_evidence_items,
                 testing_checklist_items,
+                feature_slice_items,
                 coordination_risk,
             ),
             reasons=self._dedupe(
@@ -111,6 +115,7 @@ class TechnicalLeadAgent:
                     *self._history_risk_reasons(history_risks),
                     *self._rework_evidence_reasons(rework_evidence_items),
                     *self._testing_checklist_reasons(testing_checklist_items),
+                    *self._feature_slice_reasons(stage, feature_slice_items),
                     *self._integration_risk_reasons(integration_risk),
                     *self._coordination_risk_reasons(coordination_risk),
                 ]
@@ -283,6 +288,71 @@ class TechnicalLeadAgent:
             )
         ]
 
+    def _feature_slice_items(self, workitems: list) -> list:
+        """Return WorkItems that carry milestone-based feature-slice planning or execution constraints."""
+        return [
+            item
+            for item in workitems
+            if item.kind == "feature_slice_plan"
+            or any(
+                criterion.startswith("Implement feature slices in milestone order:")
+                or criterion.startswith("Verify feature slice ")
+                or criterion.startswith("Feature slice ")
+                for criterion in item.acceptance_criteria
+            )
+        ]
+
+    def _feature_slice_specs(
+        self,
+        planner: AgentTeamPlanner,
+        stage: str,
+        feature_slice_items: list,
+    ) -> list[DynamicAgentSpec]:
+        """Add a guard when feature-slice milestones need explicit TL coordination."""
+        if not feature_slice_items:
+            return []
+        kinds = list(dict.fromkeys(item.kind for item in feature_slice_items))
+        if stage == "design":
+            return [
+                planner.build_spec(
+                    role="solution_designer",
+                    instance_id="feature_slice_scope_guard",
+                    stage=stage,
+                    mission="Review milestone feature slices for dependency order, scope boundaries, and validation ownership.",
+                    reason="TL detected a feature-slice plan that needs solution-level scope and milestone review.",
+                    scope="feature slice boundaries, milestone order, dependencies, validation ownership",
+                    mode="sequential_review",
+                    workitem_kinds=kinds,
+                )
+            ]
+        if stage == "development":
+            return [
+                planner.build_spec(
+                    role="solution_designer",
+                    instance_id="feature_slice_delivery_guard",
+                    stage=stage,
+                    mission="Review implementation work against milestone feature-slice order before delivery diverges.",
+                    reason="TL detected implementation work carrying feature-slice milestone constraints.",
+                    scope="feature slice order, implementation boundaries, integration handoff, validation readiness",
+                    mode="sequential_review",
+                    workitem_kinds=kinds,
+                )
+            ]
+        if stage == "testing":
+            return [
+                planner.build_spec(
+                    role="tester",
+                    instance_id="feature_slice_evidence_guard",
+                    stage=stage,
+                    mission="Audit that every feature slice has concrete validation evidence before release.",
+                    reason="TL detected testing work carrying feature-slice validation constraints.",
+                    scope="feature slice validation evidence, milestone coverage, release readiness",
+                    mode="sequential_review",
+                    workitem_kinds=kinds,
+                )
+            ]
+        return []
+
     def _integration_risk_detected(
         self,
         stage: str,
@@ -388,11 +458,12 @@ class TechnicalLeadAgent:
         specs: list[DynamicAgentSpec],
         rework_evidence_items: list | None = None,
         testing_checklist_items: list | None = None,
+        feature_slice_items: list | None = None,
         coordination_risk: bool = False,
     ) -> str:
         if failed or len(retried) >= 2 or len(specs) >= 5:
             return "complex"
-        if rework_evidence_items or testing_checklist_items or coordination_risk or retried or len(specs) >= 3:
+        if rework_evidence_items or testing_checklist_items or feature_slice_items or coordination_risk or retried or len(specs) >= 3:
             return "standard"
         return candidate_level
 
@@ -421,6 +492,12 @@ class TechnicalLeadAgent:
             return []
         ids = ", ".join(item.id for item in checklist_items)
         return [f"TL detected testing checklist evidence contracts requiring trace audit: {ids}."]
+
+    def _feature_slice_reasons(self, stage: str, feature_slice_items: list) -> list[str]:
+        if not feature_slice_items:
+            return []
+        ids = ", ".join(item.id for item in feature_slice_items)
+        return [f"TL detected milestone feature-slice constraints in {stage}: {ids}."]
 
     def _integration_risk_reasons(self, integration_risk: bool) -> list[str]:
         if not integration_risk:
