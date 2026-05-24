@@ -562,6 +562,17 @@ python -m app.run_project `
 
 该入口会在正式推进项目前释放过期 lease 和 stale claim，并把维护后的审计摘要写入输出字段 `pre_run_task_center_maintenance`。如果启用 `--maintenance-fail-on-findings`，维护审计发现错误或警告时会在推进项目前返回退出码 `3`，避免带着坏状态继续运行。`--maintenance-report-output` 会把同一份维护摘要落成 JSON 文件，便于定时任务或外部调度器留存证据；`--maintenance-latest-output` 会写出轻量 latest 指针，便于外部工具读取最近一次恢复前维护状态。恢复前维护 report 和 latest 指针也会包含 `attention_project_ids`、`finding_code_counts`、`recommendations`、pending retest scope、active human-control holds、`operator_guidance` 与 `operator_commands`，提供需要处理的项目、问题类型、修复建议、人工接管状态，以及可复制的 resume-with-maintenance、maintenance-status 和 human-control status-all 命令。
 
+恢复前只生成接手计划，不推进项目：
+
+```powershell
+python -m app.run_project `
+  --project-root C:\path\to\project `
+  --resume-project-id <project-id> `
+  --resume-plan-only
+```
+
+`--resume-plan-only` 用于长周期项目、定时调度器和新对话接手。它不会执行 Agent，也不会写新的 manifest；输出包含 `resume_cursor`、`resume_status`、Task Center audit、可选的 `pre_run_task_center_maintenance` 和下一步 operator commands。`resume_status=ready` 表示可以执行真正的 resume；`needs_maintenance`、`human_hold`、`blocked` 或 `inspect_running` 表示应先处理维护发现、人工 hold、阻塞项或仍在运行的任务。
+
 只做运行前检查：
 
 ```powershell

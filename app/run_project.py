@@ -23,6 +23,7 @@ from conductor.io.requirements import load_requirement_text
 from conductor.preflight_gate import write_preflight_gate_payload
 from conductor.replay_trace import build_manifest_replay_trace
 from conductor.replay_verifier import verify_manifest
+from conductor.resume import build_resume_cursor
 from conductor.state.file_store import FileStateStore
 from conductor.task_center.service import DEFAULT_STALE_CLAIMED_AFTER_SECONDS, TaskCenterService
 
@@ -111,6 +112,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--resume-project-id",
         help="Resume an existing project from --project-root/.conductor/state instead of creating a new project.",
+    )
+    parser.add_argument(
+        "--resume-plan-only",
+        action="store_true",
+        help="Inspect resume cursor, maintenance state, and operator commands without advancing the project.",
     )
     parser.add_argument(
         "--release-stale-tasks",
@@ -247,7 +253,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(gate_payload, ensure_ascii=False, indent=2))
         return 0 if gate_payload["ok"] is True else 2
 
-    if not args.skip_preflight_gate:
+    if not args.skip_preflight_gate and not args.resume_plan_only:
         gate_payload = _run_preflight_gate(
             cli_config=cli_config,
             llm_runtime_config=llm_runtime_config,
@@ -279,6 +285,19 @@ def main(argv: list[str] | None = None) -> int:
         require_real_code_outputs=run_profile.require_real_code_outputs,
         llm_harness_backend=args.llm_harness,
     )
+    if args.resume_plan_only and not args.resume_project_id:
+        print(
+            json.dumps(
+                {
+                    "ok": False,
+                    "error": "resume_plan_requires_resume_project_id",
+                    "project_root": str(project_root),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 2
     if args.resume_project_id:
         state = engine.get_project(args.resume_project_id)
     else:
@@ -326,7 +345,7 @@ def main(argv: list[str] | None = None) -> int:
             pre_run_task_center_maintenance,
         )
         _write_pre_run_maintenance_report_if_requested(args, project_root, pre_run_task_center_maintenance)
-        if args.maintenance_fail_on_findings and maintenance_findings:
+        if args.maintenance_fail_on_findings and maintenance_findings and not args.resume_plan_only:
             payload = _pre_run_maintenance_failure_payload(
                 args=args,
                 state=state,
@@ -356,6 +375,19 @@ def main(argv: list[str] | None = None) -> int:
         )
         state = stale_release.state
         released_stale_task_count = len(stale_release.assignments)
+    if args.resume_plan_only:
+        payload = _resume_plan_payload(
+            args=args,
+            state=state,
+            project_root=project_root,
+            run_profile=run_profile.profile.value,
+            released_stale_task_count=released_stale_task_count,
+            released_expired_lease_task_count=released_expired_lease_task_count,
+            pre_run_task_center_maintenance=pre_run_task_center_maintenance,
+            task_center_service=task_center_service,
+        )
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0 if payload["resume_status"] in {"ready", "complete"} else 3
     state = engine.run_project(state.project.id, max_steps=args.max_steps)
     report_path = engine.write_project_report(state.project.id)
     run_options = {
@@ -421,6 +453,106 @@ def main(argv: list[str] | None = None) -> int:
     if _audit_bundle_exit_failed(audit_bundle_verification_payload, fail_on_warnings=args.audit_fail_on_warnings):
         return 2
     return 0 if state.project_status.value == "completed" else 1
+
+
+def _resume_plan_payload(
+    *,
+    args,
+    state,
+    project_root: Path,
+    run_profile: str,
+    released_stale_task_count: int,
+    released_expired_lease_task_count: int,
+    pre_run_task_center_maintenance: dict[str, object],
+    task_center_service: TaskCenterService,
+) -> dict[str, object]:
+    """Build a no-advance resume plan for long-running project handoff."""
+    resume_cursor = build_resume_cursor(state)
+    audit_findings = task_center_service.audit(state, stale_after_seconds=args.stale_after_seconds)
+    task_center_audit = _task_center_audit_payload(audit_findings)
+    resume_status = _resume_plan_status(resume_cursor, task_center_audit)
+    return {
+        "ok": resume_status in {"ready", "complete"},
+        "project_id": state.project.id,
+        "status": state.project_status.value,
+        "current_stage": state.current_stage,
+        "project_root": state.project.project_root,
+        "run_profile": run_profile,
+        "resume_plan_only": True,
+        "resume_status": resume_status,
+        "resume_cursor": resume_cursor,
+        "released_stale_task_count": released_stale_task_count,
+        "released_expired_lease_task_count": released_expired_lease_task_count,
+        "pre_run_task_center_maintenance": pre_run_task_center_maintenance,
+        "task_center_audit": task_center_audit,
+        "operator_guidance": _resume_plan_operator_guidance(resume_status),
+        "operator_commands": _resume_plan_operator_commands(
+            project_root=project_root,
+            project_id=state.project.id,
+            stale_after_seconds=args.stale_after_seconds,
+            report_path=args.maintenance_report_output or ".conductor/maintenance/pre-run.json",
+            latest_path=args.maintenance_latest_output or ".conductor/maintenance/latest-pre-run.json",
+            fail_on_findings=bool(args.maintenance_fail_on_findings),
+        ),
+    }
+
+
+def _resume_plan_status(resume_cursor: dict[str, object], task_center_audit: dict[str, object]) -> str:
+    """Return a scheduler-friendly resume status."""
+    if resume_cursor.get("next_action") == "complete":
+        return "complete"
+    if task_center_audit.get("finding_count", 0):
+        return "needs_maintenance"
+    if resume_cursor.get("active_human_control_action"):
+        return "human_hold"
+    if resume_cursor.get("blocked") or resume_cursor.get("next_action") == "blocked":
+        return "blocked"
+    if resume_cursor.get("next_action") == "inspect_running":
+        return "inspect_running"
+    return "ready"
+
+
+def _resume_plan_operator_guidance(resume_status: str) -> str:
+    return {
+        "ready": "Resume is ready. Run the resume command when the operator wants automation to continue.",
+        "complete": "Project is already terminal-complete. Use replay or audit bundle commands for review.",
+        "needs_maintenance": "Run maintenance with fail-on-findings or inspect the Task Center audit before resuming.",
+        "human_hold": "Resolve the active human-control hold before resuming automation.",
+        "blocked": "Resolve blockers or terminal failed WorkItems before resuming automation.",
+        "inspect_running": "Inspect running WorkItems before resuming; release stale claims only when the worker is gone.",
+    }.get(resume_status, "Inspect the resume cursor before continuing.")
+
+
+def _resume_plan_operator_commands(
+    *,
+    project_root: Path,
+    project_id: str,
+    stale_after_seconds: int,
+    report_path: str,
+    latest_path: str,
+    fail_on_findings: bool,
+) -> list[str]:
+    resume_commands = _pre_run_maintenance_operator_commands(
+        project_root=project_root,
+        project_id=project_id,
+        stale_after_seconds=stale_after_seconds,
+        report_path=report_path,
+        latest_path=latest_path,
+        fail_on_findings=fail_on_findings,
+    )
+    audit_bundle = [
+        "python",
+        "-m",
+        "app.run_project",
+        "--project-root",
+        _quote_cli_arg(str(project_root)),
+        "--resume-project-id",
+        _quote_cli_arg(project_id),
+        "--max-steps",
+        "0",
+        "--write-audit-bundle",
+    ]
+    return [resume_commands[0], " ".join(audit_bundle), *resume_commands[1:]]
 
 
 def _write_manifest_verification_if_requested(

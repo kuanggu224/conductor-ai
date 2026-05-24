@@ -32,6 +32,13 @@ def test_run_project_parser_accepts_project_name() -> None:
     assert args.project_name == "case-1"
 
 
+def test_run_project_parser_accepts_resume_plan_only() -> None:
+    args = build_parser().parse_args(["--project-root", "demo", "--resume-project-id", "project-1", "--resume-plan-only"])
+
+    assert args.resume_project_id == "project-1"
+    assert args.resume_plan_only is True
+
+
 def test_mock_run_profile_disables_configured_runner_llm(monkeypatch) -> None:
     args = build_parser().parse_args(["--requirement", "demo", "--project-root", "demo"])
     runtime_config = LLMRuntimeConfig(
@@ -869,6 +876,105 @@ def test_run_project_can_run_task_center_maintenance_before_resume(tmp_path, cap
     assert manifest_payload["pre_run_maintenance"]["audit"]["finding_count"] == 0
     assert reloaded.task_assignments[0].status == TaskAssignmentStatus.QUEUED
     assert reloaded.task_assignments[0].claim_reason == "resume maintenance lease cleanup"
+
+
+def test_run_project_resume_plan_only_reports_ready_cursor(tmp_path, capsys) -> None:
+    exit_code = run_project.main(
+        [
+            "--project-root",
+            str(tmp_path),
+            "--requirement",
+            "Build a small reading list",
+            "--max-steps",
+            "0",
+            "--skip-preflight-gate",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+
+    plan_exit = run_project.main(
+        [
+            "--project-root",
+            str(tmp_path),
+            "--resume-project-id",
+            payload["project_id"],
+            "--resume-plan-only",
+        ]
+    )
+    plan = json.loads(capsys.readouterr().out)
+
+    assert plan_exit == 0
+    assert plan["ok"] is True
+    assert plan["resume_plan_only"] is True
+    assert plan["resume_status"] == "ready"
+    assert plan["resume_cursor"]["project_id"] == payload["project_id"]
+    assert plan["resume_cursor"]["next_action"] in {"execute_pending", "advance_or_wait", "retry_failed"}
+    assert plan["task_center_audit"]["finding_count"] == 0
+    assert plan["pre_run_task_center_maintenance"] == {}
+    assert plan["operator_guidance"].startswith("Resume is ready")
+    assert plan["operator_commands"][0].startswith("python -m app.run_project")
+    assert f'--resume-project-id "{payload["project_id"]}"' in plan["operator_commands"][0]
+    assert plan["operator_commands"][1].startswith("python -m app.run_project")
+    assert "--write-audit-bundle" in plan["operator_commands"][1]
+    assert "manifest_path" not in plan
+    assert "workitems" not in plan
+
+
+def test_run_project_resume_plan_only_reports_human_hold(tmp_path, capsys) -> None:
+    exit_code = run_project.main(
+        [
+            "--project-root",
+            str(tmp_path),
+            "--requirement",
+            "Build a small reading list",
+            "--max-steps",
+            "0",
+            "--skip-preflight-gate",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+
+    store = FileStateStore(tmp_path / ".conductor" / "state")
+    HumanControlService(store).pause(
+        payload["project_id"],
+        actor="operator",
+        reason="handoff review",
+    )
+
+    plan_exit = run_project.main(
+        [
+            "--project-root",
+            str(tmp_path),
+            "--resume-project-id",
+            payload["project_id"],
+            "--resume-plan-only",
+        ]
+    )
+    plan = json.loads(capsys.readouterr().out)
+
+    assert plan_exit == 3
+    assert plan["ok"] is False
+    assert plan["resume_status"] == "human_hold"
+    assert plan["resume_cursor"]["next_action"] == "human_hold"
+    assert plan["resume_cursor"]["active_human_control_action"]["action"] == "pause"
+    assert plan["operator_guidance"].startswith("Resolve the active human-control hold")
+
+
+def test_run_project_resume_plan_only_requires_resume_project_id(tmp_path, capsys) -> None:
+    exit_code = run_project.main(
+        [
+            "--project-root",
+            str(tmp_path),
+            "--resume-plan-only",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 2
+    assert payload["ok"] is False
+    assert payload["error"] == "resume_plan_requires_resume_project_id"
 
 
 def test_run_project_maintenance_can_stop_before_resume_on_audit_findings(tmp_path, capsys) -> None:

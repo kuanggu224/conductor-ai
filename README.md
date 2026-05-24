@@ -74,6 +74,7 @@ python -m app.task_center release <assignment-id> --project-root <project-root> 
 python -m app.task_center release-stale --project-root <project-root> --stale-after-seconds 3600
 python -m app.task_center maintenance --project-root <project-root> --stale-after-seconds 3600
 python -m app.task_center watchdog --project-root <project-root> --interval-seconds 60
+python -m app.run_project --project-root <project-root> --resume-project-id <project-id> --resume-plan-only
 ```
 
 Task Center context 会暴露冻结需求、冻结设计、delivery contract、testing checklist、rework feedback、pending retest scope、handoff safety，以及动态 Agent/write scope 风险。返工任务会在 `rework_context.testing_feedback` 中携带失败测试的验证命令/退出码，并在 `rework_context.pending_retest_scope` 中给出修复后应优先复跑的最小测试范围。`handoff_safety.baseline_handoff` 会标记开发任务是否已经把需求/设计基线写入 acceptance criteria，方便外部 Agent 在明确边界内工作。
