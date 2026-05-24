@@ -4,8 +4,8 @@ Last updated: 2026-05-24
 
 ## Stable Checkpoint
 
-- Latest verified code checkpoint: current `dev` TL feature-slice guard update.
-- Current full test result: `python -m pytest -q --basetemp C:\tmp\conductor_pytest_tl_slice_full` -> `718 passed in 150.18s`.
+- Latest verified code checkpoint: current `dev` fullstack integration coverage update.
+- Current full test result: `python -m pytest -q --basetemp C:\tmp\conductor_pytest_evidence_slice_full` -> `719 passed in 148.90s`.
 - Current focus: backend orchestration, auditability, logs, manifest/replay, and task-center reliability.
 - Frontend Board exists, but visual redesign is intentionally not the current priority.
 
@@ -27,6 +27,7 @@ Last updated: 2026-05-24
 - `fullstack_web` run profile now generates a FastAPI backend, static frontend, and pytest + Playwright full-stack contract tests through `fullstack_web_delivery`, preserving browser form, API fetch, filter, delete, and stats endpoint evidence for frontend/API integration validation.
 - Planner now infers milestone-based `feature_slice_plan` WorkItems for multi-feature requirements and propagates feature-slice execution/validation criteria into development and testing WorkItems.
 - TL Agent now detects milestone feature-slice constraints and adds design/development/testing guard seats (`feature_slice_scope_guard`, `feature_slice_delivery_guard`, `feature_slice_evidence_guard`) so feature-slice plans affect team decisions.
+- Requirement coverage now has an explicit `fullstack_integration` rule for browser frontend plus backend/API requirements, requiring full-stack frontend/API integration evidence instead of accepting API-only validation.
 - API validation failure feedback now promotes concrete endpoint/status/response evidence requirements into development rework prompts and acceptance criteria.
 - Testing-stage feedback rework has a project-level cap, preventing infinite development/testing loops.
 - Testing-stage feedback rework now persists explicit inputs on the rework WorkItem and Task Center assignment: failed test artifacts, original implementation artifacts, frozen requirement, and design artifacts.

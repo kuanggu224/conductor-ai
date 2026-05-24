@@ -176,6 +176,25 @@ COVERAGE_RULES: tuple[CoverageRule, ...] = (
         evidence_terms=("api validation exercised endpoint behavior",),
     ),
     CoverageRule(
+        rule_id="fullstack_integration",
+        label="frontend/API integration",
+        requirement_terms=(
+            "fullstack",
+            "full-stack",
+            "frontend",
+            "browser",
+            "web app",
+            "page",
+            "form",
+            "backend",
+            "api",
+        ),
+        evidence_terms=(
+            "fullstack frontend api integration verified",
+            "browser fetch /api/items",
+        ),
+    ),
+    CoverageRule(
         rule_id="db_persistence",
         label="database persistence",
         requirement_terms=(
@@ -260,6 +279,8 @@ def _rule_is_required(rule: CoverageRule, normalized_requirement: str) -> bool:
         return _has_export_interaction_requirement(normalized_requirement)
     if rule.rule_id == "api_behavior":
         return _has_api_behavior_requirement(normalized_requirement)
+    if rule.rule_id == "fullstack_integration":
+        return _has_fullstack_integration_requirement(normalized_requirement)
     if rule.rule_id == "db_persistence":
         return _has_database_persistence_requirement(normalized_requirement)
     if rule.rule_id != "filter":
@@ -336,6 +357,26 @@ def _has_database_persistence_requirement(normalized_requirement: str) -> bool:
             continue
         return True
     return False
+
+
+def _has_fullstack_integration_requirement(normalized_requirement: str) -> bool:
+    """Return whether the requirement asks for browser UI integrated with backend/API behavior."""
+    if not _has_api_behavior_requirement(normalized_requirement) or not _has_ui_context(normalized_requirement):
+        return False
+    integration_terms = (
+        "fullstack",
+        "full-stack",
+        "frontend calls",
+        "calls the backend",
+        "fetch",
+        "api-backed",
+        "integrated with",
+        "integration",
+        "\u524d\u540e\u7aef",
+        "\u8054\u8c03",
+        "\u8c03\u7528\u540e\u7aef",
+    )
+    return any(_contains_term(line, term) for line in _normalized_lines(normalized_requirement) for term in integration_terms)
 
 
 def _line_negates_database_scope(line: str) -> bool:

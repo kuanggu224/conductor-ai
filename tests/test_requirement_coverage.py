@@ -128,6 +128,37 @@ def test_requirement_coverage_infers_api_behavior_interaction() -> None:
     assert covered.traceability[0].evidence_terms == ["api validation exercised endpoint behavior"]
 
 
+def test_requirement_coverage_requires_fullstack_frontend_api_integration_evidence() -> None:
+    requirement = (
+        "Build a fullstack web app with a browser frontend that calls the backend REST API. "
+        "The page creates items through a form and shows API-backed stats."
+    )
+
+    missing = evaluate_requirement_coverage(
+        requirement,
+        "POST /api/items -> status_code=201 response payload={'id': 1}",
+    )
+    covered = evaluate_requirement_coverage(
+        requirement,
+        "\n".join(
+            [
+                "POST /api/items -> status_code=201 response payload={'id': 1}",
+                "Fullstack frontend API integration verified -> browser fetch /api/items and /api/items/stats",
+            ]
+        ),
+    )
+
+    assert [rule.rule_id for rule in missing.required_rules] == [
+        "add_item",
+        "api_behavior",
+        "fullstack_integration",
+    ]
+    assert [rule.rule_id for rule in missing.missing_rules] == ["add_item", "fullstack_integration"]
+    assert covered.passed is False
+    assert [rule.rule_id for rule in covered.missing_rules] == ["add_item"]
+    assert "fullstack frontend api integration verified" in covered.traceability[-1].evidence_terms
+
+
 def test_requirement_coverage_treats_api_only_non_goals_as_excluded_ui_scope() -> None:
     requirement = "\n".join(
         [

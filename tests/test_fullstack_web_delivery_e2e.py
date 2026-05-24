@@ -83,3 +83,4 @@ def test_fullstack_web_run_profile_delivers_ready_manifest(tmp_path, capsys) -> 
     assert all(result["passed"] is True for result in coverage_results)
     required_rules = {rule for result in coverage_results for rule in result["required_rules"]}
     assert "api_behavior" in required_rules
+    assert "fullstack_integration" in required_rules
