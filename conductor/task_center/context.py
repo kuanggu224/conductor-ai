@@ -13,7 +13,7 @@ from conductor.testing.failure_feedback import build_testing_feedback_for_workit
 
 
 _REQUIREMENT_BASELINE_KINDS = {"frozen_requirement_spec", "requirement_spec"}
-_DESIGN_BASELINE_KINDS = {"frozen_design_spec", "design_overview", "ui_design", "api_design", "test_design"}
+_DESIGN_BASELINE_KINDS = {"frozen_design_spec", "design_overview", "feature_slice_plan", "ui_design", "api_design", "test_design"}
 _REQUIREMENT_BASELINE_TERMS = (
     "frozen requirement",
     "requirement baseline",

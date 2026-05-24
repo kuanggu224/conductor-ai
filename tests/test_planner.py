@@ -165,3 +165,31 @@ def test_planner_keeps_api_requirement_ui_non_goal_out_of_workitems() -> None:
     assert [item.kind for item in development_items] == ["api_implementation"]
     assert "api_validation" in [item.kind for item in testing_items]
     assert "ui_validation" not in [item.kind for item in testing_items]
+
+
+def test_planner_adds_feature_slice_plan_for_multi_feature_fullstack_requirement() -> None:
+    planner = Planner()
+    requirement = (
+        "Build a fullstack web app for todo items with a browser frontend and backend REST API. "
+        "Users can create items with a form, list items, filter items, delete items, and view stats."
+    )
+
+    design_items = planner.plan_stage_workitems(Stage("design", "", ""), requirement)
+    development_items = planner.plan_stage_workitems(Stage("development", "", ""), requirement)
+    testing_items = planner.plan_stage_workitems(Stage("testing", "", ""), requirement)
+
+    feature_plan = next(item for item in design_items if item.kind == "feature_slice_plan")
+    assert "create_item" in feature_plan.description
+    assert "stats" in feature_plan.description
+    assert any("milestone=M1 Core input" in item for item in feature_plan.acceptance_criteria)
+    assert any("milestone=M3 Evidence" in item for item in feature_plan.acceptance_criteria)
+
+    api_implementation = next(item for item in development_items if item.kind == "api_implementation")
+    assert any(
+        criterion.startswith("Implement feature slices in milestone order: create_item -> list_items")
+        for criterion in api_implementation.acceptance_criteria
+    )
+
+    acceptance_check = next(item for item in testing_items if item.kind == "acceptance_check")
+    assert "Verify feature slice create_item: create request and visible created record" in acceptance_check.acceptance_criteria
+    assert "Verify feature slice stats: stats payload or report evidence" in acceptance_check.acceptance_criteria

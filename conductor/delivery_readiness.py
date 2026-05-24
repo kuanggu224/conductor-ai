@@ -58,7 +58,7 @@ class DeliveryReadinessResult:
 
 
 CODE_WORKITEM_KINDS = {"api_implementation", "data_implementation", "generic_implementation", "ui_implementation"}
-DESIGN_ARTIFACT_KINDS = {"design_overview", "frozen_design_spec", "ui_design", "api_design", "test_design"}
+DESIGN_ARTIFACT_KINDS = {"design_overview", "frozen_design_spec", "feature_slice_plan", "ui_design", "api_design", "test_design"}
 TEST_WORKITEM_KINDS = {"acceptance_check", "automated_test", "api_validation", "ui_validation"}
 SKIP_SCOPE_KINDS = {"requirement_spec", "frozen_requirement_spec", "collaboration_review"}
 STATIC_WEB_DELIVERABLES = ("index.html", "static/app.js", "static/style.css")

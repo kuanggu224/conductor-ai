@@ -78,7 +78,7 @@ class Runner:
     HARNESS_WORKITEM_KINDS = {"acceptance_check", "automated_test", "api_validation", "ui_validation"}
     CODE_EDIT_WORKITEM_KINDS = {"api_implementation", "data_implementation", "generic_implementation", "ui_implementation"}
     CODE_EDIT_AGENT_ROLES = {"backend_engineer", "frontend_engineer"}
-    DESIGN_DOCUMENT_WORKITEM_KINDS = {"requirement_spec", "design_overview", "ui_design", "api_design", "test_design"}
+    DESIGN_DOCUMENT_WORKITEM_KINDS = {"requirement_spec", "design_overview", "feature_slice_plan", "ui_design", "api_design", "test_design"}
 
     def __init__(
         self,
@@ -3209,6 +3209,7 @@ button {
         kind_focus = {
             "requirement_spec": "Create a frozen-ready requirement specification with user goals, scope boundaries, non-goals, acceptance cases, edge/error cases, risks, assumptions, open questions, and downstream handoff constraints.",
             "design_overview": "Create a requirement design document with user goals, scope boundaries, main flows, implementation constraints, acceptance criteria, and risks.",
+            "feature_slice_plan": "Create a milestone-based feature-slice plan with dependencies, implementation boundaries, and validation evidence for each slice.",
             "ui_design": "Describe UI structure, core interactions, primary views, and state changes.",
             "api_design": "Describe API boundaries, payloads, main endpoints, and failure handling.",
             "test_design": "Describe testing scope, acceptance checks, edge cases, and validation focus.",

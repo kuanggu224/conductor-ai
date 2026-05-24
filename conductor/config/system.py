@@ -41,6 +41,7 @@ def _default_role_mapping() -> dict[str, str]:
     return {
         "requirement_spec": "requirement_designer",
         "design_overview": "designer",
+        "feature_slice_plan": "designer",
         "ui_design": "designer",
         "api_design": "designer",
         "test_design": "designer",
@@ -77,7 +78,7 @@ def _default_agent_profiles() -> list[dict[str, Any]]:
             "execution_backend": "cli",
             "default_cli_name": "codex",
             "capabilities": ["planning"],
-            "default_workitem_kinds": ["requirement_spec", "design_overview", "ui_design", "api_design", "test_design"],
+            "default_workitem_kinds": ["requirement_spec", "design_overview", "feature_slice_plan", "ui_design", "api_design", "test_design"],
             "context_preferences": ["requirements", "recent_state"],
         },
         {
@@ -179,7 +180,7 @@ class PlannerConfig:
     test_keywords: tuple[str, ...] = field(default_factory=lambda: _default_planner_keywords()["test_keywords"])
     data_keywords: tuple[str, ...] = field(default_factory=lambda: _default_planner_keywords()["data_keywords"])
     requirement_workitem_kinds: list[str] = field(default_factory=lambda: ["requirement_spec"])
-    design_workitem_kinds: list[str] = field(default_factory=lambda: ["design_overview", "ui_design", "api_design", "test_design"])
+    design_workitem_kinds: list[str] = field(default_factory=lambda: ["design_overview", "feature_slice_plan", "ui_design", "api_design", "test_design"])
     development_workitem_kinds: list[str] = field(default_factory=lambda: ["api_implementation", "data_implementation", "generic_implementation", "ui_implementation"])
     testing_workitem_kinds: list[str] = field(default_factory=lambda: ["acceptance_check", "automated_test", "api_validation", "ui_validation"])
 

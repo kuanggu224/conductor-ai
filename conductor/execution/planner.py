@@ -22,6 +22,16 @@ class WorkItemDraft:
     testing_checklist: list[dict[str, object]] = field(default_factory=list)
 
 
+@dataclass(frozen=True, slots=True)
+class FeatureSlice:
+    """One user-visible feature slice inferred from a requirement."""
+
+    slice_id: str
+    title: str
+    milestone: str
+    validation_focus: str
+
+
 class Planner:
     """Split a requirement into stage-specific WorkItems with keyword rules."""
 
@@ -89,6 +99,7 @@ class Planner:
 
     def _plan_design_drafts(self, normalized_requirement: str, original_requirement: str) -> list[WorkItemDraft]:
         frontend_only = self._is_frontend_only_requirement(normalized_requirement)
+        feature_slices = self._infer_feature_slices(normalized_requirement)
         drafts = [
             WorkItemDraft(
                 kind="design_overview",
@@ -96,6 +107,14 @@ class Planner:
                 acceptance_criteria=["输出设计要点", "明确下一阶段实现边界", "不得改变冻结需求范围"],
             )
         ]
+        if len(feature_slices) >= 2:
+            drafts.append(
+                WorkItemDraft(
+                    kind="feature_slice_plan",
+                    description=self._feature_slice_plan_description(original_requirement, feature_slices),
+                    acceptance_criteria=self._feature_slice_plan_acceptance_criteria(feature_slices),
+                )
+            )
         if self._contains_any(normalized_requirement, self.UI_KEYWORDS) and not self._excludes_ui_requirement(normalized_requirement):
             drafts.append(
                 WorkItemDraft(
@@ -129,6 +148,8 @@ class Planner:
     ) -> list[WorkItemDraft]:
         drafts: list[WorkItemDraft] = []
         frontend_only = self._is_frontend_only_requirement(normalized_requirement)
+        feature_slices = self._infer_feature_slices(normalized_requirement)
+        slice_criteria = self._feature_slice_execution_criteria(feature_slices)
         if self._contains_any(normalized_requirement, self.API_KEYWORDS) and not frontend_only:
             drafts.append(
                 WorkItemDraft(
@@ -161,11 +182,16 @@ class Planner:
                     acceptance_criteria=["产出可运行的基础功能"],
                 )
             )
+        if slice_criteria:
+            for draft in drafts:
+                draft.acceptance_criteria.extend(slice_criteria)
         return drafts
 
     def _plan_testing_drafts(self, normalized_requirement: str, original_requirement: str) -> list[WorkItemDraft]:
         frontend_only = self._is_frontend_only_requirement(normalized_requirement)
         coverage_criteria = self._coverage_acceptance_criteria(original_requirement)
+        feature_slices = self._infer_feature_slices(normalized_requirement)
+        slice_validation_criteria = self._feature_slice_validation_criteria(feature_slices)
         testing_checklist = build_testing_checklist(original_requirement)
         drafts = [
             WorkItemDraft(
@@ -207,6 +233,8 @@ class Planner:
                     acceptance_criteria=["核心页面可访问", "关键交互路径可验证"],
                 )
             )
+        if slice_validation_criteria:
+            drafts[0].acceptance_criteria.extend(slice_validation_criteria)
         return drafts
 
     def _coverage_acceptance_criteria(self, requirement: str) -> list[str]:
@@ -215,6 +243,61 @@ class Planner:
             f"Provide validation evidence for frozen requirement: {rule.label}"
             for rule in infer_coverage_rules(requirement)
         ]
+
+    def _infer_feature_slices(self, text: str) -> list[FeatureSlice]:
+        """Infer user-visible feature slices from requirement terms."""
+        candidates = (
+            (("create", "add", "submit", "form", "新增", "添加", "创建"), "create_item", "Create item", "M1 Core input", "create request and visible created record"),
+            (("list", "view", "browse", "查询", "列表", "展示"), "list_items", "List items", "M1 Core read", "list response or visible collection"),
+            (("filter", "search", "query", "筛选", "搜索", "过滤"), "filter_items", "Filter/search items", "M2 Refinement", "filtered result evidence"),
+            (("update", "edit", "complete", "toggle", "修改", "编辑", "完成"), "update_item", "Update item", "M2 Refinement", "update response or changed visible state"),
+            (("delete", "remove", "删除", "移除"), "delete_item", "Delete item", "M2 Refinement", "delete response or removed visible record"),
+            (("stats", "summary", "report", "统计", "汇总", "报表"), "stats", "Stats summary", "M3 Evidence", "stats payload or report evidence"),
+            (("import", "upload", "导入", "上传"), "file_import", "File import/upload", "M3 Evidence", "sample file processing evidence"),
+            (("export", "download", "csv", "导出", "下载"), "export_csv", "Export/download", "M3 Evidence", "export/download evidence"),
+        )
+        slices: list[FeatureSlice] = []
+        for terms, slice_id, title, milestone, validation_focus in candidates:
+            if any(self._contains_keyword(text, term.lower()) for term in terms):
+                slices.append(
+                    FeatureSlice(
+                        slice_id=slice_id,
+                        title=title,
+                        milestone=milestone,
+                        validation_focus=validation_focus,
+                    )
+                )
+        return slices
+
+    def _feature_slice_plan_description(self, requirement: str, slices: list[FeatureSlice]) -> str:
+        """Build a readable feature-slice planning WorkItem description."""
+        slice_summary = ", ".join(f"{item.slice_id} ({item.milestone})" for item in slices)
+        return f"Plan milestone-based feature slices for requirement: {requirement}. Slices: {slice_summary}"
+
+    def _feature_slice_plan_acceptance_criteria(self, slices: list[FeatureSlice]) -> list[str]:
+        """Build acceptance criteria for the feature-slice planning WorkItem."""
+        criteria = [
+            "Define milestone order, dependencies, implementation boundary, and validation evidence for each feature slice.",
+            "Keep feature slices user-visible and independently verifiable where possible.",
+        ]
+        criteria.extend(
+            f"Feature slice {item.slice_id}: {item.title}; milestone={item.milestone}; validation={item.validation_focus}"
+            for item in slices
+        )
+        return criteria
+
+    def _feature_slice_execution_criteria(self, slices: list[FeatureSlice]) -> list[str]:
+        """Build implementation acceptance criteria from feature slices."""
+        if len(slices) < 2:
+            return []
+        order = " -> ".join(item.slice_id for item in slices)
+        return [f"Implement feature slices in milestone order: {order}"]
+
+    def _feature_slice_validation_criteria(self, slices: list[FeatureSlice]) -> list[str]:
+        """Build testing acceptance criteria from feature slices."""
+        if len(slices) < 2:
+            return []
+        return [f"Verify feature slice {item.slice_id}: {item.validation_focus}" for item in slices]
 
     def _build_workitem(self, stage_name: str, draft: WorkItemDraft) -> WorkItem:
         sequence = next(self._workitem_counter)

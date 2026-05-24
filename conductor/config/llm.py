@@ -18,6 +18,7 @@ from conductor.config.defaults import CONFIG_DIR, LLM_CONFIG_PATH
 DEFAULT_RUNNER_ALLOWED_ROLES = ["designer", "backend_engineer", "frontend_engineer", "tester"]
 DEFAULT_RUNNER_ALLOWED_KINDS = [
     "design_overview",
+    "feature_slice_plan",
     "ui_design",
     "api_design",
     "test_design",

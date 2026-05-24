@@ -1279,7 +1279,7 @@ class LeadController:
             )
             has_design_baseline = any(
                 artifact.kind == "frozen_design_spec"
-                or artifact.kind in {"design_overview", "ui_design", "api_design", "test_design"}
+                or artifact.kind in {"design_overview", "feature_slice_plan", "ui_design", "api_design", "test_design"}
                 or artifact.workitem_id in design_workitem_ids
                 for artifact in input_artifacts
             )
@@ -1583,7 +1583,7 @@ class LeadController:
         """Infer the default role for a WorkItem kind."""
         if kind == "requirement_spec":
             return "requirement_designer"
-        if kind in {"design_overview", "ui_design", "api_design", "test_design"}:
+        if kind in {"design_overview", "ui_design", "api_design", "test_design", "feature_slice_plan"}:
             return "designer"
         if kind in {"api_implementation", "data_implementation", "generic_implementation"}:
             return "backend_engineer"

@@ -809,7 +809,7 @@ class BoardService:
         """根据 WorkItem kind 推断负责角色。"""
         if kind == "requirement_spec":
             return "requirement_designer"
-        if kind in {"design_overview", "ui_design", "api_design", "test_design"}:
+        if kind in {"design_overview", "feature_slice_plan", "ui_design", "api_design", "test_design"}:
             return "designer"
         if kind in {"api_implementation", "data_implementation", "generic_implementation"}:
             return "backend_engineer"

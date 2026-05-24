@@ -4,8 +4,8 @@ Last updated: 2026-05-24
 
 ## Stable Checkpoint
 
-- Latest verified code checkpoint: current `dev` fullstack web delivery profile update.
-- Current full test result: `python -m pytest -q --basetemp C:\tmp\conductor_pytest_fullstack_full` -> `716 passed in 149.00s`.
+- Latest verified code checkpoint: current `dev` planner feature-slice update.
+- Current full test result: `python -m pytest -q --basetemp C:\tmp\conductor_pytest_planner_slice_full` -> `717 passed in 144.92s`.
 - Current focus: backend orchestration, auditability, logs, manifest/replay, and task-center reliability.
 - Frontend Board exists, but visual redesign is intentionally not the current priority.
 
@@ -25,6 +25,7 @@ Last updated: 2026-05-24
 - `api_mock` run profile now generates a FastAPI mock service plus pytest API contract tests through `api_mock_delivery`, preserving endpoint/status/payload evidence for API mock end-to-end validation.
 - `api_sqlite` run profile now generates a FastAPI + SQLite service plus pytest API contract tests through `api_sqlite_delivery`, preserving endpoint/status/payload and SQLite persistence evidence for database-backed API validation.
 - `fullstack_web` run profile now generates a FastAPI backend, static frontend, and pytest + Playwright full-stack contract tests through `fullstack_web_delivery`, preserving browser form, API fetch, filter, delete, and stats endpoint evidence for frontend/API integration validation.
+- Planner now infers milestone-based `feature_slice_plan` WorkItems for multi-feature requirements and propagates feature-slice execution/validation criteria into development and testing WorkItems.
 - API validation failure feedback now promotes concrete endpoint/status/response evidence requirements into development rework prompts and acceptance criteria.
 - Testing-stage feedback rework has a project-level cap, preventing infinite development/testing loops.
 - Testing-stage feedback rework now persists explicit inputs on the rework WorkItem and Task Center assignment: failed test artifacts, original implementation artifacts, frozen requirement, and design artifacts.

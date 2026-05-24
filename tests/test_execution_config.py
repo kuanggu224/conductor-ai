@@ -16,6 +16,7 @@ def test_execution_scope_config_filters_workitem_kinds() -> None:
 
     assert config.is_workitem_kind_enabled("design_overview") is True
     assert config.is_workitem_kind_enabled("api_design") is False
+    assert config.is_workitem_kind_enabled("feature_slice_plan") is False
     assert config.is_workitem_kind_enabled("api_implementation") is True
     assert config.is_workitem_kind_enabled("ui_implementation") is False
     assert config.is_workitem_kind_enabled("acceptance_check") is False

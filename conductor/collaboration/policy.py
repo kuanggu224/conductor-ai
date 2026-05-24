@@ -16,6 +16,7 @@ class CollaborationPolicy:
         default_factory=lambda: {
             "requirement_spec": "requirement_designer",
             "design_overview": "designer",
+            "feature_slice_plan": "designer",
             "ui_design": "designer",
             "api_design": "designer",
             "test_design": "designer",

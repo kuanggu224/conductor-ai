@@ -148,6 +148,7 @@ requirement -> design -> development -> testing
 - `StaticWebHarness` 验证静态 Web 项目。
 - Requirement coverage 检查。
 - API validation 需要输出 endpoint、status code 或 response payload 等具体接口行为证据；泛化的测试通过信息不能单独满足 API coverage。
+- Planner 会对包含多个用户可见功能点的需求生成 `feature_slice_plan`，把 create/list/filter/delete/stats/import/export 等能力拆成 milestone-based feature slices，并把实现顺序与验证焦点写入 development/testing WorkItem 的 acceptance criteria。
 - `api_mock` run profile 会生成 FastAPI mock 服务和 pytest API contract tests，用离线端到端方式验证 API mock 流，并把 endpoint/status/payload 证据写入执行输出和 Manifest。
 - `api_sqlite` run profile 会生成 FastAPI + SQLite 服务和 pytest API contract tests，用离线端到端方式验证数据库持久化后端，并把 endpoint/status/payload 与 SQLite persistence 证据写入执行输出和 Manifest。
 - `fullstack_web` run profile 会生成 FastAPI 后端、静态前端页面和 pytest + Playwright 全栈 contract tests，用离线端到端方式验证浏览器表单、API fetch、筛选、删除和 stats endpoint 证据。
