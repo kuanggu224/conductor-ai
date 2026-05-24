@@ -159,6 +159,25 @@ def test_requirement_coverage_accepts_api_endpoint_status_payload_output() -> No
     assert [rule.rule_id for rule in result.required_rules] == ["api_behavior"]
 
 
+def test_requirement_coverage_infers_database_persistence_for_sqlite_api() -> None:
+    requirement = "Build a backend REST API for todo items with SQLite database persistence."
+
+    missing = evaluate_requirement_coverage(requirement, "API validation exercised endpoint behavior")
+    covered = evaluate_requirement_coverage(
+        requirement,
+        "\n".join(
+            [
+                "POST /api/items -> status_code=201 response payload={'id': 1}",
+                "SQLite persistence verified -> database=items.db row_count=1",
+            ]
+        ),
+    )
+
+    assert [rule.rule_id for rule in missing.required_rules] == ["api_behavior", "db_persistence"]
+    assert [rule.rule_id for rule in missing.missing_rules] == ["db_persistence"]
+    assert covered.passed is True
+
+
 def test_requirement_coverage_does_not_infer_api_from_backend_negation() -> None:
     requirement = "\u53ea\u505a\u524d\u7aef\u9759\u6001\u9875\u9762\uff0c\u4e0d\u63a5 API\uff0c\u4e0d\u9700\u8981\u540e\u7aef\u3002"
 

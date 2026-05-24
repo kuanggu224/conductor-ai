@@ -60,6 +60,7 @@ class ConductorEngine:
             RunProfile.MOCK.value,
             RunProfile.STATIC_WEB.value,
             RunProfile.API_MOCK.value,
+            RunProfile.API_SQLITE.value,
         } and llm_harness_backend is None
         if self._mock_without_explicit_llm:
             self.llm_runtime_config = replace(
@@ -88,6 +89,7 @@ class ConductorEngine:
             enable_tester_harness=True,
             enable_static_web_delivery=self.run_profile == RunProfile.STATIC_WEB.value,
             enable_api_mock_delivery=self.run_profile == RunProfile.API_MOCK.value,
+            enable_api_sqlite_delivery=self.run_profile == RunProfile.API_SQLITE.value,
             cli_selection_config=self.cli_selection_config,
             runtime_stream_store=self.runtime_stream_store,
             require_real_design_outputs=require_real_design_outputs,

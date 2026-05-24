@@ -63,6 +63,7 @@ def test_resolve_run_profiles() -> None:
     mock = resolve_run_profile("mock")
     static_web = resolve_run_profile("static_web")
     api_mock = resolve_run_profile("api_mock")
+    api_sqlite = resolve_run_profile("api_sqlite")
     design = resolve_run_profile("design_cli_only")
     code = resolve_run_profile("code_cli")
     full = resolve_run_profile("full_cli")
@@ -74,6 +75,9 @@ def test_resolve_run_profiles() -> None:
     assert api_mock.cli_roles == []
     assert api_mock.enable_api_mock_delivery is True
     assert api_mock.require_real_code_outputs is False
+    assert api_sqlite.cli_roles == []
+    assert api_sqlite.enable_api_sqlite_delivery is True
+    assert api_sqlite.require_real_code_outputs is False
     assert design.cli_roles == ["designer", "requirement_designer", "solution_designer"]
     assert design.require_real_design_outputs is True
     assert code.cli_roles == ["backend_engineer", "frontend_engineer"]

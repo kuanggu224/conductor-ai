@@ -89,6 +89,7 @@ class Runner:
         enable_tester_harness: bool = False,
         enable_static_web_delivery: bool = False,
         enable_api_mock_delivery: bool = False,
+        enable_api_sqlite_delivery: bool = False,
         cli_selection_config: CLISelectionConfig | None = None,
         runtime_stream_store: RuntimeStreamStore | None = None,
         require_real_design_outputs: bool = False,
@@ -106,6 +107,7 @@ class Runner:
         self.enable_tester_harness = enable_tester_harness
         self.enable_static_web_delivery = enable_static_web_delivery
         self.enable_api_mock_delivery = enable_api_mock_delivery
+        self.enable_api_sqlite_delivery = enable_api_sqlite_delivery
         self.cli_selection_config = cli_selection_config or CLISelectionConfig()
         self.runtime_stream_store = runtime_stream_store or RuntimeStreamStore()
         self.require_real_design_outputs = require_real_design_outputs
@@ -454,6 +456,10 @@ class Runner:
             self.state_store.add_event(project_id, f"WorkItem {workitem.id} 使用 StaticWebDelivery 生成真实静态 Web 交付物")
             return self._run_static_web_delivery(project_id, workitem, agent, project_root)
 
+        if self._should_use_api_sqlite_delivery(project_id, workitem, agent):
+            self.state_store.add_event(project_id, f"WorkItem {workitem.id} uses ApiSqliteDelivery for a verifiable SQLite API service")
+            return self._run_api_sqlite_delivery(project_id, workitem, agent, project_root)
+
         if self._should_use_api_mock_delivery(project_id, workitem, agent):
             self.state_store.add_event(project_id, f"WorkItem {workitem.id} uses ApiMockDelivery for a verifiable API mock")
             return self._run_api_mock_delivery(project_id, workitem, agent, project_root)
@@ -547,6 +553,19 @@ class Runner:
         api_terms = ("api", "rest", "http", "endpoint", "backend", "server", "service", "fastapi")
         return any(term in requirement_text for term in api_terms)
 
+    def _should_use_api_sqlite_delivery(self, project_id: str, workitem: WorkItem, agent: Agent) -> bool:
+        """Return whether the built-in SQLite API backend should produce real API files."""
+        if not (
+            self.enable_api_sqlite_delivery
+            and agent.role == "backend_engineer"
+            and workitem.kind == "api_implementation"
+        ):
+            return False
+        requirement_text = self._static_web_requirement_text(project_id).lower()
+        api_terms = ("api", "rest", "http", "endpoint", "backend", "server", "service", "fastapi")
+        sqlite_terms = ("sqlite", "database", "db", "sql", "persist", "persistence", "stored")
+        return any(term in requirement_text for term in api_terms) and any(term in requirement_text for term in sqlite_terms)
+
     def _run_api_mock_delivery(
         self,
         project_id: str,
@@ -592,6 +611,51 @@ class Runner:
             cli_stderr_tail=self._tail(validation.stderr),
         )
 
+    def _run_api_sqlite_delivery(
+        self,
+        project_id: str,
+        workitem: WorkItem,
+        agent: Agent,
+        project_root: str,
+    ) -> WorkItemRunResult:
+        """Generate a concrete FastAPI + SQLite service and validate it with pytest."""
+        root = Path(project_root)
+        changed_files = self._write_api_sqlite_app(root)
+        validation_command = self._select_test_command(str(root))
+        validation_request = HarnessRequest(
+            command=validation_command,
+            working_directory=str(root),
+            timeout_seconds=180.0,
+            description=f"api_sqlite_delivery:{workitem.id}",
+            stream_callback=self._build_stream_callback(project_id),
+            environment=self._validation_environment(),
+        )
+        validation = self.shell_harness.run(validation_request)
+        report = self._build_api_sqlite_delivery_report(
+            workitem=workitem,
+            agent=agent,
+            changed_files=changed_files,
+            validation=validation,
+            validation_command=validation_command,
+        )
+        return WorkItemRunResult(
+            content=report,
+            source_backend="api_sqlite_delivery",
+            succeeded=validation.success,
+            failure=None if validation.success else validation_failed(validation),
+            cli_name="api_sqlite_delivery",
+            working_directory=str(root),
+            execution_command=list(validation_command),
+            execution_exit_code=validation.exit_code,
+            execution_duration_ms=validation.duration_ms,
+            changed_files=changed_files,
+            validation_command=list(validation_command),
+            validation_exit_code=validation.exit_code,
+            validation_success=validation.success,
+            cli_stdout_tail=self._tail(validation.stdout),
+            cli_stderr_tail=self._tail(validation.stderr),
+        )
+
     def _write_api_mock_app(self, root: Path) -> list[str]:
         """Write a small FastAPI CRUD mock plus contract tests into the project root."""
         root.mkdir(parents=True, exist_ok=True)
@@ -601,6 +665,25 @@ class Runner:
             "app.py": self._api_mock_app_py(),
             "pytest.ini": "[pytest]\naddopts = -s\n",
             "tests/test_api_contract.py": self._api_mock_contract_tests_py(),
+        }
+        changed: list[str] = []
+        for relative_path, content in files.items():
+            path = root / relative_path
+            previous = path.read_text(encoding="utf-8", errors="replace") if path.exists() else None
+            if previous != content:
+                path.write_text(content, encoding="utf-8")
+                changed.append(relative_path)
+        return changed
+
+    def _write_api_sqlite_app(self, root: Path) -> list[str]:
+        """Write a small FastAPI + SQLite CRUD app plus contract tests into the project root."""
+        root.mkdir(parents=True, exist_ok=True)
+        tests_dir = root / "tests"
+        tests_dir.mkdir(parents=True, exist_ok=True)
+        files = {
+            "app.py": self._api_sqlite_app_py(),
+            "pytest.ini": "[pytest]\naddopts = -s\n",
+            "tests/test_api_contract.py": self._api_sqlite_contract_tests_py(),
         }
         changed: list[str] = []
         for relative_path, content in files.items():
@@ -770,6 +853,252 @@ def test_api_crud_filter_query_and_stats_contract() -> None:
     print(f"DELETE /api/items/{item['id']} -> status_code={delete_response.status_code} response payload={delete_response.json()}")
     assert delete_response.status_code == 200
     assert delete_response.json() == {"deleted": True}
+'''
+
+    def _api_sqlite_app_py(self) -> str:
+        return '''"""Generated FastAPI + SQLite service for Conductor API delivery validation."""
+
+from __future__ import annotations
+
+import os
+import sqlite3
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException, Query
+from pydantic import BaseModel, Field
+
+
+DB_PATH = Path(os.environ.get("API_SQLITE_DB_PATH", "items.db"))
+app = FastAPI(title="Conductor SQLite API")
+
+
+class ItemCreate(BaseModel):
+    title: str = Field(min_length=1)
+    content: str = ""
+    completed: bool = False
+
+
+class ItemPatch(BaseModel):
+    title: str | None = None
+    content: str | None = None
+    completed: bool | None = None
+
+
+def connection() -> sqlite3.Connection:
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def init_db() -> None:
+    with connection() as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                content TEXT NOT NULL DEFAULT '',
+                completed INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+
+
+def reset_database() -> None:
+    if DB_PATH.exists():
+        DB_PATH.unlink()
+    init_db()
+
+
+def _normalize_title(title: str) -> str:
+    normalized = title.strip()
+    if not normalized:
+        raise HTTPException(status_code=422, detail="title must not be blank")
+    return normalized
+
+
+def _row_to_item(row: sqlite3.Row) -> dict[str, object]:
+    return {
+        "id": int(row["id"]),
+        "title": str(row["title"]),
+        "content": str(row["content"]),
+        "completed": bool(row["completed"]),
+    }
+
+
+def _find_item(conn: sqlite3.Connection, item_id: int) -> dict[str, object]:
+    row = conn.execute("SELECT id, title, content, completed FROM items WHERE id = ?", (item_id,)).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="item not found")
+    return _row_to_item(row)
+
+
+@app.on_event("startup")
+def startup() -> None:
+    init_db()
+
+
+@app.post("/api/items", status_code=201)
+def create_item(payload: ItemCreate) -> dict[str, object]:
+    init_db()
+    title = _normalize_title(payload.title)
+    with connection() as conn:
+        cursor = conn.execute(
+            "INSERT INTO items (title, content, completed) VALUES (?, ?, ?)",
+            (title, payload.content, int(payload.completed)),
+        )
+        conn.commit()
+        item = _find_item(conn, int(cursor.lastrowid))
+    return {"item": item}
+
+
+@app.get("/api/items")
+def list_items(
+    status: str = Query("all", pattern="^(all|active|completed)$"),
+    q: str = "",
+) -> dict[str, object]:
+    init_db()
+    clauses: list[str] = []
+    values: list[object] = []
+    if status == "active":
+        clauses.append("completed = 0")
+    elif status == "completed":
+        clauses.append("completed = 1")
+    query = q.strip().lower()
+    if query:
+        clauses.append("(lower(title) LIKE ? OR lower(content) LIKE ?)")
+        values.extend([f"%{query}%", f"%{query}%"])
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    with connection() as conn:
+        rows = conn.execute(
+            f"SELECT id, title, content, completed FROM items {where} ORDER BY id DESC",
+            tuple(values),
+        ).fetchall()
+    return {"items": [_row_to_item(row) for row in rows]}
+
+
+@app.get("/api/items/stats")
+def item_stats() -> dict[str, int]:
+    init_db()
+    with connection() as conn:
+        total = int(conn.execute("SELECT COUNT(*) FROM items").fetchone()[0])
+        completed = int(conn.execute("SELECT COUNT(*) FROM items WHERE completed = 1").fetchone()[0])
+    return {"total": total, "completed": completed, "active": total - completed}
+
+
+@app.get("/api/items/{item_id}")
+def get_item(item_id: int) -> dict[str, object]:
+    init_db()
+    with connection() as conn:
+        return {"item": _find_item(conn, item_id)}
+
+
+@app.patch("/api/items/{item_id}")
+def update_item(item_id: int, payload: ItemPatch) -> dict[str, object]:
+    init_db()
+    updates: list[str] = []
+    values: list[object] = []
+    if payload.title is not None:
+        updates.append("title = ?")
+        values.append(_normalize_title(payload.title))
+    if payload.content is not None:
+        updates.append("content = ?")
+        values.append(payload.content)
+    if payload.completed is not None:
+        updates.append("completed = ?")
+        values.append(int(payload.completed))
+    with connection() as conn:
+        _find_item(conn, item_id)
+        if updates:
+            values.append(item_id)
+            conn.execute(f"UPDATE items SET {', '.join(updates)} WHERE id = ?", tuple(values))
+            conn.commit()
+        item = _find_item(conn, item_id)
+    return {"item": item}
+
+
+@app.delete("/api/items/{item_id}")
+def delete_item(item_id: int) -> dict[str, object]:
+    init_db()
+    with connection() as conn:
+        _find_item(conn, item_id)
+        conn.execute("DELETE FROM items WHERE id = ?", (item_id,))
+        conn.commit()
+    return {"deleted": True}
+'''
+
+    def _api_sqlite_contract_tests_py(self) -> str:
+        return '''"""Contract tests for the generated SQLite API service."""
+
+import sqlite3
+
+from fastapi.testclient import TestClient
+
+from app import DB_PATH, app, connection, reset_database
+
+
+def test_sqlite_api_crud_filter_query_stats_and_persistence_contract() -> None:
+    reset_database()
+    client = TestClient(app)
+
+    create_response = client.post(
+        "/api/items",
+        json={"title": "Write backend", "content": "Finish SQLite API", "completed": False},
+    )
+    print(f"POST /api/items -> status_code={create_response.status_code} response payload={create_response.json()}")
+    assert create_response.status_code == 201
+    item = create_response.json()["item"]
+
+    completed_response = client.post(
+        "/api/items",
+        json={"title": "Ship release", "content": "Done", "completed": True},
+    )
+    print(f"POST /api/items -> status_code={completed_response.status_code} response payload={completed_response.json()}")
+    assert completed_response.status_code == 201
+
+    list_response = client.get("/api/items")
+    print(f"GET /api/items -> status_code={list_response.status_code} response payload={list_response.json()}")
+    assert list_response.status_code == 200
+    assert len(list_response.json()["items"]) == 2
+
+    active_response = client.get("/api/items", params={"status": "active"})
+    print(f"GET /api/items?status=active -> status_code={active_response.status_code} response payload={active_response.json()}")
+    assert active_response.status_code == 200
+    assert [entry["id"] for entry in active_response.json()["items"]] == [item["id"]]
+
+    query_response = client.get("/api/items", params={"q": "sqlite"})
+    print(f"GET /api/items?q=sqlite -> status_code={query_response.status_code} response payload={query_response.json()}")
+    assert query_response.status_code == 200
+    assert query_response.json()["items"][0]["title"] == "Write backend"
+
+    update_response = client.patch(f"/api/items/{item['id']}", json={"completed": True, "content": "Ready"})
+    print(f"PATCH /api/items/{item['id']} -> status_code={update_response.status_code} response payload={update_response.json()}")
+    assert update_response.status_code == 200
+    assert update_response.json()["item"]["completed"] is True
+
+    stats_response = client.get("/api/items/stats")
+    print(f"GET /api/items/stats -> status_code={stats_response.status_code} response payload={stats_response.json()}")
+    assert stats_response.status_code == 200
+    assert stats_response.json() == {"total": 2, "completed": 2, "active": 0}
+
+    assert DB_PATH.exists()
+    with sqlite3.connect(DB_PATH) as raw_conn:
+        row_count = raw_conn.execute("SELECT COUNT(*) FROM items").fetchone()[0]
+    print(f"SQLite persistence verified -> database={DB_PATH} row_count={row_count}")
+    assert row_count == 2
+
+    with connection() as conn:
+        persisted = conn.execute("SELECT title, completed FROM items WHERE id = ?", (item["id"],)).fetchone()
+    print(f"SQLite row reload -> status_code=200 response payload={{'title': persisted[0], 'completed': bool(persisted[1])}}")
+    assert persisted[0] == "Write backend"
+    assert bool(persisted[1]) is True
+
+    delete_response = client.delete(f"/api/items/{item['id']}")
+    print(f"DELETE /api/items/{item['id']} -> status_code={delete_response.status_code} response payload={delete_response.json()}")
+    assert delete_response.status_code == 200
+    assert delete_response.json() == {"deleted": True}
+    print("API SQLite evidence summary: POST /api/items -> status_code=201 response payload={'item': {'id': 1}}; SQLite persistence verified -> database=items.db row_count=2")
 '''
 
     def _write_static_web_app(self, root: Path, project_id: str) -> list[str]:
@@ -1216,6 +1545,27 @@ button {
             cli_name="api_mock_delivery",
             changed_files=changed_files,
             cli_stdout="Generated FastAPI mock service and API contract tests.",
+            cli_stderr="",
+            validation_result=validation,
+            validation_command=validation_command,
+            success=validation.success,
+        )
+
+    def _build_api_sqlite_delivery_report(
+        self,
+        *,
+        workitem: WorkItem,
+        agent: Agent,
+        changed_files: list[str],
+        validation: HarnessResult,
+        validation_command: list[str],
+    ) -> str:
+        return self._build_code_execution_report(
+            workitem=workitem,
+            agent=agent,
+            cli_name="api_sqlite_delivery",
+            changed_files=changed_files,
+            cli_stdout="Generated FastAPI SQLite service and API contract tests.",
             cli_stderr="",
             validation_result=validation,
             validation_command=validation_command,

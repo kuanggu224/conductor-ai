@@ -4,8 +4,8 @@ Last updated: 2026-05-22
 
 ## Stable Checkpoint
 
-- Latest verified code checkpoint: current `dev` API mock delivery profile update.
-- Current full test result: `python -m pytest -q --basetemp C:\tmp\conductor_pytest_full_api_mock_delivery` -> `710 passed in 128.27s`.
+- Latest verified code checkpoint: current `dev` API SQLite delivery profile update.
+- Current full test result: `python -m pytest -q --basetemp C:\tmp\conductor_pytest_full_api_sqlite_delivery` -> `713 passed in 133.19s`.
 - Current focus: backend orchestration, auditability, logs, manifest/replay, and task-center reliability.
 - Frontend Board exists, but visual redesign is intentionally not the current priority.
 
@@ -23,6 +23,7 @@ Last updated: 2026-05-22
 - Requirement coverage now includes API endpoint behavior for backend/API requirements, and API validation WorkItems can satisfy it with explicit endpoint-behavior evidence.
 - API validation coverage no longer treats generic test success as endpoint evidence; successful `api_validation` runs must expose endpoint, status code, or response payload signals before API behavior coverage is marked satisfied.
 - `api_mock` run profile now generates a FastAPI mock service plus pytest API contract tests through `api_mock_delivery`, preserving endpoint/status/payload evidence for API mock end-to-end validation.
+- `api_sqlite` run profile now generates a FastAPI + SQLite service plus pytest API contract tests through `api_sqlite_delivery`, preserving endpoint/status/payload and SQLite persistence evidence for database-backed API validation.
 - API validation failure feedback now promotes concrete endpoint/status/response evidence requirements into development rework prompts and acceptance criteria.
 - Testing-stage feedback rework has a project-level cap, preventing infinite development/testing loops.
 - Testing-stage feedback rework now persists explicit inputs on the rework WorkItem and Task Center assignment: failed test artifacts, original implementation artifacts, frozen requirement, and design artifacts.

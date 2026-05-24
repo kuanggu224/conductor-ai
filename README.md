@@ -31,6 +31,7 @@ Conductor 是一个 AI Native 的项目执行系统：它把 AI 组织成一个�
 ```powershell
 python -m pytest -q
 python -m app.run_project --project-root C:\99_self\conductor_test\api-demo --requirement "Build a backend REST API for todo items" --run-profile api_mock
+python -m app.run_project --project-root C:\99_self\conductor_test\sqlite-demo --requirement "Build a backend REST API for todo items with SQLite database persistence" --run-profile api_sqlite
 python -m app.run_project --project-root C:\99_self\conductor_test\demo --requirement "Build a small static web app"
 ```
 

@@ -175,6 +175,21 @@ COVERAGE_RULES: tuple[CoverageRule, ...] = (
         ),
         evidence_terms=("api validation exercised endpoint behavior",),
     ),
+    CoverageRule(
+        rule_id="db_persistence",
+        label="database persistence",
+        requirement_terms=(
+            "sqlite",
+            "database",
+            "db",
+            "sql",
+            "persist",
+            "persistence",
+            "\u6570\u636e\u5e93",
+            "\u6301\u4e45\u5316",
+        ),
+        evidence_terms=("sqlite persistence verified", "database persistence verified"),
+    ),
 )
 
 
@@ -245,6 +260,8 @@ def _rule_is_required(rule: CoverageRule, normalized_requirement: str) -> bool:
         return _has_export_interaction_requirement(normalized_requirement)
     if rule.rule_id == "api_behavior":
         return _has_api_behavior_requirement(normalized_requirement)
+    if rule.rule_id == "db_persistence":
+        return _has_database_persistence_requirement(normalized_requirement)
     if rule.rule_id != "filter":
         return any(term.lower() in normalized_requirement for term in rule.requirement_terms)
     return _has_filter_interaction_requirement(normalized_requirement)
@@ -293,6 +310,57 @@ def _has_api_behavior_requirement(normalized_requirement: str) -> bool:
             continue
         return True
     return False
+
+
+def _has_database_persistence_requirement(normalized_requirement: str) -> bool:
+    """Return whether the requirement asks for durable database-backed behavior."""
+    database_terms = ("sqlite", "database", "db", "sql", "\u6570\u636e\u5e93")
+    persistence_terms = ("persist", "persistence", "persistent", "stored", "durable", "\u6301\u4e45\u5316", "\u4fdd\u5b58")
+    negation_terms = (
+        "no database",
+        "without database",
+        "no db",
+        "without db",
+        "in-memory",
+        "in memory",
+        "\u65e0\u6570\u636e\u5e93",
+        "\u4e0d\u9700\u8981\u6570\u636e\u5e93",
+        "\u4e0d\u63a5\u6570\u636e\u5e93",
+    )
+    for line in _normalized_lines(normalized_requirement):
+        has_database = any(_contains_term(line, term) for term in database_terms)
+        has_persistence = any(_contains_term(line, term) for term in persistence_terms)
+        if not (has_database or (has_persistence and _has_api_behavior_requirement(normalized_requirement))):
+            continue
+        if any(_contains_term(line, term) for term in negation_terms) or _line_negates_ui_scope(line) or _line_negates_database_scope(line):
+            continue
+        return True
+    return False
+
+
+def _line_negates_database_scope(line: str) -> bool:
+    """Return whether a line mentions database only as excluded scope."""
+    scoped_negation_markers = (
+        "out of scope",
+        "non-goal",
+        "non goal",
+        "not in scope",
+        "excluded",
+        "exclude",
+        "no production database",
+        "no external database",
+        "without database",
+        "\u975e\u76ee\u6807",
+        "\u8303\u56f4\u5916",
+        "\u4e0d\u5305\u542b",
+        "\u4e0d\u9700\u8981",
+        "\u65e0\u9700",
+        "\u4e0d\u505a",
+    )
+    database_terms = ("database", "databases", "db", "sqlite", "\u6570\u636e\u5e93")
+    return any(_contains_term(line, marker) for marker in scoped_negation_markers) and any(
+        _contains_term(line, term) for term in database_terms
+    )
 
 
 def _has_ui_context(normalized_requirement: str) -> bool:

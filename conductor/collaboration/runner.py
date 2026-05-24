@@ -1118,6 +1118,32 @@ class CollaborationRunner:
         """Build a deterministic API requirement baseline for offline API smoke runs."""
         review_summary = "\n".join(f"- {review.role}: {review.decision.value}" for review in reviews) or "- No review notes."
         criteria = "\n".join(f"- {item}" for item in workitem.acceptance_criteria) or "- Downstream stages must verify the stated API requirement."
+        sqlite_requested = self._is_sqlite_api_workitem(workitem)
+        persistence_scope = (
+            "SQLite-backed persistence, schema initialization, filtering/query behavior, update/delete behavior, and stats where requested"
+            if sqlite_requested
+            else "in-memory mock persistence, filtering/query behavior, update/delete behavior, and stats where requested"
+        )
+        database_non_goal = (
+            "No external production database or account system."
+            if sqlite_requested
+            else "No production database or account system."
+        )
+        assumption = (
+            "Assumption: this is an offline API service using a local SQLite database file for validation."
+            if sqlite_requested
+            else "Assumption: this is an offline API mock with in-memory persistence for validation."
+        )
+        implementation_constraint = (
+            "Backend implementation must include app.py routes, SQLite initialization/persistence, and API contract tests."
+            if sqlite_requested
+            else "Backend implementation must include app.py routes and API contract tests."
+        )
+        testing_constraint = (
+            "Testing must cover create, list, filter/query, update, delete, stats, SQLite persistence, and explicit endpoint/status/payload evidence."
+            if sqlite_requested
+            else "Testing must cover create, list, filter/query, update, delete, stats, and explicit endpoint/status/payload evidence."
+        )
         return (
             f"# Requirement Specification - {workitem.id}\n\n"
             f"## Revision Round\n{round_index}\n\n"
@@ -1127,13 +1153,13 @@ class CollaborationRunner:
             f"{workitem.description}\n\n"
             "The product must expose JSON HTTP endpoints for the requested resource workflow and keep API behavior observable through contract tests.\n\n"
             "## Scope Boundary\n"
-            "- In scope: REST-style API endpoints, JSON request/response payloads, input validation, in-memory mock persistence, filtering/query behavior, update/delete behavior, and stats where requested.\n"
+            f"- In scope: REST-style API endpoints, JSON request/response payloads, input validation, {persistence_scope}.\n"
             "- Out of scope / non-goals: browser UI, localStorage, authentication, payments, cloud services, external databases, background jobs, and analytics unless explicitly requested.\n"
             "- The implementation must not add unrelated platform features beyond the stated API requirement.\n\n"
             "## Non-Goals\n"
             "- No frontend page or static web UI.\n"
             "- No external network service dependency.\n"
-            "- No production database or account system.\n\n"
+            f"- {database_non_goal}\n\n"
             "## Acceptance Criteria\n"
             f"{criteria}\n"
             "- Given a valid create request, when the API receives it, then it returns HTTP 201 with a JSON response payload containing the created item.\n"
@@ -1145,12 +1171,12 @@ class CollaborationRunner:
             "- Missing item ids must return 404.\n"
             "- Invalid filter values must be rejected instead of silently ignored.\n\n"
             "## Risks And Assumptions\n"
-            "- Assumption: this is an offline API mock with in-memory persistence for validation.\n"
+            f"- {assumption}\n"
             "- Risk: generic test success is not enough evidence; tests must print endpoint, status code, and response payload signals.\n\n"
             "## Downstream Handoff Constraints\n"
             "- Design must preserve this API requirement baseline as the contract for later stages.\n"
-            "- Backend implementation must include app.py routes and API contract tests.\n"
-            "- Testing must cover create, list, filter/query, update, delete, stats, and explicit endpoint/status/payload evidence.\n\n"
+            f"- {implementation_constraint}\n"
+            f"- {testing_constraint}\n\n"
             "## Review Resolution\n"
             f"{review_summary}\n"
             "- Reviewer concerns are resolved through explicit API scope, contract tests, validation cases, and endpoint evidence requirements.\n"
@@ -1166,6 +1192,25 @@ class CollaborationRunner:
         """Build an actionable API design baseline for offline API smoke runs."""
         review_summary = "\n".join(f"- {review.role}: {review.decision.value}" for review in reviews) or "- No review notes."
         criteria = "\n".join(f"- {item}" for item in workitem.acceptance_criteria) or "- Preserve the frozen requirement and produce an implementable API handoff."
+        sqlite_requested = self._is_sqlite_api_workitem(workitem)
+        persistence_scope = "SQLite database file, schema initialization" if sqlite_requested else "in-memory mock state"
+        database_boundary = "external production database" if sqlite_requested else "external database"
+        architecture = (
+            "app.py exposes create/list/get/update/delete/stats endpoints for /api/items and persists rows in SQLite."
+            if sqlite_requested
+            else "app.py exposes create/list/get/update/delete/stats endpoints for /api/items."
+        )
+        data_model = (
+            "SQLite table items(id, title, content, completed, created_at), with blank-title validation."
+            if sqlite_requested
+            else "item id, title, content, completed flag, with blank-title validation."
+        )
+        persistence_test = "- Test SQLite persistence by reloading rows from the database file and printing database evidence.\n" if sqlite_requested else ""
+        assumption = (
+            "Assumption: a local SQLite file is acceptable for the API SQLite flow."
+            if sqlite_requested
+            else "Assumption: in-memory state is acceptable for the API mock flow."
+        )
         return (
             f"# Overall Design - {workitem.id}\n\n"
             f"## Revision Round\n{round_index}\n\n"
@@ -1175,12 +1220,12 @@ class CollaborationRunner:
             f"{workitem.description}\n\n"
             "The workflow is a backend JSON API with observable endpoint behavior, validation, filtering/querying, mutation, deletion, and stats responses.\n\n"
             "## Scope Boundary\n"
-            "- In scope: FastAPI-compatible app.py, /api/items resource routes, JSON payload models, in-memory mock state, validation errors, and pytest contract tests.\n"
-            "- Out of scope / non-goals: browser UI, localStorage, static assets, login/auth, external database, remote integrations, and background workers.\n"
+            f"- In scope: FastAPI-compatible app.py, /api/items resource routes, JSON payload models, {persistence_scope}, validation errors, and pytest contract tests.\n"
+            f"- Out of scope / non-goals: browser UI, localStorage, static assets, login/auth, {database_boundary}, remote integrations, and background workers.\n"
             "- Constraint: keep the mock deterministic and self-contained for offline validation.\n\n"
             "## Solution\n"
-            "- Architecture: app.py exposes create/list/get/update/delete/stats endpoints for /api/items.\n"
-            "- Data model: item id, title, content, completed flag, with blank-title validation.\n"
+            f"- Architecture: {architecture}\n"
+            f"- Data model: {data_model}\n"
             "- Contract tests: tests/test_api_contract.py uses FastAPI TestClient and prints endpoint, status code, and response payload evidence.\n"
             "- Validation command: pytest runs in the project root and emits endpoint behavior evidence for Manifest coverage.\n\n"
             "## Acceptance And Test Plan\n"
@@ -1189,8 +1234,9 @@ class CollaborationRunner:
             "- Test GET /api/items returns listed items and supports active/completed plus keyword query.\n"
             "- Test PATCH and DELETE mutate state and return JSON payloads.\n"
             "- Test GET /api/items/stats returns total/completed/active counts.\n\n"
+            f"{persistence_test}"
             "## Risks And Assumptions\n"
-            "- Assumption: in-memory state is acceptable for the API mock flow.\n"
+            f"- {assumption}\n"
             "- Risk: contract tests that hide stdout cannot prove endpoint coverage, so pytest must expose evidence output.\n\n"
             "## Review Resolution\n"
             f"{review_summary}\n"
@@ -1205,6 +1251,11 @@ class CollaborationRunner:
         api_terms = ("api", "rest", "http", "endpoint", "backend", "server", "service", "fastapi")
         frontend_only_terms = ("browser-only", "static web", "localstorage", "local storage", "no backend")
         return any(term in text for term in api_terms) and not any(term in text for term in frontend_only_terms)
+
+    def _is_sqlite_api_workitem(self, workitem: WorkItem) -> bool:
+        """Return whether an API collaboration baseline should preserve SQLite persistence scope."""
+        text = f"{workitem.kind} {workitem.description}".lower()
+        return any(term in text for term in ("sqlite", "database", "db", "sql", "persistence", "persist"))
 
     def _create_final_artifact(
         self,

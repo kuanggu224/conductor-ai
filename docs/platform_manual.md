@@ -149,6 +149,7 @@ requirement -> design -> development -> testing
 - Requirement coverage 检查。
 - API validation 需要输出 endpoint、status code 或 response payload 等具体接口行为证据；泛化的测试通过信息不能单独满足 API coverage。
 - `api_mock` run profile 会生成 FastAPI mock 服务和 pytest API contract tests，用离线端到端方式验证 API mock 流，并把 endpoint/status/payload 证据写入执行输出和 Manifest。
+- `api_sqlite` run profile 会生成 FastAPI + SQLite 服务和 pytest API contract tests，用离线端到端方式验证数据库持久化后端，并把 endpoint/status/payload 与 SQLite persistence 证据写入执行输出和 Manifest。
 - Harness 测试报告会渲染 `Testing Checklist Evidence Contract`，把 required evidence terms 写入持久化 Artifact。
 - 测试失败可反馈生成开发返工任务；结构化反馈会携带失败信号、缺失 coverage、缺失 checklist evidence、最近一次 `validation_command` 和 `validation_exit_code`。
 - Manifest 记录测试结果、失败原因和修复建议。
