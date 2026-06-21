@@ -1,4 +1,5 @@
 import { ApiClient, getApiBase } from "./api.js";
+import { advanceDemoProject, createDemoProject, demoArtifact, demoDiagnostics, demoLlmPreflight, demoOperationResult, demoProjects, demoSettingsPayload, demoTaskContext, demoTodoDetail, demoTodos, demoTodoStats } from "./demo.js";
 import { asArray, el, empty, pretty, short, tone, valueOf } from "./utils.js";
 
 const api = new ApiClient();
@@ -31,6 +32,7 @@ const state = {
   error: "",
   toast: "",
   stream: null,
+  demoMode: demoModeFromUrl() || localStorage.getItem("conductor.demoMode") === "1",
 };
 
 init();
@@ -49,6 +51,10 @@ function routeFromHash() {
   return nav.some(([id]) => id === route) ? route : "graph";
 }
 
+function demoModeFromUrl() {
+  return new URLSearchParams(window.location.search).get("demo") === "1";
+}
+
 function navigate(route) {
   state.route = route;
   if (location.hash !== `#${route}`) location.hash = route;
@@ -57,6 +63,10 @@ function navigate(route) {
 
 async function refreshAll() {
   await busy(async () => {
+    if (state.demoMode) {
+      loadDemoProject();
+      return;
+    }
     const payload = await api.listProjects();
     state.projects = asArray(payload.projects);
     if (state.selectedProjectId && !state.projects.some((project) => project.project_id === state.selectedProjectId)) {
@@ -68,6 +78,10 @@ async function refreshAll() {
 }
 
 async function loadProject(projectId, silent = false) {
+  if (state.demoMode) {
+    loadDemoProject();
+    return;
+  }
   state.selectedProjectId = projectId || "";
   localStorage.setItem("conductor.selectedProjectId", state.selectedProjectId);
   if (!state.selectedProjectId) {
@@ -91,7 +105,7 @@ async function loadProject(projectId, silent = false) {
 function wireRuntimeStream() {
   if (state.stream) state.stream.close();
   state.stream = null;
-  if (!state.selectedProjectId || typeof EventSource === "undefined") return;
+  if (state.demoMode || !state.selectedProjectId || typeof EventSource === "undefined") return;
   try {
     state.stream = new EventSource(`${api.baseUrl}/projects/${encodeURIComponent(state.selectedProjectId)}/runtime/stream`);
     state.stream.onmessage = async () => {
@@ -135,16 +149,19 @@ function renderTopbar() {
     el("div", { class: "topbar-left" }, [
       el("select", { class: "project-select", onchange: (event) => loadProject(event.target.value) }, [
         el("option", { value: "", text: "Select project" }),
-        ...state.projects.map((project) => el("option", {
+        ...displayProjects().map((project) => el("option", {
           value: project.project_id,
           selected: project.project_id === state.selectedProjectId,
           text: `${project.status_label || project.status || "-"} / ${short(project.goal || project.project_id, 52)}`,
         })),
       ]),
       badge(snap.project_status_label || snap.project_status || "no project", tone(snap.project_status)),
+      state.demoMode ? badge("demo", "warn") : null,
+      state.demoMode ? badge(demoProgressLabel(snap), "info") : null,
       badge(api.baseUrl, "info"),
     ]),
     el("div", { class: "topbar-actions" }, [
+      cmd(state.demoMode ? "Live" : "Demo", toggleDemoMode),
       cmd("New", openCreateProject),
       cmd("Step", () => projectCommand("step"), !state.selectedProjectId),
       cmd("Run", () => projectCommand("run"), !state.selectedProjectId),
@@ -153,11 +170,46 @@ function renderTopbar() {
   ]);
 }
 
+function displayProjects() {
+  return state.demoMode ? demoProjects() : state.projects;
+}
+
+function loadDemoProject(step = Number(state.project?.snapshot?.demo_step || 0)) {
+  state.projects = demoProjects();
+  state.selectedProjectId = state.projects[0].project_id;
+  state.project = createDemoProject(step);
+  state.error = "";
+  localStorage.setItem("conductor.selectedProjectId", state.selectedProjectId);
+}
+
+function toggleDemoMode() {
+  state.demoMode = !state.demoMode;
+  localStorage.setItem("conductor.demoMode", state.demoMode ? "1" : "0");
+  state.toast = state.demoMode ? "Demo mode loaded." : "";
+  if (state.demoMode) {
+    loadDemoProject();
+    renderShell();
+  } else {
+    state.projects = [];
+    state.project = null;
+    state.error = "";
+    renderShell();
+    refreshAll();
+  }
+}
+
+function demoProgressLabel(snap) {
+  const step = Number(snap.demo_step || 0);
+  if (step >= 2) return "path 4/4";
+  if (step >= 1) return "path 3/4";
+  return "path 1/4";
+}
+
 function render() {
   const view = document.getElementById("view");
   if (!view) return;
   empty(view);
-  if (state.error) view.append(el("div", { class: "banner bad", text: state.error }));
+  if (state.error) view.append(renderErrorBanner(state.error));
   if (state.toast) view.append(el("div", { class: "banner good", text: state.toast }));
   if (state.loading) view.append(el("div", { class: "banner info", text: "Loading..." }));
   const renderer = {
@@ -173,7 +225,7 @@ function render() {
 }
 
 function renderGraph() {
-  if (!state.project) return emptyState("No project selected", "Create or select a project to inspect the dependency graph.");
+  if (!state.project) return emptyState("No project selected", "Create, select, or load the demo project to inspect the dependency graph.");
   const snap = snapshot();
   const graph = buildGraph(snap);
   const selected = state.node ? graph.nodes.find((node) => node.id === state.node) : graph.nodes[0];
@@ -191,6 +243,7 @@ function renderGraph() {
         cmd("Release Stale", () => releaseStale()),
         cmd("Human Gate", () => loadHumanControl()),
       ]),
+      state.demoMode ? renderDemoRunbook(snap) : null,
     ]),
     el("section", { class: "graph-canvas" }, [
       el("div", { class: "graph-toolbar" }, [
@@ -204,6 +257,55 @@ function renderGraph() {
       selected ? renderNodeInspector(selected) : el("p", { class: "muted", text: "No node selected." }),
       renderOperationConsole(snap),
     ]),
+  ]);
+}
+
+function renderErrorBanner(message) {
+  return el("div", { class: "banner bad action-banner" }, [
+    el("span", { text: message }),
+    state.demoMode ? null : cmd("Load Demo", enableDemoMode),
+  ]);
+}
+
+function enableDemoMode() {
+  state.demoMode = true;
+  localStorage.setItem("conductor.demoMode", "1");
+  state.toast = "Demo mode loaded.";
+  loadDemoProject(0);
+  renderShell();
+}
+
+function renderDemoRunbook(snap) {
+  const step = Number(snap.demo_step || 0);
+  const items = [
+    {
+      title: "1. Inspect graph",
+      body: "Show stages, WorkItems, assignments, agents, artifacts and human gate.",
+      done: true,
+    },
+    {
+      title: "2. Step validation",
+      body: "Click Step. Expect risk Low, readiness At Risk / 92 and blockers 0.",
+      done: step >= 1,
+    },
+    {
+      title: "3. Run delivery",
+      body: "Click Run. Expect project Ready, readiness Ready / 96 and Approve enabled.",
+      done: step >= 2,
+    },
+    {
+      title: "4. Review evidence",
+      body: "Open Review, inspect FastAPI SQLite Implementation and API Contract Validation.",
+      done: step >= 2,
+    },
+  ];
+  return el("div", { class: "demo-runbook" }, [
+    el("h3", { text: "Demo Runbook" }),
+    el("p", { text: step >= 2 ? "Delivery story is ready for the Review tab." : "Follow these steps during the presentation." }),
+    ...items.map((item) => el("div", { class: `demo-step ${item.done ? "done" : "todo"}` }, [
+      el("strong", { text: item.title }),
+      el("span", { text: item.body }),
+    ])),
   ]);
 }
 
@@ -291,6 +393,7 @@ function renderTasks() {
   if (!state.project) return emptyState("No project selected", "Task Center requires a project.");
   const snap = snapshot();
   const assignments = asArray(snap.task_assignments);
+  const taskDetail = state.context || state.detail;
   return el("div", { class: "two-pane" }, [
     el("section", { class: "panel" }, [
       sectionTitle("Task Center", "Claim, complete, fail, heartbeat, release, sweep"),
@@ -318,7 +421,7 @@ function renderTasks() {
     el("aside", { class: "panel" }, [
       sectionTitle("Task Detail", "Context and API result"),
       el("div", { class: "command-stack" }, [cmd("Claim Next", claimNextTask), cmd("Batch Claim", claimBatch), cmd("Release Expired", releaseExpired), cmd("Sweep", sweepTasks)]),
-      state.context ? el("pre", { class: "code tall", text: typeof state.context === "string" ? state.context : pretty(state.context) }) : el("p", { class: "muted", text: "Select a task context." }),
+      taskDetail ? el("pre", { class: "code tall", text: typeof taskDetail === "string" ? taskDetail : pretty(taskDetail) }) : el("p", { class: "muted", text: "Select a task context or run a task action." }),
     ]),
   ]);
 }
@@ -384,6 +487,7 @@ function renderLogs() {
 }
 
 function renderSettings() {
+  if (state.demoMode) return renderDemoSettings();
   return el("div", { class: "settings" }, [
     card("API Connection", [input("Backend URL", "api-base", api.baseUrl), cmd("Save API", () => { api.setBaseUrl(valueOf("api-base")); refreshAll(); })]),
     settingsCard("Execution", "execution", () => api.executionSettings(), (payload) => api.saveExecutionSettings(payload)),
@@ -403,20 +507,53 @@ function renderSettings() {
   ]);
 }
 
+function renderDemoSettings() {
+  const settings = demoSettingsPayload();
+  return el("div", { class: "settings" }, [
+    card("Demo Runtime", [
+      metric("Mode", "Offline fixture"),
+      metric("Backend required", "No"),
+      metric("Project", "demo-api-delivery"),
+      el("div", { class: "command-grid" }, [cmd("Reset Demo", resetDemoMode), cmd("Show Diagnostics", () => loadDiagnostics(true)), cmd("LLM Preflight", demoLlmPreflightAction)]),
+    ]),
+    card("API Connection", [
+      input("Backend URL", "api-base", api.baseUrl),
+      el("p", { class: "muted", text: "Demo mode keeps this value visible but does not call the backend." }),
+    ]),
+    card("Execution", [
+      metric("Run profile", settings.execution.config.run_profile),
+      metric("Static smoke", settings.execution.config.static_smoke ? "enabled" : "disabled"),
+      metric("Backend checks", settings.execution.config.backend_checks),
+      el("pre", { class: "code", text: pretty(settings.execution) }),
+    ]),
+    card("CLI and LLM", [
+      metric("Agent CLI", settings.cli.config.agent_cli_required ? "required" : "not required"),
+      metric("LLM provider", settings.llm.config.provider),
+      metric("Fallback", settings.cli.config.fallback),
+      el("pre", { class: "code", text: pretty({ cli: settings.cli, llm: settings.llm }) }),
+    ]),
+    card("Diagnostics", [
+      state.diagnostics ? el("pre", { class: "code", text: pretty(state.diagnostics) }) : el("p", { class: "muted", text: "Use Show Diagnostics to render local demo readiness evidence." }),
+    ]),
+  ]);
+}
+
 function renderTodos() {
+  const todosPayload = state.demoMode ? demoTodos() : state.todos;
+  const statsPayload = state.demoMode ? demoTodoStats() : state.todoStats;
   return el("div", { class: "two-pane" }, [
     el("section", { class: "panel" }, [
       sectionTitle("Todo API", "Auxiliary CRUD coverage"),
       el("div", { class: "form-row" }, [input("Title", "todo-title", "Review graph"), input("Content", "todo-content", "Check API coverage")]),
       el("div", { class: "command-grid" }, [cmd("Create", createTodo), cmd("Refresh", loadTodos)]),
-      table(["Title", "Status", "Content", "Actions"], asArray(state.todos?.todos).map((todo) => [
+      table(["Title", "Status", "Content", "Actions"], asArray(todosPayload?.todos).map((todo) => [
         todo.title,
         todo.completed ? "done" : "open",
         short(todo.content, 80),
         el("div", { class: "row-actions" }, [cmd("View", () => loadTodo(todo.id)), cmd(todo.completed ? "Open" : "Done", () => updateTodo(todo.id, { completed: !todo.completed })), cmd("Delete", () => deleteTodo(todo.id))]),
       ])),
     ]),
-    el("aside", { class: "panel" }, [sectionTitle("Todo Detail", `${state.todos?.todos?.length || 0} loaded / ${state.todoStats?.total ?? 0} total`), state.todoDetail ? el("pre", { class: "code tall", text: pretty(state.todoDetail) }) : null]),
+    el("aside", { class: "panel" }, [sectionTitle("Todo Detail", `${todosPayload?.todos?.length || 0} loaded / ${statsPayload?.total ?? 0} total`), state.todoDetail ? el("pre", { class: "code tall", text: pretty(state.todoDetail) }) : null]),
   ]);
 }
 
@@ -471,7 +608,14 @@ function input(label, id, value = "") {
   return el("label", { class: "field" }, [el("span", { text: label }), el("input", { id, value })]);
 }
 function emptyState(title, body) {
-  return el("section", { class: "empty-state" }, [el("h1", { text: title }), el("p", { text: body }), cmd("Create project", openCreateProject)]);
+  return el("section", { class: "empty-state" }, [
+    el("h1", { text: title }),
+    el("p", { text: body }),
+    el("div", { class: "empty-actions" }, [
+      cmd("Create project", openCreateProject),
+      state.demoMode ? null : cmd("Load Demo", enableDemoMode),
+    ]),
+  ]);
 }
 function logList(title, lines) {
   return el("div", { class: "log-group" }, [el("h3", { text: title }), ...lines.slice(-14).map((line) => el("div", { class: "log-line", text: short(line, 160) }))]);
@@ -480,10 +624,23 @@ function logList(title, lines) {
 async function busy(action) {
   state.loading = true;
   state.error = "";
-  try { await action(); } catch (error) { state.error = error.message; } finally { state.loading = false; renderShell(); }
+  try {
+    await action();
+  } catch (error) {
+    state.error = error.message;
+    state.toast = "";
+  } finally {
+    state.loading = false;
+    renderShell();
+  }
 }
 
 async function openCreateProject() {
+  if (state.demoMode) {
+    state.toast = "Create project is disabled in demo mode.";
+    renderShell();
+    return;
+  }
   const requirement = prompt("Requirement", "Build a backend REST API for todo items with create, list, update, delete, and stats endpoints.");
   if (!requirement) return;
   const projectRoot = prompt("Project root", "");
@@ -496,12 +653,25 @@ async function openCreateProject() {
 
 async function projectCommand(action) {
   if (!state.selectedProjectId) return;
+  if (state.demoMode) {
+    state.project = advanceDemoProject(state.project, action);
+    state.toast = `${action === "run" ? "Run" : "Step"} applied to demo project.`;
+    renderShell();
+    return;
+  }
   await busy(async () => { await api[action](state.selectedProjectId); await loadProject(state.selectedProjectId, true); });
 }
 
 async function runOperation(action) {
   if (!state.selectedProjectId || !action.enabled) return;
   if (!action.api_method || !action.api_path) return;
+  if (state.demoMode) {
+    state.detail = demoOperationResult(action.label);
+    if (action.id === "claim-next") state.project = advanceDemoProject(state.project, "step");
+    state.toast = `${action.label} recorded.`;
+    renderShell();
+    return;
+  }
   await busy(async () => {
     const method = action.api_method.toUpperCase();
     const options = { method };
@@ -515,30 +685,55 @@ function defaultPayload(action) {
   if (action.id?.includes("sweep")) return { stale_after_seconds: 3600 };
   return { agent_id: "agent-backend", release_reason: action.reason || action.label };
 }
-async function loadTaskContext(id) { await busy(async () => { state.context = await api.taskContext(state.selectedProjectId, id, { format: "markdown", include_content: true }); }); }
-async function loadTaskAgents(id) { await busy(async () => { state.context = await api.taskAgents(state.selectedProjectId, id); }); }
-async function claimTask(id) { await busy(async () => { await api.claimTask(state.selectedProjectId, id, { agent_id: valueOf("task-agent") || "agent-backend", include_context: true, context_format: "markdown" }); await loadProject(state.selectedProjectId, true); }); }
-async function claimNextTask() { await busy(async () => { state.detail = await api.claimNext(state.selectedProjectId, { agent_id: valueOf("task-agent") || "agent-backend", include_context: true, context_format: "markdown" }); await loadProject(state.selectedProjectId, true); }); }
-async function claimBatch() { await busy(async () => { state.detail = await api.claimBatch(state.selectedProjectId, { agent_id: valueOf("task-agent") || "agent-backend", limit: 2 }); await loadProject(state.selectedProjectId, true); }); }
-async function completeTask(id) { await busy(async () => { await api.completeTask(state.selectedProjectId, id, { agent_id: valueOf("task-agent") || undefined, claim_token: valueOf("task-token"), result_summary: valueOf("task-summary") }); await loadProject(state.selectedProjectId, true); }); }
-async function failTask(id) { await busy(async () => { await api.failTask(state.selectedProjectId, id, { agent_id: valueOf("task-agent") || undefined, claim_token: valueOf("task-token"), result_summary: valueOf("task-summary"), blocked_reason: valueOf("task-summary") || "Manual failure" }); await loadProject(state.selectedProjectId, true); }); }
-async function heartbeatTask(id) { await busy(async () => { await api.heartbeatTask(state.selectedProjectId, id, { agent_id: valueOf("task-agent") || undefined, claim_token: valueOf("task-token") }); await loadProject(state.selectedProjectId, true); }); }
-async function releaseTask(id) { await busy(async () => { await api.releaseTask(state.selectedProjectId, id, { agent_id: valueOf("task-agent") || undefined, claim_token: valueOf("task-token"), release_reason: "Released from console" }); await loadProject(state.selectedProjectId, true); }); }
-async function releaseStale() { await busy(async () => { state.detail = await api.releaseStale(state.selectedProjectId, { stale_after_seconds: 3600, release_reason: "stale cleanup" }); await loadProject(state.selectedProjectId, true); }); }
-async function releaseExpired() { await busy(async () => { state.detail = await api.releaseExpired(state.selectedProjectId, { release_reason: "expired lease cleanup" }); await loadProject(state.selectedProjectId, true); }); }
-async function sweepTasks() { await busy(async () => { state.detail = await api.sweep(state.selectedProjectId, { stale_after_seconds: 3600 }); await loadProject(state.selectedProjectId, true); }); }
-async function claimAgentTask(agentId = valueOf("agent-id") || "agent-backend") { await busy(async () => { state.detail = await api.claimAgentTask(state.selectedProjectId, agentId, { agent_id: agentId, include_context: true, context_format: "json" }); await loadProject(state.selectedProjectId, true); }); }
-async function listAgentTasks() { await busy(async () => { state.detail = await api.agentTasks(state.selectedProjectId, valueOf("agent-id") || "agent-backend", true); }); }
-async function loadArtifact(id) { await busy(async () => { state.detail = await api.artifact(state.selectedProjectId, id); }); }
-async function loadHumanControl() { await busy(async () => { state.detail = await api.humanControl(state.selectedProjectId); }); }
-async function loadLiveState() { await busy(async () => { state.detail = await api.live(state.selectedProjectId); }); }
-async function humanAction(action) { await busy(async () => { state.detail = await api.humanAction(state.selectedProjectId, action, { actor: "operator", reason: `frontend ${action}` }); await loadProject(state.selectedProjectId, true); }); }
-async function loadDiagnostics(probe) { await busy(async () => { state.diagnostics = await api.diagnostics({ probe_cli: probe, probe_llm: probe, preflight_llm: probe }); }); }
-async function loadTodos() { await busy(async () => { state.todos = await api.todos(); state.todoStats = await api.todoStats(); }); }
-async function createTodo() { const payload = { title: valueOf("todo-title"), content: valueOf("todo-content") }; await busy(async () => { await api.createTodo(payload); state.todos = await api.todos(); state.todoStats = await api.todoStats(); }); }
-async function loadTodo(id) { await busy(async () => { state.todoDetail = await api.getTodo(id); }); }
-async function updateTodo(id, payload) { await busy(async () => { await api.updateTodo(id, payload); state.todos = await api.todos(); state.todoStats = await api.todoStats(); }); }
-async function deleteTodo(id) { await busy(async () => { await api.deleteTodo(id); state.todos = await api.todos(); state.todoStats = await api.todoStats(); }); }
+async function loadTaskContext(id) { if (demoAction(() => { state.context = demoTaskContext(id); })) return; await busy(async () => { state.context = await api.taskContext(state.selectedProjectId, id, { format: "markdown", include_content: true }); }); }
+async function loadTaskAgents(id) { if (demoAction(() => { state.context = { assignment_id: id, agents: snapshot().project_agents || [] }; })) return; await busy(async () => { state.context = await api.taskAgents(state.selectedProjectId, id); }); }
+async function claimTask(id) { if (demoAction(() => { state.detail = demoOperationResult(`Claim ${id}`); })) return; await busy(async () => { await api.claimTask(state.selectedProjectId, id, { agent_id: valueOf("task-agent") || "agent-backend", include_context: true, context_format: "markdown" }); await loadProject(state.selectedProjectId, true); }); }
+async function claimNextTask() { if (demoAction(() => { state.detail = demoOperationResult("Claim Next"); state.project = advanceDemoProject(state.project, "step"); })) return; await busy(async () => { state.detail = await api.claimNext(state.selectedProjectId, { agent_id: valueOf("task-agent") || "agent-backend", include_context: true, context_format: "markdown" }); await loadProject(state.selectedProjectId, true); }); }
+async function claimBatch() { if (demoAction(() => { state.detail = { ...demoOperationResult("Batch Claim"), claimed: snapshot().task_assignments?.slice(0, 2) || [] }; })) return; await busy(async () => { state.detail = await api.claimBatch(state.selectedProjectId, { agent_id: valueOf("task-agent") || "agent-backend", limit: 2 }); await loadProject(state.selectedProjectId, true); }); }
+async function completeTask(id) { if (demoAction(() => { state.detail = demoOperationResult(`Complete ${id}`); state.project = advanceDemoProject(state.project, "step"); })) return; await busy(async () => { await api.completeTask(state.selectedProjectId, id, { agent_id: valueOf("task-agent") || undefined, claim_token: valueOf("task-token"), result_summary: valueOf("task-summary") }); await loadProject(state.selectedProjectId, true); }); }
+async function failTask(id) { if (demoAction(() => { state.detail = demoOperationResult(`Fail ${id}`); })) return; await busy(async () => { await api.failTask(state.selectedProjectId, id, { agent_id: valueOf("task-agent") || undefined, claim_token: valueOf("task-token"), result_summary: valueOf("task-summary"), blocked_reason: valueOf("task-summary") || "Manual failure" }); await loadProject(state.selectedProjectId, true); }); }
+async function heartbeatTask(id) { if (demoAction(() => { state.detail = demoOperationResult(`Heartbeat ${id}`); })) return; await busy(async () => { await api.heartbeatTask(state.selectedProjectId, id, { agent_id: valueOf("task-agent") || undefined, claim_token: valueOf("task-token") }); await loadProject(state.selectedProjectId, true); }); }
+async function releaseTask(id) { if (demoAction(() => { state.detail = demoOperationResult(`Release ${id}`); })) return; await busy(async () => { await api.releaseTask(state.selectedProjectId, id, { agent_id: valueOf("task-agent") || undefined, claim_token: valueOf("task-token"), release_reason: "Released from console" }); await loadProject(state.selectedProjectId, true); }); }
+async function releaseStale() { if (demoAction(() => { state.detail = demoOperationResult("Release Stale"); })) return; await busy(async () => { state.detail = await api.releaseStale(state.selectedProjectId, { stale_after_seconds: 3600, release_reason: "stale cleanup" }); await loadProject(state.selectedProjectId, true); }); }
+async function releaseExpired() { if (demoAction(() => { state.detail = demoOperationResult("Release Expired"); })) return; await busy(async () => { state.detail = await api.releaseExpired(state.selectedProjectId, { release_reason: "expired lease cleanup" }); await loadProject(state.selectedProjectId, true); }); }
+async function sweepTasks() { if (demoAction(() => { state.detail = demoOperationResult("Sweep"); })) return; await busy(async () => { state.detail = await api.sweep(state.selectedProjectId, { stale_after_seconds: 3600 }); await loadProject(state.selectedProjectId, true); }); }
+async function claimAgentTask(agentId = valueOf("agent-id") || "agent-backend") { if (demoAction(() => { state.detail = demoOperationResult(`Agent ${agentId} claim`); })) return; await busy(async () => { state.detail = await api.claimAgentTask(state.selectedProjectId, agentId, { agent_id: agentId, include_context: true, context_format: "json" }); await loadProject(state.selectedProjectId, true); }); }
+async function listAgentTasks() { if (demoAction(() => { state.detail = { agent_id: valueOf("agent-id") || "agent-backend", tasks: snapshot().task_assignments || [] }; })) return; await busy(async () => { state.detail = await api.agentTasks(state.selectedProjectId, valueOf("agent-id") || "agent-backend", true); }); }
+async function loadArtifact(id) { if (demoAction(() => { state.detail = demoArtifact(id); })) return; await busy(async () => { state.detail = await api.artifact(state.selectedProjectId, id); }); }
+async function loadHumanControl() { if (demoAction(() => { state.detail = snapshot().human_control || {}; })) return; await busy(async () => { state.detail = await api.humanControl(state.selectedProjectId); }); }
+async function loadLiveState() { if (demoAction(() => { state.detail = state.project; })) return; await busy(async () => { state.detail = await api.live(state.selectedProjectId); }); }
+async function humanAction(action) { if (demoAction(() => { state.detail = demoOperationResult(`Human ${action}`); })) return; await busy(async () => { state.detail = await api.humanAction(state.selectedProjectId, action, { actor: "operator", reason: `frontend ${action}` }); await loadProject(state.selectedProjectId, true); }); }
+async function loadDiagnostics(probe) { if (demoAction(() => { state.diagnostics = demoDiagnostics(probe); })) return; await busy(async () => { state.diagnostics = await api.diagnostics({ probe_cli: probe, probe_llm: probe, preflight_llm: probe }); }); }
+async function loadTodos() { if (demoAction(() => { state.todos = demoTodos(); state.todoStats = demoTodoStats(); })) return; await busy(async () => { state.todos = await api.todos(); state.todoStats = await api.todoStats(); }); }
+async function createTodo() { const payload = { title: valueOf("todo-title"), content: valueOf("todo-content") }; if (demoAction(() => { state.todoDetail = demoOperationResult(`Create todo: ${payload.title || "untitled"}`); })) return; await busy(async () => { await api.createTodo(payload); state.todos = await api.todos(); state.todoStats = await api.todoStats(); }); }
+async function loadTodo(id) { if (demoAction(() => { state.todoDetail = demoTodoDetail(id); })) return; await busy(async () => { state.todoDetail = await api.getTodo(id); }); }
+async function updateTodo(id, payload) { if (demoAction(() => { state.todoDetail = { ...demoTodoDetail(id), patch: payload }; })) return; await busy(async () => { await api.updateTodo(id, payload); state.todos = await api.todos(); state.todoStats = await api.todoStats(); }); }
+async function deleteTodo(id) { if (demoAction(() => { state.todoDetail = demoOperationResult(`Delete todo ${id}`); })) return; await busy(async () => { await api.deleteTodo(id); state.todos = await api.todos(); state.todoStats = await api.todoStats(); }); }
+
+function demoAction(action) {
+  if (!state.demoMode) return false;
+  action();
+  state.toast = "Demo state updated locally.";
+  renderShell();
+  return true;
+}
+
+function resetDemoMode() {
+  state.project = createDemoProject();
+  state.selectedProjectId = state.project.project_id;
+  state.projects = demoProjects();
+  state.context = null;
+  state.detail = null;
+  state.diagnostics = null;
+  state.toast = "Demo mode reset.";
+  renderShell();
+}
+
+function demoLlmPreflightAction() {
+  state.diagnostics = demoLlmPreflight();
+  state.toast = "Demo LLM preflight rendered locally.";
+  renderShell();
+}
 
 function jitter(seed, range) {
   const text = String(seed || "");

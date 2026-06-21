@@ -119,13 +119,21 @@ nav { display: grid; gap: 8px; align-content: start; }
   background: var(--panel);
   margin-bottom: 12px;
 }
+.action-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
 
 .graph-layout {
   height: calc(100vh - 96px);
   min-height: 620px;
   display: grid;
-  grid-template-columns: 220px minmax(560px, 1fr) 300px;
+  grid-template-columns: minmax(180px, 220px) minmax(420px, 1fr) minmax(260px, 300px);
   gap: 14px;
+  min-width: 0;
 }
 
 .panel, .risk-panel, .graph-canvas, .inspector, .empty-state {
@@ -252,6 +260,45 @@ nav { display: grid; gap: 8px; align-content: start; }
   align-items: stretch;
 }
 
+.demo-runbook {
+  display: grid;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255,255,255,.08);
+}
+.demo-runbook h3 {
+  margin: 0;
+  font-size: 14px;
+}
+.demo-runbook p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.demo-step {
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 8px;
+  background: rgba(255,255,255,.025);
+}
+.demo-step strong {
+  font-size: 12px;
+}
+.demo-step span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.demo-step.done {
+  border-color: rgba(111,208,123,.35);
+}
+.demo-step.done strong {
+  color: var(--good);
+}
+
 .two-pane {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 360px;
@@ -343,10 +390,31 @@ th {
 }
 .empty-state h1 { margin: 0; }
 .empty-state p { margin: 0; color: var(--muted); }
+.empty-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
 
 @media (max-width: 1080px) {
   .app { grid-template-columns: 72px minmax(0, 1fr); }
   .brand small, .nav-btn span { display: none; }
+  .topbar {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .topbar-left {
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+  }
+  .topbar-actions {
+    width: 100%;
+  }
+  .project-select {
+    width: 100%;
+    min-width: 0;
+  }
   .graph-layout, .two-pane { grid-template-columns: 1fr; height: auto; }
   .settings { grid-template-columns: 1fr; }
   .inspector, .risk-panel { max-height: none; }
