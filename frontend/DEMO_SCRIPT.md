@@ -15,6 +15,8 @@ Open:
 http://127.0.0.1:4176/?demo=1
 ```
 
+`demo-start.ps1` runs the same frontend preflight, including static asset smoke checks, before serving the page.
+
 Expected first screen:
 
 - Project selector shows `Demo / Build an API-only todo service...`.
@@ -65,6 +67,7 @@ Expected first screen:
 - If the Live API error banner appears, click `Load Demo`.
 - If an operation returns a backend error, click `Demo` to reload the local fixture.
 - If port `4176` is in use, start with another port: `.\scripts\demo-start.ps1 -Port 4177`.
+- If preflight port `4178` is in use, start with another preflight port: `.\scripts\demo-start.ps1 -PreflightSmokePort 4179`.
 - If the graph looks too wide, refresh the page; the responsive layout is verified for desktop and 390px mobile width.
 
 ## Verification

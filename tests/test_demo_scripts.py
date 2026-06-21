@@ -61,6 +61,15 @@ def test_demo_check_static_smoke_covers_frontend_assets() -> None:
     assert "Demo asset $path returned HTTP" in script
 
 
+def test_demo_start_runs_static_smoke_preflight() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    script = (repo_root / "scripts" / "demo-start.ps1").read_text(encoding="utf-8")
+
+    assert "[int]$PreflightSmokePort = 4178" in script
+    assert "-StaticSmoke -StaticSmokePort $PreflightSmokePort" in script
+    assert "-SkipCheck" in script
+
+
 def test_demo_check_static_smoke_runs() -> None:
     powershell = shutil.which("powershell") or shutil.which("pwsh")
     node = shutil.which("node")

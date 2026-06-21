@@ -5,14 +5,16 @@ Usage:
   powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\demo-start.ps1
 
 Options:
-  -Port 4177      Use a different static server port.
-  -Open           Open the demo URL in the default browser after preflight.
-  -SkipCheck      Skip demo preflight checks before starting the server.
+  -Port 4177                  Use a different static server port.
+  -Open                       Open the demo URL in the default browser after preflight.
+  -PreflightSmokePort 4179    Use a different temporary preflight smoke port.
+  -SkipCheck                  Skip demo preflight checks before starting the server.
 #>
 
 param(
     [int]$Port = 4176,
     [switch]$Open,
+    [int]$PreflightSmokePort = 4178,
     [switch]$SkipCheck
 )
 
@@ -26,7 +28,7 @@ if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
 }
 
 if (-not $SkipCheck) {
-    & (Join-Path $PSScriptRoot "demo-check.ps1")
+    & (Join-Path $PSScriptRoot "demo-check.ps1") -StaticSmoke -StaticSmokePort $PreflightSmokePort
 }
 
 if (Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue) {

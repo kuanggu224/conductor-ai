@@ -16,6 +16,8 @@ Run the offline presentation demo:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\demo-start.ps1 -Open
 ```
 
+`demo-start.ps1` runs the frontend preflight, including static asset smoke checks, before starting the demo server. If the temporary smoke port is occupied, pass `-PreflightSmokePort 4179`.
+
 Open:
 
 ```text

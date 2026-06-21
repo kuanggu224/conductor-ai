@@ -96,8 +96,13 @@ process.stdout.write(JSON.stringify({
 
 def test_demo_script_documents_offline_boundaries() -> None:
     demo_script = (REPO_ROOT / "frontend" / "DEMO_SCRIPT.md").read_text(encoding="utf-8")
+    frontend_readme = (REPO_ROOT / "frontend" / "README.md").read_text(encoding="utf-8")
 
     assert "Demo mode is deterministic and offline" in demo_script
     assert "does not require the backend, Agent CLI, or external LLM provider" in demo_script
     assert "Live mode should be used only when the backend is running" in demo_script
     assert "demo-check.ps1 -StaticSmoke -FullBackendChecks" in demo_script
+    assert "demo-start.ps1` runs the same frontend preflight" in demo_script
+    assert "-PreflightSmokePort 4179" in demo_script
+    assert "including static asset smoke checks" in frontend_readme
+    assert "-PreflightSmokePort 4179" in frontend_readme
