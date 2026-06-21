@@ -173,6 +173,19 @@ def test_graph_renders_latest_operation_result() -> None:
     assert "pretty(state.detail)" in render_graph_result
 
 
+def test_review_renders_artifact_summary_and_content() -> None:
+    source = _source()
+    render_review = _function_body(source, "renderReview")
+    render_review_detail = _function_body(source, "renderReviewDetail")
+
+    assert "renderReviewDetail(state.detail)" in render_review
+    assert "detail?.artifact" in render_review_detail
+    assert "artifact-detail" in render_review_detail
+    assert "metric(\"Title\"" in render_review_detail
+    assert "metric(\"Source\"" in render_review_detail
+    assert "detail.content || artifact.content" in render_review_detail
+
+
 def test_navigation_clears_cross_route_transient_detail() -> None:
     source = _source()
     navigate = _function_body(source, "navigate")

@@ -494,8 +494,20 @@ function renderReview() {
     ]),
     el("aside", { class: "panel" }, [
       sectionTitle("Selected Artifact", "Content and payload"),
-      state.detail ? el("pre", { class: "code tall", text: pretty(state.detail) }) : el("p", { class: "muted", text: "Open an artifact or run a review action." }),
+      state.detail ? renderReviewDetail(state.detail) : el("p", { class: "muted", text: "Open an artifact or run a review action." }),
     ]),
+  ]);
+}
+
+function renderReviewDetail(detail) {
+  const artifact = detail?.artifact;
+  if (!artifact) return el("pre", { class: "code tall", text: pretty(detail) });
+  return el("div", { class: "artifact-detail" }, [
+    metric("Title", artifact.title || artifact.id),
+    metric("Kind", artifact.kind || "-"),
+    metric("Source", artifact.source_backend || "-"),
+    metric("Version", artifact.version ?? "-"),
+    el("pre", { class: "code tall", text: detail.content || artifact.content || pretty(detail) }),
   ]);
 }
 

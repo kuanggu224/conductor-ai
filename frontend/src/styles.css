@@ -385,6 +385,10 @@ nav { display: grid; gap: 8px; align-content: start; }
   background: rgba(255,255,255,.025);
 }
 .stats-grid .metric strong { text-align: left; }
+.artifact-detail {
+  display: grid;
+  gap: 8px;
+}
 .field {
   display: grid;
   gap: 6px;
