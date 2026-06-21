@@ -22,6 +22,13 @@ Expected first screen:
 - Risk panel shows `Medium`, `At Risk / 78`, `Claimable 1`, `Blocked 1`.
 - Dependency graph shows requirement, design, development, testing, delivery, task assignment, agent and artifact nodes.
 
+## Capability Boundaries
+
+- Demo mode is deterministic and offline: it does not require the backend, Agent CLI, or external LLM provider.
+- Demo mode exercises the operator console, dependency graph, task handoff, agents, artifacts, settings diagnostics, logs, and Todo CRUD locally.
+- Live mode should be used only when the backend is running at the configured API URL.
+- The broader backend regression subset is covered by `demo-check.ps1 -StaticSmoke -FullBackendChecks`.
+
 ## Talk Track
 
 1. Dependency Graph
