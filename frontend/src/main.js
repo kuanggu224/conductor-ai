@@ -257,6 +257,7 @@ function renderGraph() {
       sectionTitle(selected?.label || "Inspector", selected?.type || "Select a graph node"),
       selected ? renderNodeInspector(selected) : el("p", { class: "muted", text: "No node selected." }),
       renderOperationConsole(snap),
+      renderGraphResult(),
     ]),
   ]);
 }
@@ -387,6 +388,14 @@ function renderOperationConsole(snap) {
     el("h3", { text: "Operation Console" }),
     el("p", { class: "muted", text: snap.operation_console?.guidance || "No operator guidance." }),
     el("div", { class: "command-grid" }, actions.map((action) => cmd(action.label, () => runOperation(action), !action.enabled))),
+  ]);
+}
+
+function renderGraphResult() {
+  if (!state.detail) return null;
+  return el("div", { class: "operation-console" }, [
+    el("h3", { text: "Latest Result" }),
+    el("pre", { class: "code tall", text: pretty(state.detail) }),
   ]);
 }
 

@@ -154,3 +154,14 @@ def test_task_detail_actions_clear_stale_context() -> None:
       body = _function_body(source, name)
       assert "setTaskDetail(" in body
       assert "state.detail =" not in body
+
+
+def test_graph_renders_latest_operation_result() -> None:
+    source = _source()
+    render_graph = _function_body(source, "renderGraph")
+    render_graph_result = _function_body(source, "renderGraphResult")
+
+    assert "renderGraphResult()" in render_graph
+    assert "Latest Result" in render_graph_result
+    assert "state.detail" in render_graph_result
+    assert "pretty(state.detail)" in render_graph_result
