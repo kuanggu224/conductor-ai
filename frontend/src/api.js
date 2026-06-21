@@ -52,6 +52,7 @@ export class ApiClient {
     return payload;
   }
 
+  status() { return this.request("/api/status"); }
   listProjects() { return this.request("/api/projects"); }
   createProject(payload) { return this.request("/api/projects", { method: "POST", body: payload }); }
   project(projectId) { return this.request(`/api/projects/${encodeURIComponent(projectId)}`); }

@@ -439,6 +439,30 @@ def _execution_health_payload() -> dict[str, object]:
         "real_executor_ready": bool(real_executor_ready),
         "warnings": warnings,
     }
+
+
+def _platform_status_payload() -> dict[str, object]:
+    """Return a lightweight platform status payload for frontend connection checks."""
+    execution_health = _execution_health_payload()
+    projects = engine.list_projects()
+    return {
+        "ok": True,
+        "service": "Conductor Board",
+        "api": "online",
+        "project_count": len(projects),
+        "run_profile": execution_health["run_profile"],
+        "real_executor_ready": execution_health["real_executor_ready"],
+        "warnings": execution_health["warnings"],
+        "endpoints": {
+            "projects": "/api/projects",
+            "diagnostics": "/api/diagnostics",
+            "settings": "/api/settings/execution",
+            "todos": "/api/todos",
+        },
+        "execution_health": execution_health,
+    }
+
+
 def _sanitize_cli_selection_config(config: CLISelectionConfig) -> CLISelectionConfig:
     """Internal helper."""
     selected = [name for name in config.selected_cli_names if name]
@@ -780,6 +804,12 @@ def run_project_task(project_id: str, action: str, action_label: str, target: Ca
 
 
 
+
+
+@app.get("/api/status")
+def platform_status_api() -> JSONResponse:
+    """Return a lightweight status payload for frontend connection checks."""
+    return JSONResponse(_platform_status_payload())
 
 
 @app.get("/api/projects")

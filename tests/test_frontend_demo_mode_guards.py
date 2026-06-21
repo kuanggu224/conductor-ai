@@ -7,6 +7,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MAIN_JS = REPO_ROOT / "frontend" / "src" / "main.js"
+API_JS = REPO_ROOT / "frontend" / "src" / "api.js"
 
 
 def _source() -> str:
@@ -198,3 +199,21 @@ def test_settings_render_capability_alignment() -> None:
     assert "capability-list" in render_capability_rows
     assert "Demo:" in render_capability_rows
     assert "Live:" in render_capability_rows
+
+
+def test_settings_can_check_live_backend_status_without_demo_backend_calls() -> None:
+    source = _source()
+    api_source = API_JS.read_text(encoding="utf-8")
+    render_settings = _function_body(source, "renderSettings")
+    render_demo_settings = _function_body(source, "renderDemoSettings")
+    render_backend_status_card = _function_body(source, "renderBackendStatusCard")
+    check_backend_status = _function_body(source, "checkBackendStatus")
+
+    assert 'status() { return this.request("/api/status"); }' in api_source
+    assert "renderBackendStatusCard()" in render_settings
+    assert "Check Backend" in render_backend_status_card
+    assert 'api.request("/api/status")' in check_backend_status
+    assert "if (state.demoMode)" in check_backend_status
+    assert check_backend_status.find("if (state.demoMode)") < check_backend_status.find('api.request("/api/status")')
+    assert "Backend checks are disabled until you switch to Live mode." in render_demo_settings
+    assert 'api.request("/api/status")' not in render_demo_settings

@@ -337,6 +337,21 @@ nav { display: grid; gap: 8px; align-content: start; }
   font-size: 12px;
   line-height: 1.45;
 }
+.status-strip {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 10px;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 8px;
+  background: rgba(255,255,255,.025);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.status-strip.good { border-color: rgba(111,208,123,.32); }
+.status-strip.warn { border-color: rgba(244,185,95,.35); }
+.status-strip.bad { border-color: rgba(242,110,119,.35); }
 .card-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));

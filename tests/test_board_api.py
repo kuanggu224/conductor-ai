@@ -172,6 +172,23 @@ def test_cli_settings_api_returns_discovered_tools() -> None:
     assert "role_cli_options" in payload
 
 
+def test_platform_status_api_returns_lightweight_connection_payload() -> None:
+    client = TestClient(board.app)
+    response = client.get("/api/status")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["service"] == "Conductor Board"
+    assert payload["api"] == "online"
+    assert isinstance(payload["project_count"], int)
+    assert payload["run_profile"]
+    assert "real_executor_ready" in payload
+    assert "execution_health" in payload
+    assert payload["endpoints"]["projects"] == "/api/projects"
+    assert payload["endpoints"]["diagnostics"] == "/api/diagnostics"
+
+
 def test_diagnostics_api_returns_platform_health_snapshot(monkeypatch) -> None:
     monkeypatch.setattr(
         "conductor.diagnostics.discover_cli_tools",

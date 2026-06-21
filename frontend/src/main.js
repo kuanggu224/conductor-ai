@@ -25,6 +25,7 @@ const state = {
   context: null,
   settings: {},
   diagnostics: null,
+  apiStatus: null,
   todos: null,
   todoStats: null,
   todoDetail: null,
@@ -198,6 +199,7 @@ function toggleDemoMode() {
   state.demoMode = !state.demoMode;
   localStorage.setItem("conductor.demoMode", state.demoMode ? "1" : "0");
   state.toast = state.demoMode ? "Demo mode loaded." : "";
+  state.apiStatus = null;
   if (state.demoMode) {
     loadDemoProject(undefined, true);
     renderShell();
@@ -510,7 +512,8 @@ function renderLogs() {
 function renderSettings() {
   if (state.demoMode) return renderDemoSettings();
   return el("div", { class: "settings" }, [
-    card("API Connection", [input("Backend URL", "api-base", api.baseUrl), cmd("Save API", () => { api.setBaseUrl(valueOf("api-base")); refreshAll(); })]),
+    card("API Connection", [input("Backend URL", "api-base", api.baseUrl), cmd("Save API", saveApiBase)]),
+    renderBackendStatusCard(),
     card("Live Capability Readiness", [
       ...renderCapabilityRows(liveCapabilityMatrix()),
       el("p", { class: "muted", text: "Run Diagnostics and LLM Preflight before presenting real Agent execution." }),
@@ -532,6 +535,12 @@ function renderSettings() {
   ]);
 }
 
+function saveApiBase() {
+  api.setBaseUrl(valueOf("api-base"));
+  state.apiStatus = null;
+  refreshAll();
+}
+
 function renderDemoSettings() {
   const settings = demoSettingsPayload();
   return el("div", { class: "settings" }, [
@@ -548,6 +557,10 @@ function renderDemoSettings() {
     card("API Connection", [
       input("Backend URL", "api-base", api.baseUrl),
       el("p", { class: "muted", text: "Demo mode keeps this value visible but does not call the backend." }),
+      el("div", { class: "status-strip warn" }, [
+        badge("isolated", "warn"),
+        el("span", { text: "Backend checks are disabled until you switch to Live mode." }),
+      ]),
     ]),
     card("Execution", [
       metric("Run profile", settings.execution.config.run_profile),
@@ -564,6 +577,22 @@ function renderDemoSettings() {
     card("Diagnostics", [
       state.diagnostics ? el("pre", { class: "code", text: pretty(state.diagnostics) }) : el("p", { class: "muted", text: "Use Show Diagnostics to render local demo readiness evidence." }),
     ]),
+  ]);
+}
+
+function renderBackendStatusCard() {
+  const status = state.apiStatus;
+  const online = status?.ok === true;
+  const known = Boolean(status);
+  return card("Backend Status", [
+    metric("API URL", api.baseUrl),
+    metric("Status", known ? (online ? "Online" : "Unreachable") : "Not checked"),
+    status?.run_profile ? metric("Run profile", status.run_profile) : null,
+    typeof status?.project_count === "number" ? metric("Projects", status.project_count) : null,
+    typeof status?.real_executor_ready === "boolean" ? metric("Executor ready", status.real_executor_ready ? "Yes" : "Needs setup") : null,
+    status?.error ? el("div", { class: "status-strip bad" }, [badge("error", "bad"), el("span", { text: status.error })]) : null,
+    asArray(status?.warnings).length ? el("div", { class: "status-strip warn" }, [badge("warnings", "warn"), el("span", { text: asArray(status.warnings).join("; ") })]) : null,
+    el("div", { class: "command-grid" }, [cmd("Check Backend", checkBackendStatus), cmd("Diagnostics", () => loadDiagnostics(false))]),
   ]);
 }
 
@@ -763,6 +792,33 @@ async function runOperation(action) {
     await loadProject(state.selectedProjectId, true);
   });
 }
+
+async function checkBackendStatus() {
+  if (state.demoMode) {
+    state.apiStatus = {
+      ok: true,
+      api: "demo-isolated",
+      run_profile: "offline-demo",
+      warnings: ["Demo mode does not call the backend."],
+    };
+    state.toast = "Demo mode keeps backend checks isolated.";
+    renderShell();
+    return;
+  }
+  state.loading = true;
+  state.error = "";
+  try {
+    state.apiStatus = await api.request("/api/status");
+    state.toast = "Backend status checked.";
+  } catch (error) {
+    state.apiStatus = { ok: false, api: "unreachable", error: error.message, warnings: [] };
+    state.toast = "";
+  } finally {
+    state.loading = false;
+    renderShell();
+  }
+}
+
 function defaultPayload(action) {
   if (action.category === "human_control") return { actor: "operator", reason: action.reason || action.label };
   if (action.id?.includes("sweep")) return { stale_after_seconds: 3600 };
