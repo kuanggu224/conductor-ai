@@ -277,8 +277,13 @@ function renderGraph() {
 
 function renderErrorBanner(message) {
   return el("div", { class: "banner bad action-banner" }, [
-    el("span", { text: message }),
+    el("div", { class: "banner-copy" }, [
+      el("strong", { text: "Live API unavailable" }),
+      el("span", { text: message }),
+      el("small", { text: "Load the offline demo for a presentation fallback, or open Settings to check the backend URL." }),
+    ]),
     state.demoMode ? null : cmd("Load Demo", enableDemoMode),
+    state.demoMode ? null : cmd("Settings", () => navigate("settings")),
   ]);
 }
 

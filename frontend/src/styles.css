@@ -126,6 +126,16 @@ nav { display: grid; gap: 8px; align-content: start; }
   gap: 10px;
   flex-wrap: wrap;
 }
+.banner-copy {
+  flex: 1 1 320px;
+  display: grid;
+  gap: 3px;
+}
+.banner-copy strong { font-size: 13px; }
+.banner-copy small {
+  color: var(--muted);
+  line-height: 1.4;
+}
 
 .graph-layout {
   height: calc(100vh - 96px);

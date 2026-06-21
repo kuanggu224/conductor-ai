@@ -68,7 +68,7 @@ Expected first screen:
 ## Fallbacks
 
 - If the project list is empty, use `?demo=1`.
-- If the Live API error banner appears, click `Load Demo`.
+- If the Live API error banner appears, click `Load Demo` for the offline presentation path or `Settings` to check the backend URL.
 - If an operation returns a backend error, click `Demo` to reload the local fixture.
 - If port `4176` is in use, start with another port: `.\scripts\demo-start.ps1 -Port 4177`.
 - If preflight port `4178` is in use, start with another preflight port: `.\scripts\demo-start.ps1 -PreflightSmokePort 4179`.

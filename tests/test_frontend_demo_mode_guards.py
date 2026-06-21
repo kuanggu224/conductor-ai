@@ -217,3 +217,13 @@ def test_settings_can_check_live_backend_status_without_demo_backend_calls() -> 
     assert check_backend_status.find("if (state.demoMode)") < check_backend_status.find('api.request("/api/status")')
     assert "Backend checks are disabled until you switch to Live mode." in render_demo_settings
     assert 'api.request("/api/status")' not in render_demo_settings
+
+
+def test_live_error_banner_offers_demo_and_settings_recovery() -> None:
+    source = _source()
+    render_error_banner = _function_body(source, "renderErrorBanner")
+
+    assert "Live API unavailable" in render_error_banner
+    assert "Load the offline demo" in render_error_banner
+    assert "cmd(\"Load Demo\", enableDemoMode)" in render_error_banner
+    assert "cmd(\"Settings\", () => navigate(\"settings\"))" in render_error_banner

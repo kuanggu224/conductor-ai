@@ -106,6 +106,7 @@ def test_demo_script_documents_offline_boundaries() -> None:
     assert "-PreflightSmokePort 4179" in demo_script
     assert "`Check Backend` calls `/api/status`" in demo_script
     assert "expect `Online` before running `Step` or `Run`" in demo_script
+    assert "click `Load Demo` for the offline presentation path or `Settings` to check the backend URL" in demo_script
     assert "including static asset smoke checks" in frontend_readme
     assert "-PreflightSmokePort 4179" in frontend_readme
     assert "use `Check Backend` to confirm the configured API URL responds" in frontend_readme
