@@ -107,3 +107,18 @@ def test_demo_mode_guards_command_level_api_calls() -> None:
         assert first_api >= 0, f"{name} should contain a live API path"
         assert first_guard >= 0, f"{name} is missing {guard}"
         assert first_guard < first_api, f"{name} calls api before {guard}"
+
+
+def test_demo_todos_use_mutable_local_state() -> None:
+    source = _source()
+    render_todos = _function_body(source, "renderTodos")
+    create_todo = _function_body(source, "createTodo")
+    update_todo = _function_body(source, "updateTodo")
+    delete_todo = _function_body(source, "deleteTodo")
+
+    assert "ensureDemoTodos()" in render_todos
+    assert "demoTodos()" not in render_todos
+    assert "createDemoTodo(payload)" in create_todo
+    assert "updateDemoTodo(id, payload)" in update_todo
+    assert "deleteDemoTodo(id)" in delete_todo
+    assert "function demoTodoStatsFromItems" in source

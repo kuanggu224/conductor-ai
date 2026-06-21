@@ -1,5 +1,5 @@
 import { ApiClient, getApiBase } from "./api.js";
-import { advanceDemoProject, createDemoProject, demoArtifact, demoDiagnostics, demoLlmPreflight, demoOperationResult, demoProjects, demoSettingsPayload, demoTaskContext, demoTodoDetail, demoTodos, demoTodoStats } from "./demo.js";
+import { advanceDemoProject, createDemoProject, demoArtifact, demoDiagnostics, demoLlmPreflight, demoOperationResult, demoProjects, demoSettingsPayload, demoTaskContext, demoTodoDetail, demoTodos } from "./demo.js";
 import { asArray, el, empty, pretty, short, tone, valueOf } from "./utils.js";
 
 const api = new ApiClient();
@@ -174,10 +174,11 @@ function displayProjects() {
   return state.demoMode ? demoProjects() : state.projects;
 }
 
-function loadDemoProject(step = Number(state.project?.snapshot?.demo_step || 0)) {
+function loadDemoProject(step = Number(state.project?.snapshot?.demo_step || 0), resetTodos = false) {
   state.projects = demoProjects();
   state.selectedProjectId = state.projects[0].project_id;
   state.project = createDemoProject(step);
+  ensureDemoTodos(resetTodos);
   state.error = "";
   localStorage.setItem("conductor.selectedProjectId", state.selectedProjectId);
 }
@@ -187,7 +188,7 @@ function toggleDemoMode() {
   localStorage.setItem("conductor.demoMode", state.demoMode ? "1" : "0");
   state.toast = state.demoMode ? "Demo mode loaded." : "";
   if (state.demoMode) {
-    loadDemoProject();
+    loadDemoProject(undefined, true);
     renderShell();
   } else {
     state.projects = [];
@@ -271,7 +272,7 @@ function enableDemoMode() {
   state.demoMode = true;
   localStorage.setItem("conductor.demoMode", "1");
   state.toast = "Demo mode loaded.";
-  loadDemoProject(0);
+  loadDemoProject(0, true);
   renderShell();
 }
 
@@ -539,8 +540,8 @@ function renderDemoSettings() {
 }
 
 function renderTodos() {
-  const todosPayload = state.demoMode ? demoTodos() : state.todos;
-  const statsPayload = state.demoMode ? demoTodoStats() : state.todoStats;
+  const todosPayload = state.demoMode ? ensureDemoTodos() : state.todos;
+  const statsPayload = state.todoStats;
   return el("div", { class: "two-pane" }, [
     el("section", { class: "panel" }, [
       sectionTitle("Todo API", "Auxiliary CRUD coverage"),
@@ -704,11 +705,11 @@ async function loadHumanControl() { if (demoAction(() => { state.detail = snapsh
 async function loadLiveState() { if (demoAction(() => { state.detail = state.project; })) return; await busy(async () => { state.detail = await api.live(state.selectedProjectId); }); }
 async function humanAction(action) { if (demoAction(() => { state.detail = demoOperationResult(`Human ${action}`); })) return; await busy(async () => { state.detail = await api.humanAction(state.selectedProjectId, action, { actor: "operator", reason: `frontend ${action}` }); await loadProject(state.selectedProjectId, true); }); }
 async function loadDiagnostics(probe) { if (demoAction(() => { state.diagnostics = demoDiagnostics(probe); })) return; await busy(async () => { state.diagnostics = await api.diagnostics({ probe_cli: probe, probe_llm: probe, preflight_llm: probe }); }); }
-async function loadTodos() { if (demoAction(() => { state.todos = demoTodos(); state.todoStats = demoTodoStats(); })) return; await busy(async () => { state.todos = await api.todos(); state.todoStats = await api.todoStats(); }); }
-async function createTodo() { const payload = { title: valueOf("todo-title"), content: valueOf("todo-content") }; if (demoAction(() => { state.todoDetail = demoOperationResult(`Create todo: ${payload.title || "untitled"}`); })) return; await busy(async () => { await api.createTodo(payload); state.todos = await api.todos(); state.todoStats = await api.todoStats(); }); }
-async function loadTodo(id) { if (demoAction(() => { state.todoDetail = demoTodoDetail(id); })) return; await busy(async () => { state.todoDetail = await api.getTodo(id); }); }
-async function updateTodo(id, payload) { if (demoAction(() => { state.todoDetail = { ...demoTodoDetail(id), patch: payload }; })) return; await busy(async () => { await api.updateTodo(id, payload); state.todos = await api.todos(); state.todoStats = await api.todoStats(); }); }
-async function deleteTodo(id) { if (demoAction(() => { state.todoDetail = demoOperationResult(`Delete todo ${id}`); })) return; await busy(async () => { await api.deleteTodo(id); state.todos = await api.todos(); state.todoStats = await api.todoStats(); }); }
+async function loadTodos() { if (demoAction(() => { resetDemoTodos(); state.todoDetail = null; })) return; await busy(async () => { state.todos = await api.todos(); state.todoStats = await api.todoStats(); }); }
+async function createTodo() { const payload = { title: valueOf("todo-title"), content: valueOf("todo-content") }; if (demoAction(() => createDemoTodo(payload))) return; await busy(async () => { await api.createTodo(payload); state.todos = await api.todos(); state.todoStats = await api.todoStats(); }); }
+async function loadTodo(id) { if (demoAction(() => { state.todoDetail = demoTodoDetailFromState(id); })) return; await busy(async () => { state.todoDetail = await api.getTodo(id); }); }
+async function updateTodo(id, payload) { if (demoAction(() => updateDemoTodo(id, payload))) return; await busy(async () => { await api.updateTodo(id, payload); state.todos = await api.todos(); state.todoStats = await api.todoStats(); }); }
+async function deleteTodo(id) { if (demoAction(() => deleteDemoTodo(id))) return; await busy(async () => { await api.deleteTodo(id); state.todos = await api.todos(); state.todoStats = await api.todoStats(); }); }
 
 function demoAction(action) {
   if (!state.demoMode) return false;
@@ -719,9 +720,7 @@ function demoAction(action) {
 }
 
 function resetDemoMode() {
-  state.project = createDemoProject();
-  state.selectedProjectId = state.project.project_id;
-  state.projects = demoProjects();
+  loadDemoProject(0, true);
   state.context = null;
   state.detail = null;
   state.diagnostics = null;
@@ -733,6 +732,69 @@ function demoLlmPreflightAction() {
   state.diagnostics = demoLlmPreflight();
   state.toast = "Demo LLM preflight rendered locally.";
   renderShell();
+}
+
+function ensureDemoTodos(reset = false) {
+  if (reset || !state.todos?.todos) resetDemoTodos();
+  return state.todos;
+}
+
+function resetDemoTodos() {
+  state.todos = demoTodos();
+  state.todoStats = demoTodoStatsFromItems(state.todos.todos);
+}
+
+function createDemoTodo(payload) {
+  const todos = ensureDemoTodos().todos;
+  const nextId = todos.reduce((max, todo) => Math.max(max, Number(todo.id) || 0), 0) + 1;
+  const todo = {
+    id: nextId,
+    title: payload.title?.trim() || "Untitled demo todo",
+    content: payload.content?.trim() || "Created locally in Demo mode.",
+    completed: false,
+  };
+  todos.unshift(todo);
+  state.todoStats = demoTodoStatsFromItems(todos);
+  state.todoDetail = { todo: { ...todo }, mode: "demo", action: "created" };
+}
+
+function updateDemoTodo(id, payload) {
+  const todos = ensureDemoTodos().todos;
+  const todo = todos.find((item) => Number(item.id) === Number(id));
+  if (!todo) {
+    state.todoDetail = demoOperationResult(`Update missing todo ${id}`);
+    return;
+  }
+  Object.assign(todo, payload);
+  state.todoStats = demoTodoStatsFromItems(todos);
+  state.todoDetail = { todo: { ...todo }, mode: "demo", action: "updated" };
+}
+
+function deleteDemoTodo(id) {
+  const todos = ensureDemoTodos().todos;
+  const index = todos.findIndex((item) => Number(item.id) === Number(id));
+  if (index < 0) {
+    state.todoDetail = demoOperationResult(`Delete missing todo ${id}`);
+    return;
+  }
+  const [todo] = todos.splice(index, 1);
+  state.todoStats = demoTodoStatsFromItems(todos);
+  state.todoDetail = { todo: { ...todo }, mode: "demo", action: "deleted" };
+}
+
+function demoTodoDetailFromState(id) {
+  const todos = ensureDemoTodos().todos;
+  const todo = todos.find((item) => Number(item.id) === Number(id));
+  return todo ? { todo: { ...todo }, mode: "demo" } : demoTodoDetail(id);
+}
+
+function demoTodoStatsFromItems(todos) {
+  const completed = asArray(todos).filter((todo) => todo.completed).length;
+  return {
+    total: asArray(todos).length,
+    completed,
+    active: asArray(todos).length - completed,
+  };
 }
 
 function jitter(seed, range) {
