@@ -113,12 +113,17 @@ def test_demo_mode_guards_command_level_api_calls() -> None:
 def test_demo_todos_use_mutable_local_state() -> None:
     source = _source()
     render_todos = _function_body(source, "renderTodos")
+    render_todo_stats = _function_body(source, "renderTodoStats")
     create_todo = _function_body(source, "createTodo")
     update_todo = _function_body(source, "updateTodo")
     delete_todo = _function_body(source, "deleteTodo")
 
     assert "ensureDemoTodos()" in render_todos
     assert "demoTodos()" not in render_todos
+    assert "renderTodoStats(statsPayload)" in render_todos
+    assert "stats-grid" in render_todo_stats
+    assert "Completed" in render_todo_stats
+    assert "Active" in render_todo_stats
     assert "createDemoTodo(payload)" in create_todo
     assert "updateDemoTodo(id, payload)" in update_todo
     assert "deleteDemoTodo(id)" in delete_todo

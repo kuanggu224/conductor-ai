@@ -670,7 +670,19 @@ function renderTodos() {
         el("div", { class: "row-actions" }, [cmd("View", () => loadTodo(todo.id)), cmd(todo.completed ? "Open" : "Done", () => updateTodo(todo.id, { completed: !todo.completed })), cmd("Delete", () => deleteTodo(todo.id))]),
       ])),
     ]),
-    el("aside", { class: "panel" }, [sectionTitle("Todo Detail", `${todosPayload?.todos?.length || 0} loaded / ${statsPayload?.total ?? 0} total`), state.todoDetail ? el("pre", { class: "code tall", text: pretty(state.todoDetail) }) : null]),
+    el("aside", { class: "panel" }, [
+      sectionTitle("Todo Detail", `${todosPayload?.todos?.length || 0} loaded / ${statsPayload?.total ?? 0} total`),
+      renderTodoStats(statsPayload),
+      state.todoDetail ? el("pre", { class: "code tall", text: pretty(state.todoDetail) }) : null,
+    ]),
+  ]);
+}
+
+function renderTodoStats(stats) {
+  return el("div", { class: "stats-grid" }, [
+    metric("Total", stats?.total ?? 0),
+    metric("Completed", stats?.completed ?? 0),
+    metric("Active", stats?.active ?? 0),
   ]);
 }
 
