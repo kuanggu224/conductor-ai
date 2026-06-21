@@ -52,6 +52,7 @@ Invoke-Step "Running frontend demo smoke test" {
     python -m pytest `
         tests\test_frontend_demo.py `
         tests\test_frontend_demo_mode_guards.py `
+        tests\test_demo_docs.py `
         -q
 }
 
