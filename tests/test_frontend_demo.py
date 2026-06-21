@@ -55,6 +55,10 @@ assert.equal(demo.demoTodos().todos.length, 3);
 assert.equal(demo.demoTodoStats().total, 3);
 assert.equal(demo.demoTodoDetail(1).todo.title, "Verify API contract");
 assert.equal(demo.demoSettingsPayload().execution.config.run_profile, "api_sqlite");
+const capabilities = demo.demoCapabilityMatrix();
+assert.equal(capabilities.length, 6);
+assert.equal(capabilities.find((item) => item.area === "Task center").status, "aligned");
+assert.match(capabilities.find((item) => item.area === "External execution").live, /LLM/);
 assert.equal(demo.demoDiagnostics(true).backend_required, false);
 assert.equal(demo.demoLlmPreflight().checks.find((check) => check.name === "model_call").status, "skipped");
 """.strip(),

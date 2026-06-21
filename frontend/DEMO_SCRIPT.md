@@ -28,6 +28,7 @@ Expected first screen:
 
 - Demo mode is deterministic and offline: it does not require the backend, Agent CLI, or external LLM provider.
 - Demo mode exercises the operator console, dependency graph, task handoff, agents, artifacts, settings diagnostics, logs, and Todo CRUD locally.
+- The `Settings` page shows `Capability Alignment`: each demo area is paired with the live API or runtime dependency it represents.
 - Live mode should be used only when the backend is running at the configured API URL.
 - The broader backend regression subset is covered by `demo-check.ps1 -StaticSmoke -FullBackendChecks`.
 
@@ -58,6 +59,7 @@ Expected first screen:
    - Open `API Contract Validation` to show endpoint evidence and delivery readiness.
 
 5. Live Mode
+   - Click `Settings` and point at `Capability Alignment` to separate deterministic demo behavior from live backend/Agent/LLM requirements.
    - Click `Live` in the top bar only when the backend is running at the configured API URL.
    - If backend is not running, stay in Demo mode for the presentation.
 

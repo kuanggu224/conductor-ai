@@ -1,5 +1,5 @@
 import { ApiClient, getApiBase } from "./api.js";
-import { advanceDemoProject, createDemoProject, demoArtifact, demoDiagnostics, demoLlmPreflight, demoOperationResult, demoProjects, demoSettingsPayload, demoTaskContext, demoTodoDetail, demoTodos } from "./demo.js";
+import { advanceDemoProject, createDemoProject, demoArtifact, demoCapabilityMatrix, demoDiagnostics, demoLlmPreflight, demoOperationResult, demoProjects, demoSettingsPayload, demoTaskContext, demoTodoDetail, demoTodos } from "./demo.js";
 import { asArray, el, empty, pretty, short, tone, valueOf } from "./utils.js";
 
 const api = new ApiClient();
@@ -511,6 +511,10 @@ function renderSettings() {
   if (state.demoMode) return renderDemoSettings();
   return el("div", { class: "settings" }, [
     card("API Connection", [input("Backend URL", "api-base", api.baseUrl), cmd("Save API", () => { api.setBaseUrl(valueOf("api-base")); refreshAll(); })]),
+    card("Live Capability Readiness", [
+      ...renderCapabilityRows(liveCapabilityMatrix()),
+      el("p", { class: "muted", text: "Run Diagnostics and LLM Preflight before presenting real Agent execution." }),
+    ]),
     settingsCard("Execution", "execution", () => api.executionSettings(), (payload) => api.saveExecutionSettings(payload)),
     settingsCard("CLI", "cli", () => api.cliSettings(), (payload) => api.saveCliSettings(payload.config || payload)),
     card("LLM", [
@@ -537,6 +541,10 @@ function renderDemoSettings() {
       metric("Project", "demo-api-delivery"),
       el("div", { class: "command-grid" }, [cmd("Reset Demo", resetDemoMode), cmd("Show Diagnostics", () => loadDiagnostics(true)), cmd("LLM Preflight", demoLlmPreflightAction)]),
     ]),
+    card("Capability Alignment", [
+      ...renderCapabilityRows(demoCapabilityMatrix()),
+      el("p", { class: "muted", text: "Demo actions are deterministic, but every visible area maps to a live API or runtime dependency." }),
+    ]),
     card("API Connection", [
       input("Backend URL", "api-base", api.baseUrl),
       el("p", { class: "muted", text: "Demo mode keeps this value visible but does not call the backend." }),
@@ -557,6 +565,60 @@ function renderDemoSettings() {
       state.diagnostics ? el("pre", { class: "code", text: pretty(state.diagnostics) }) : el("p", { class: "muted", text: "Use Show Diagnostics to render local demo readiness evidence." }),
     ]),
   ]);
+}
+
+function liveCapabilityMatrix() {
+  return [
+    {
+      area: "Dependency graph",
+      demo: "n/a",
+      live: state.selectedProjectId ? "Loaded from the selected project snapshot." : "Select or create a project to load graph data.",
+      status: state.selectedProjectId ? "ready" : "needs project",
+    },
+    {
+      area: "Task center",
+      demo: "n/a",
+      live: state.selectedProjectId ? "Task claim, release, heartbeat, sweep and context APIs are available." : "Requires a selected project.",
+      status: state.selectedProjectId ? "ready" : "needs project",
+    },
+    {
+      area: "Agents",
+      demo: "n/a",
+      live: "Agent roster is loaded from project state; external execution depends on CLI/LLM configuration.",
+      status: "check diagnostics",
+    },
+    {
+      area: "Review artifacts",
+      demo: "n/a",
+      live: state.selectedProjectId ? "Stored artifacts and human-control APIs are available." : "Requires a selected project.",
+      status: state.selectedProjectId ? "ready" : "needs project",
+    },
+    {
+      area: "Todo API",
+      demo: "n/a",
+      live: "Backed by platform Todo API endpoints and session storage.",
+      status: "ready",
+    },
+    {
+      area: "External execution",
+      demo: "n/a",
+      live: "Requires Agent CLI and/or LLM settings to pass diagnostics before real runs.",
+      status: "requires setup",
+    },
+  ];
+}
+
+function renderCapabilityRows(items) {
+  return [
+    el("div", { class: "capability-list" }, items.map((item) => el("div", { class: `capability-item ${tone(item.status)}` }, [
+      el("div", { class: "capability-head" }, [
+        el("strong", { text: item.area }),
+        badge(item.status, tone(item.status)),
+      ]),
+      item.demo && item.demo !== "n/a" ? el("p", { text: `Demo: ${item.demo}` }) : null,
+      el("p", { text: `Live: ${item.live}` }),
+    ]))),
+  ];
 }
 
 function renderTodos() {

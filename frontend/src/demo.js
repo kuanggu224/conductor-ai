@@ -217,6 +217,45 @@ const demoSettings = {
   },
 };
 
+const demoCapabilities = [
+  {
+    area: "Dependency graph",
+    demo: "Local fixture with deterministic readiness progression.",
+    live: "Backed by /api/projects/{id} snapshots and runtime stream refresh.",
+    status: "aligned",
+  },
+  {
+    area: "Task center",
+    demo: "Local claim, sweep and task-context results are simulated.",
+    live: "Backed by task claim, release, heartbeat, sweep and context APIs.",
+    status: "aligned",
+  },
+  {
+    area: "Agents",
+    demo: "Roster, dynamic activations and claimable work are fixture data.",
+    live: "Backed by project agent assignments and agent task APIs.",
+    status: "aligned",
+  },
+  {
+    area: "Review artifacts",
+    demo: "FastAPI, validation and manifest evidence are fixture artifacts.",
+    live: "Backed by stored project artifacts and human-control APIs.",
+    status: "aligned",
+  },
+  {
+    area: "Todo API",
+    demo: "CRUD state mutates locally in the browser session.",
+    live: "Backed by the platform Todo API and cookie-scoped session storage.",
+    status: "aligned",
+  },
+  {
+    area: "External execution",
+    demo: "Agent CLI and LLM calls are not executed.",
+    live: "Requires configured Agent CLI and/or LLM backends before real runs.",
+    status: "requires setup",
+  },
+];
+
 export function demoProjects() {
   return [
     {
@@ -291,6 +330,10 @@ export function demoSettingsPayload() {
     cli: clone(demoSettings.cli),
     llm: clone(demoSettings.llm),
   };
+}
+
+export function demoCapabilityMatrix() {
+  return clone(demoCapabilities);
 }
 
 export function demoLlmPreflight() {

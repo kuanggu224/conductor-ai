@@ -36,7 +36,7 @@ Offline demo mode:
 http://127.0.0.1:4176/?demo=1
 ```
 
-Demo mode loads a complete API-only delivery project locally, so the dependency graph, task center, agents, review artifacts and logs remain present even when the backend is not running. Use the top-bar `Demo` / `Live` toggle to switch modes.
+Demo mode loads a complete API-only delivery project locally, so the dependency graph, task center, agents, review artifacts and logs remain present even when the backend is not running. Use the top-bar `Demo` / `Live` toggle to switch modes. The `Settings` page includes a capability alignment panel that maps deterministic demo behavior to the corresponding live API or runtime dependency.
 
 For a step-by-step presentation flow, use `frontend/DEMO_SCRIPT.md`.
 
@@ -53,5 +53,5 @@ Coverage:
 - `Agents`: roster, dynamic activations, claimable task listing, agent-side claim.
 - `Review`: artifact detail, pause/resume, approval request, approve/reject/override.
 - `Logs`: recent events, routes, executions, runtime stream refresh.
-- `Settings`: live API configuration in Live mode; offline runtime, diagnostics, and LLM preflight evidence in Demo mode.
+- `Settings`: live API configuration in Live mode; offline runtime, diagnostics, LLM preflight evidence, and Demo/Live capability alignment in Demo mode.
 - `Todos`: list, create, read, update, delete.

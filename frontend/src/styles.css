@@ -309,6 +309,34 @@ nav { display: grid; gap: 8px; align-content: start; }
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
 }
+.capability-list {
+  display: grid;
+  gap: 10px;
+}
+.capability-item {
+  display: grid;
+  gap: 7px;
+  padding: 10px;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 8px;
+  background: rgba(255,255,255,.025);
+}
+.capability-item.good { border-color: rgba(111,208,123,.32); }
+.capability-item.warn { border-color: rgba(244,185,95,.35); }
+.capability-item.bad { border-color: rgba(242,110,119,.35); }
+.capability-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.capability-head strong { font-size: 13px; }
+.capability-item p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
 .card-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));

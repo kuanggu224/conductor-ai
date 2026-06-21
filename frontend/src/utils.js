@@ -31,7 +31,7 @@ export function tone(value) {
   const text = String(value || "").toLowerCase();
   if (["done", "completed", "ready", "success", "healthy", "approved"].some((term) => text.includes(term))) return "good";
   if (["failed", "blocked", "error", "expired", "stale", "missing", "violation"].some((term) => text.includes(term))) return "bad";
-  if (["running", "claimed", "pending", "hold", "warning", "medium"].some((term) => text.includes(term))) return "warn";
+  if (["running", "claimed", "pending", "hold", "warning", "medium", "requires", "needs", "check"].some((term) => text.includes(term))) return "warn";
   return "info";
 }
 export const valueOf = (id) => document.getElementById(id)?.value || "";

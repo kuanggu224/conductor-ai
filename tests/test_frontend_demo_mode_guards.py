@@ -178,3 +178,23 @@ def test_navigation_clears_cross_route_transient_detail() -> None:
     assert "clearRouteTransientDetail()" in set_route
     assert "state.detail = null;" in clear_detail
     assert "state.context = null;" in clear_detail
+
+
+def test_settings_render_capability_alignment() -> None:
+    source = _source()
+    render_settings = _function_body(source, "renderSettings")
+    render_demo_settings = _function_body(source, "renderDemoSettings")
+    render_capability_rows = _function_body(source, "renderCapabilityRows")
+    live_capability_matrix = _function_body(source, "liveCapabilityMatrix")
+
+    assert "demoCapabilityMatrix" in source
+    assert "Live Capability Readiness" in render_settings
+    assert "liveCapabilityMatrix()" in render_settings
+    assert "Capability Alignment" in render_demo_settings
+    assert "demoCapabilityMatrix()" in render_demo_settings
+    assert "Demo actions are deterministic" in render_demo_settings
+    assert "External execution" in live_capability_matrix
+    assert "Run Diagnostics and LLM Preflight" in render_settings
+    assert "capability-list" in render_capability_rows
+    assert "Demo:" in render_capability_rows
+    assert "Live:" in render_capability_rows
