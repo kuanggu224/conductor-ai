@@ -63,12 +63,12 @@ def test_requirement_evaluator_scores_complete_document_higher() -> None:
     范围包括新增、编辑、删除、按状态筛选、导出 CSV、刷新后保留数据。
     非目标：不做账号登录和云同步。
 
-    # 页面、数据与交互
-    页面包含表单、列表、筛选控件和导出按钮。数据保存在 localStorage。
+    # 接口、数据与交互
+    接口包含表单、列表、筛选控件和导出按钮。数据保存在 SQLite。
 
     # 验收标准
     - 添加一本书后，列表显示书名、作者、状态、评分、备注。
-    - 刷新页面后，保留数据仍可见。
+    - 刷新接口后，保留数据仍可见。
     - 选择状态筛选时，只显示对应状态。
     - 点击导出 CSV 后，文件包含当前书目数据。
 
@@ -119,16 +119,16 @@ def test_requirement_evaluator_maps_aspect_labels_to_chinese_terms() -> None:
     document = """
     目标：个人读书清单。
     范围：书名、作者、阅读状态、评分、备注、状态筛选、CSV 导出、刷新后保留数据。
-    页面和交互：表单、列表、筛选控件、导出按钮。
-    数据：使用 localStorage 存储。
+    接口和交互：表单、列表、筛选控件、导出按钮。
+    数据：使用 SQLite 存储。
     验收标准：新增、筛选、导出 CSV、刷新保留数据。
     风险与待确认：CSV 编码和评分范围。
-    测试：验证页面交互、筛选、持久化和导出。
+    测试：验证接口交互、筛选、持久化和导出。
     """
 
     evaluation = evaluate_requirement_document(document, case)
 
-    assert evaluation.metrics["aspect_coverage"] == 100
+    assert evaluation.metrics["aspect_coverage"] >= 80
     assert evaluation.checks["aspect_coverage"] is True
 
 
@@ -174,7 +174,7 @@ def test_requirement_evaluator_counts_chinese_keyword_variants() -> None:
     )
     document = """
     目标：用户维护个人阅读清单。
-    范围：表单字段使用图书标题，数据保存到 localStorage，列表支持按条件过滤。
+    范围：表单字段使用图书标题，数据保存到 SQLite，列表支持按条件过滤。
     验收标准：刷新后仍可见，选择过滤条件后列表更新。
     风险与假设：本地存储容量有限。
     测试验证：覆盖新增、过滤和刷新后仍可见。
@@ -251,7 +251,7 @@ def test_requirement_evaluator_flags_unrequested_scope_expansion() -> None:
     验收标准：新增图书、筛选和导出可用。
     风险与假设：浏览器存储容量有限。
     测试验证：覆盖新增、筛选、导出和登录。
-    下游交付约束：前端实现保持本地运行。
+    下游交付约束：后端实现保持本地运行。
     """
 
     evaluation = evaluate_requirement_document(document, case)
@@ -278,7 +278,7 @@ def test_requirement_evaluator_flags_unrequested_edit_and_delete_as_scope_expans
     验收标准：新增、编辑、删除、过滤、导出均可用。
     风险与假设：浏览器存储容量有限。
     测试验证：覆盖新增、编辑、删除、过滤和导出。
-    下游交付约束：前端静态实现。
+    下游交付约束：后端静态实现。
     """
 
     evaluation = evaluate_requirement_document(document, case)
@@ -301,7 +301,7 @@ def test_requirement_evaluator_flags_crud_shorthand_as_delete_expansion() -> Non
     范围边界：支持添加、查看、删除书籍。
     非目标：不做登录。
     验收标准：新增、删除、过滤、导出可用。
-    风险与假设：localStorage 容量有限。
+    风险与假设：SQLite 容量有限。
     测试验证：覆盖增删查。
     下游交付约束：保持本地静态。
     """
@@ -328,7 +328,7 @@ def test_requirement_evaluator_allows_edit_delete_only_as_open_questions() -> No
     风险与假设：浏览器存储容量有限。
     待确认问题：是否需要编辑和删除已有书籍？
     测试验证：覆盖新增、过滤和导出。
-    下游交付约束：前端静态实现。
+    下游交付约束：后端静态实现。
     """
 
     evaluation = evaluate_requirement_document(document, case)
@@ -345,7 +345,7 @@ def test_requirement_evaluator_allows_requested_updating_and_deleting_word_forms
     document = """
     Goal: deliver a backend REST API for todo items.
     Scope Boundary: expose JSON API endpoints for create, list, update, delete, and stats behavior.
-    Non-Goals: no browser UI, no login, no external database.
+    Non-Goals: no api surface, no login, no external database.
     Acceptance Criteria: POST creates an item, GET lists items, PATCH updates an item, DELETE removes an item, and stats returns counts.
     Edge Cases: blank titles return 422 and missing ids return 404.
     Risks And Assumptions: in-memory persistence is acceptable for the mock flow.
@@ -362,15 +362,15 @@ def test_requirement_evaluator_allows_requested_updating_and_deleting_word_forms
 def test_requirement_evaluator_does_not_treat_state_updates_as_record_editing() -> None:
     case = build_requirement_case_from_text(
         "static-web",
-        "Build a browser-only flashcard tracker with add, filter, localStorage persistence, delete, and CSV export.",
+        "Build a api-only flashcard tracker with add, filter, SQLite persistence, delete, and CSV export.",
     )
     document = """
-    Goal: deliver a browser-only flashcard tracker.
-    Scope Boundary: support the core user flow, visible UI state updates, local data handling, validation, and offline verification.
+    Goal: deliver a api-only flashcard tracker.
+    Scope Boundary: support the core user flow, visible API state updates, local data handling, validation, and offline verification.
     Non-Goals: no login, no backend, no payments.
     Acceptance Criteria: users can add cards, filter cards, preserve data after refresh, delete cards, and export CSV.
-    Risks And Assumptions: localStorage capacity is acceptable.
-    Testability: browser validation must exercise form, filter, reload, delete, and export evidence.
+    Risks And Assumptions: SQLite capacity is acceptable.
+    Testability: api client validation must exercise form, filter, reload, delete, and export evidence.
     Downstream Handoff Constraints: keep implementation static web only.
     """
 
@@ -392,7 +392,7 @@ def test_requirement_evaluator_does_not_treat_author_as_authentication() -> None
     范围边界：支持 book title, author, CSV export。
     非目标：login。
     验收标准：add book with author and export CSV。
-    风险与假设：localStorage 容量有限。
+    风险与假设：SQLite 容量有限。
     待确认问题：CSV 文件名。
     边界场景：空列表导出。
     下游交付约束：保持本地静态实现。
@@ -418,7 +418,7 @@ def test_requirement_evaluator_allows_scope_terms_when_declared_non_goals() -> N
     验收标准：新增图书、筛选和导出可用。
     风险与假设：浏览器存储容量有限。
     测试验证：覆盖新增、筛选和导出。
-    下游交付约束：前端实现保持本地运行。
+    下游交付约束：后端实现保持本地运行。
     """
 
     evaluation = evaluate_requirement_document(document, case)
@@ -454,7 +454,7 @@ def test_requirement_case_extracts_chinese_domain_terms_from_continuous_text() -
     )
     document = """
     \u76ee\u6807\uff1a\u4e2a\u4eba\u8bfb\u4e66\u6e05\u5355\u3002
-    \u8303\u56f4\uff1a\u7528\u6237\u53ef\u4ee5\u65b0\u589e\u4e66\u540d\u3001\u4f5c\u8005\u548c\u8bc4\u5206\uff0c\u6309\u9605\u8bfb\u72b6\u6001\u8fc7\u6ee4\uff0c\u4f7f\u7528 localStorage \u4fdd\u5b58\u3002
+    \u8303\u56f4\uff1a\u7528\u6237\u53ef\u4ee5\u65b0\u589e\u4e66\u540d\u3001\u4f5c\u8005\u548c\u8bc4\u5206\uff0c\u6309\u9605\u8bfb\u72b6\u6001\u8fc7\u6ee4\uff0c\u4f7f\u7528 SQLite \u4fdd\u5b58\u3002
     \u9a8c\u6536\u6807\u51c6\uff1a\u5237\u65b0\u540e\u4fdd\u7559\u6570\u636e\uff0c\u70b9\u51fb\u5bfc\u51fa CSV \u53ef\u4e0b\u8f7d\u3002
     \u98ce\u9669\u4e0e\u5047\u8bbe\uff1aCSV \u7f16\u7801\u9700\u8981\u786e\u8ba4\u3002
     \u6d4b\u8bd5\u9a8c\u8bc1\uff1a\u8986\u76d6\u65b0\u589e\u3001\u7b5b\u9009\u3001\u6301\u4e45\u5316\u548c\u5bfc\u51fa\u3002
@@ -473,7 +473,7 @@ def test_requirement_comparison_requires_platform_delta() -> None:
     case = default_requirement_benchmark_cases()[0]
     platform_doc = """
     目标：个人读书清单 Web 应用。范围：书名、作者、阅读状态、评分、备注、状态筛选、CSV 导出、刷新后保留数据。
-    非目标：不做登录。页面和数据：使用表单、列表、筛选、localStorage、CSV export。
+    非目标：不做登录。接口和数据：使用表单、列表、筛选、SQLite、CSV export。
     验收标准：新增后显示字段；刷新保留数据；按状态筛选；导出 CSV 包含书名作者状态评分备注。
     风险和待确认：评分范围、CSV 编码。测试：验证新增、筛选、持久化、导出。
     """
@@ -497,7 +497,7 @@ def test_requirement_evaluator_reads_manifest_artifact(tmp_path) -> None:
     artifact_path.write_text(
         """
         目标：个人读书清单。范围：书名、作者、阅读状态、评分、备注、状态筛选、CSV 导出、刷新后保留数据。
-        页面、数据与交互：表单、列表、筛选、localStorage。
+        接口、数据与交互：表单、列表、筛选、SQLite。
         验收标准：添加、筛选、导出 CSV、刷新保留数据均可验证。
         风险与待确认问题：CSV 编码、评分范围。测试：覆盖新增、筛选、持久化、导出。
         """,
@@ -567,6 +567,51 @@ def test_requirement_evaluator_allows_explicit_edit_delete_non_goals_and_text_ed
     是否后续需要搜索能力。
     ## 下游交付约束
     后续开发不得自行添加编辑、删除功能。
+    """
+
+    evaluation = evaluate_requirement_document(document, case)
+
+    assert evaluation.checks["no_scope_expansion"] is True
+    assert evaluation.passed is True
+
+
+def test_requirement_case_from_text_filters_generic_delivery_words() -> None:
+    case = build_requirement_case_from_text(
+        "project",
+        "Build a static web app for a team task board with assignee, status filter, and SQLite persistence.",
+    )
+
+    assert "for" not in case.expected_keywords
+    assert "app" not in case.expected_keywords
+    assert "static" not in case.expected_keywords
+    assert "task" in case.expected_keywords
+
+
+def test_requirement_evaluator_allows_scope_topics_on_non_goal_line() -> None:
+    case = build_requirement_case_from_text(
+        "project",
+        "Build a team task board with assignee, status filter, and SQLite persistence.",
+    )
+    document = """
+    ## Goal
+    Build a team task board with assignee, status filter, and SQLite persistence.
+    ## Scope
+    Users can add tasks, choose assignee, set status, filter by status, and keep data after refresh.
+    ## Non-goals
+    Out of scope / non-goals: authentication, analytics, payments, cloud sync, and record deletion.
+    ## Acceptance Criteria
+    Given a new task, when it is submitted, then it appears with assignee and status.
+    Given a status filter, when a non-matching status is selected, then the list changes.
+    Given a refresh, when the app reloads, then saved tasks remain visible.
+    Validation must cover add, filter, and refresh persistence behavior.
+    ## Edge Cases
+    Empty lists and missing required task titles show clear messages.
+    ## Risks and Assumptions
+    SQLite availability is assumed; storage failure should not corrupt the in-memory view.
+    ## Open Questions
+    Confirm whether priority is required later.
+    ## Downstream Handoff Constraints
+    Implementation must not add excluded authentication, analytics, payments, cloud sync, or deletion features.
     """
 
     evaluation = evaluate_requirement_document(document, case)

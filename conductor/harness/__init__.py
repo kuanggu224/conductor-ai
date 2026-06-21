@@ -4,7 +4,6 @@ from conductor.harness.base import BaseHarness
 from conductor.harness.llm import LLMHarnessRequest, LLMHarnessResult, OpenAICompatibleLLMHarness
 from conductor.harness.models import HarnessRequest, HarnessResult
 from conductor.harness.shell import ShellHarness
-from conductor.harness.static_web import StaticWebCheckReport, StaticWebHarness
 
 __all__ = [
     "BaseHarness",
@@ -14,6 +13,4 @@ __all__ = [
     "LLMHarnessResult",
     "OpenAICompatibleLLMHarness",
     "ShellHarness",
-    "StaticWebCheckReport",
-    "StaticWebHarness",
 ]

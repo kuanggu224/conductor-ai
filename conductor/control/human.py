@@ -131,13 +131,13 @@ class HumanControlService:
             return "Gate was rejected. Use override or resume when the operator decides how to proceed."
         return "Review human-control history before continuing."
 
-    def operator_command_templates(
+    def operator_command_snippets(
         self,
         state: SharedProjectState,
         *,
         project_root: str | None = None,
     ) -> list[str]:
-        """Return copyable CLI command templates for the current human-control state."""
+        """Return copyable CLI command snippets for the current human-control state."""
         root = project_root or state.project.project_root or "<project-root>"
         active = self.active_action(state)
         active_payload = dict(active.payload) if active and active.payload else {}

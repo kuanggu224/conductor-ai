@@ -9,8 +9,8 @@ def test_system_config_save_and_load_round_trip(tmp_path) -> None:
             stages=[
                 {
                     "name": "design",
-                    "objective": "明确需求并形成方案",
-                    "expected_output": "设计说明",
+                    "objective": "Define the API design.",
+                    "expected_output": "Design notes.",
                 }
             ]
         ),
@@ -19,10 +19,9 @@ def test_system_config_save_and_load_round_trip(tmp_path) -> None:
             default_role="backend_engineer",
         ),
         planner=PlannerConfig(
-            ui_keywords=("ui", "页面"),
-            api_keywords=("api", "接口"),
-            test_keywords=("测试", "pytest"),
-            data_keywords=("数据", "schema"),
+            api_keywords=("api", "endpoint"),
+            test_keywords=("test", "pytest"),
+            data_keywords=("data", "schema"),
             design_workitem_kinds=["design_overview"],
             development_workitem_kinds=["api_implementation"],
             testing_workitem_kinds=["acceptance_check"],
@@ -38,7 +37,7 @@ def test_system_config_save_and_load_round_trip(tmp_path) -> None:
             default_profiles=[
                 {
                     "role_name": "designer",
-                    "mission": "把需求转成设计输出",
+                    "mission": "Turn requirements into design output.",
                     "default_cli_name": "codex",
                 }
             ]
@@ -54,17 +53,8 @@ def test_system_config_save_and_load_round_trip(tmp_path) -> None:
     assert loaded.role_mapping.get_role_for_kind("unknown") == "backend_engineer"
     assert loaded.role_mapping.workitem_kind_to_role["requirement_spec"] == "requirement_designer"
     assert loaded.role_mapping.workitem_kind_to_role["design_overview"] == "designer"
-    assert loaded.planner.ui_keywords == ("ui", "页面")
+    assert loaded.planner.api_keywords == ("api", "endpoint")
     assert loaded.collaboration.max_rounds == 3
     assert loaded.collaboration.enabled_kinds == {"requirement_spec", "design_overview"}
     assert loaded.collaboration.lead_role_by_kind["requirement_spec"] == "requirement_designer"
-    assert loaded.collaboration.peer_reviewer_roles_by_stage["development"] == [
-        "backend_engineer",
-        "frontend_engineer",
-    ]
-    assert loaded.collaboration.reviewer_roles_by_stage["testing"] == [
-        "backend_engineer",
-        "frontend_engineer",
-        "solution_designer",
-    ]
     assert loaded.agents.default_profiles[0]["role_name"] == "designer"

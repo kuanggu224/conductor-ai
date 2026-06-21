@@ -1,4 +1,4 @@
-"""Command templates for Task Center handoff payloads."""
+"""Command snippets for Task Center handoff payloads."""
 
 from __future__ import annotations
 

@@ -5,10 +5,8 @@ from conductor.artifacts.scope_contract import evaluate_scope_contract, infer_sc
 
 def test_scope_contract_infers_hard_non_goals() -> None:
     requirement = """
-    ## 范围边界
-    仅实现前端静态页面，不接后端，不接数据库。
-    ## 非目标
-    不做登录、注册、云同步和 CSV 导入。
+    Scope boundary: no backend API and no database.
+    Non-goals: no login, no cloud sync, no CSV import.
     """
 
     rules = infer_scope_rules(requirement)
@@ -17,8 +15,17 @@ def test_scope_contract_infers_hard_non_goals() -> None:
 
 
 def test_scope_contract_allows_repeating_non_goal_language() -> None:
-    requirement = "非目标：不接后端，不做登录。"
-    candidate = "范围边界：继续保持不接后端，不做登录，只使用 localStorage。"
+    requirement = "Non-goals: no backend API and no login."
+    candidate = "Scope boundary: continue to avoid backend API and login."
+
+    result = evaluate_scope_contract(requirement, candidate)
+
+    assert result.passed is True
+
+
+def test_scope_contract_allows_excluded_coverage_trace_lines() -> None:
+    requirement = "Out of scope: backend API, CSV export, file import."
+    candidate = "- Excluded: CSV export/download, file import/upload, backend/API integration"
 
     result = evaluate_scope_contract(requirement, candidate)
 
@@ -26,8 +33,8 @@ def test_scope_contract_allows_repeating_non_goal_language() -> None:
 
 
 def test_scope_contract_flags_positive_scope_expansion() -> None:
-    requirement = "非目标：不接后端，不做登录。"
-    candidate = "方案：新增 FastAPI endpoint，并实现 login token session 管理。"
+    requirement = "Non-goals: no backend API and no login."
+    candidate = "Plan: add a FastAPI endpoint and implement login token sessions."
 
     result = evaluate_scope_contract(requirement, candidate)
 
@@ -36,13 +43,12 @@ def test_scope_contract_flags_positive_scope_expansion() -> None:
 
 
 def test_scope_contract_ignores_artifact_metadata() -> None:
-    requirement = "非目标：不接后端，不做登录。"
+    requirement = "Non-goals: no backend API and no login."
     candidate = """
     - Source Backend: `llm_harness/model`
     - Collaboration Session ID: `session-123`
 
-    ## 范围边界
-    继续保持不接后端，不做登录。
+    Scope boundary: continue to avoid backend API and login.
     """
 
     result = evaluate_scope_contract(requirement, candidate)
@@ -50,63 +56,30 @@ def test_scope_contract_ignores_artifact_metadata() -> None:
     assert result.passed is True
 
 
-def test_scope_contract_does_not_match_author_or_generic_interface_heading() -> None:
-    requirement = "非目标：不接后端，不做登录。"
-    candidate = """
-    ## 接口与数据关注点
-    数据结构：每本书为对象 `{title, author, status, rating, note}`。
-    """
+def test_scope_contract_does_not_match_author_or_generic_data_heading() -> None:
+    requirement = "Non-goals: no login."
+    candidate = "Data structure: each book has `{title, author, status, rating, note}`."
 
     result = evaluate_scope_contract(requirement, candidate)
 
     assert result.passed is True
 
 
-def test_scope_contract_allows_localstorage_api_and_sync_wording() -> None:
-    requirement = "Non-goals: no backend API, no cloud sync."
-    candidate = """
-    ## Validation
-    - Add item updates the list and writes to localStorage synchronously.
-    - Use the localStorage API to assert browser persistence.
-    - No network request is introduced.
-    """
+def test_scope_contract_flags_api_usage_when_backend_api_is_excluded() -> None:
+    requirement = "Non-goals: no backend API."
+    candidate = "Validation: call the API endpoint and assert persisted resource state."
 
     result = evaluate_scope_contract(requirement, candidate)
 
-    assert result.passed is True
+    assert result.passed is False
+    assert {item.rule_id for item in result.violations} == {"no_backend"}
 
 
 def test_scope_contract_ignores_mock_runtime_backend_notes() -> None:
     requirement = "Non-goals: no backend API, no login."
     candidate = """
-    ## Scope Boundary
-    - No backend API and no login are part of the product scope.
-
-    ## Risk
-    - Current content is a mock artifact and must be replaced when real LLM or CLI backend execution is enabled.
-    """
-
-    result = evaluate_scope_contract(requirement, candidate)
-
-    assert result.passed is True
-
-
-def test_scope_contract_ignores_source_backend_metadata_in_chinese_runtime_note() -> None:
-    requirement = "Non-goals: no backend API."
-    candidate = "- 可通过 Artifact 的 `source_backend` 字段识别该产物是否来自 mock、mock fallback 或真实后端。"
-
-    result = evaluate_scope_contract(requirement, candidate)
-
-    assert result.passed is True
-
-
-def test_scope_contract_allows_local_frontend_api_event_registration_and_storage_sync() -> None:
-    requirement = "非目标：不接后端，不做登录注册，不做云同步。"
-    candidate = """
-    ## 方案
-    - JavaScript 使用原生 API 操作 DOM 和 localStorage。
-    - 初始化时读取本地数据并注册事件监听。
-    - 多标签页通过 storage 事件同步本地数据。
+    Scope boundary: no backend API and no login are part of the product scope.
+    Risk: current content is a mock artifact and must be replaced when real backend execution is enabled.
     """
 
     result = evaluate_scope_contract(requirement, candidate)
@@ -116,10 +89,7 @@ def test_scope_contract_allows_local_frontend_api_event_registration_and_storage
 
 def test_scope_contract_still_flags_backend_api_and_remote_sync() -> None:
     requirement = "Non-goals: no backend API, no cloud sync."
-    candidate = """
-    ## Plan
-    Add a FastAPI endpoint and remote sync service for cross-device backup.
-    """
+    candidate = "Plan: add a FastAPI endpoint and remote sync service for cross-device backup."
 
     result = evaluate_scope_contract(requirement, candidate)
 

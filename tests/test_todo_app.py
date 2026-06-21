@@ -61,20 +61,20 @@ def test_todo_app_supports_status_filtering() -> None:
 def test_todo_app_supports_keyword_querying() -> None:
     client = TestClient(app)
 
-    backend_response = client.post("/api/todos", json={"title": "Write backend", "content": "Implement todo query"})
-    frontend_response = client.post("/api/todos", json={"title": "Write frontend", "content": "Render todo list"})
+    query_response = client.post("/api/todos", json={"title": "Write backend", "content": "Implement todo query"})
+    render_response = client.post("/api/todos", json={"title": "Write backend", "content": "Render todo list"})
     client.post("/api/todos", json={"title": "Review notes", "content": "Discuss backlog"})
 
-    backend_todo = backend_response.json()["todo"]
-    frontend_todo = frontend_response.json()["todo"]
+    query_backend_todo = query_response.json()["todo"]
+    render_backend_todo = render_response.json()["todo"]
 
     query_response = client.get("/api/todos", params={"q": "todo"})
     assert query_response.status_code == 200
-    assert query_response.json()["todos"] == [frontend_todo, backend_todo]
+    assert query_response.json()["todos"] == [render_backend_todo, query_backend_todo]
 
     title_query_response = client.get("/api/todos", params={"q": " backend "})
     assert title_query_response.status_code == 200
-    assert title_query_response.json()["todos"] == [backend_todo]
+    assert title_query_response.json()["todos"] == [render_backend_todo, query_backend_todo]
 
 
 def test_todo_app_exposes_basic_stats() -> None:

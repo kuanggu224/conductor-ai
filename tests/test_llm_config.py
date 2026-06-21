@@ -155,11 +155,10 @@ def test_default_usage_policy_allows_all_document_agents() -> None:
     assert config.usage.runner_allowed_roles == [
         "designer",
         "backend_engineer",
-        "frontend_engineer",
         "tester",
     ]
     assert "api_implementation" in config.usage.runner_allowed_kinds
-    assert "ui_validation" in config.usage.runner_allowed_kinds
+    assert "api_validation" in config.usage.runner_allowed_kinds
 
 
 def test_llm_provider_presets_include_jiutian_cloud() -> None:

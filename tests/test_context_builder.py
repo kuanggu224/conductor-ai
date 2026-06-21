@@ -261,7 +261,7 @@ def test_context_builder_always_carries_frozen_design_into_later_stages() -> Non
             agent_id="agent-designer",
             kind="frozen_design_spec",
             title="Frozen Design",
-            content="冻结设计：使用静态页面、localStorage 和列表状态机。",
+            content="冻结设计：使用静态接口、SQLite 和列表状态机。",
         ),
         *[
             Artifact(

@@ -19,7 +19,7 @@ def test_file_state_store_persists_and_reloads_project(tmp_path) -> None:
         state_store=store,
         runner=runner,
     )
-    state = controller.initialize_project("实现一个 API 和 UI 页面")
+    state = controller.initialize_project("实现一个 API 和 API 接口")
     state = controller.advance(state)
     state = controller.human_control.pause(state.project.id, actor="operator", reason="checkpoint")
     state = replace(
@@ -98,15 +98,15 @@ def test_file_state_store_persists_agent_team_plans(tmp_path) -> None:
     state_dir = tmp_path / "state"
     store = FileStateStore(state_dir)
     state = SharedProjectState(
-        project=Project(id="project-team-plan", goal="Build UI with validation", current_stage="development"),
+        project=Project(id="project-team-plan", goal="Build API with validation", current_stage="development"),
         project_status=ProjectStatus.IN_PROGRESS,
         current_stage="development",
         workitems=[
             WorkItem(
-                id="workitem-ui",
-                description="Implement UI validation",
+                id="workitem-api",
+                description="Implement API validation",
                 stage="development",
-                kind="ui_implementation",
+                kind="api_implementation",
             )
         ],
     )

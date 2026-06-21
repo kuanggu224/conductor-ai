@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 
 from conductor.agents.agent import Agent
@@ -482,7 +481,6 @@ class CollaborationRunner:
             "requirement_designer": "Review whether the output still follows frozen requirements and scope boundaries.",
             "solution_designer": "Review consistency, integration boundaries, and downstream handoff risk.",
             "backend_engineer": "Review API, data, persistence, and backend failure-mode impact.",
-            "frontend_engineer": "Review UI state, interaction, accessibility, and frontend integration impact.",
             "tester": "Review acceptance coverage, regression risk, and observable pass/fail evidence.",
         }.get(role, "Review from the default responsibility of this role.")
 
@@ -717,7 +715,6 @@ class CollaborationRunner:
             "requirement_designer": "重点检查需求是否符合用户目标、范围是否合理、业务规则是否完整、是否存在需求歧义。",
             "solution_designer": "重点检查方案是否自洽、流程是否完整、信息结构是否清晰、验收标准是否可执行。",
             "backend_engineer": "重点检查接口边界、数据结构、状态流转、错误处理、后端实现风险。",
-            "frontend_engineer": "重点检查页面结构、交互路径、状态展示、空/错/加载状态、前端实现风险。",
             "tester": "重点检查验收标准、测试覆盖、边界条件、异常路径、可验证性。",
         }.get(reviewer.role, "重点检查当前角色负责的交付风险和缺失信息。")
         review_focus = self._review_focus_overrides.get(reviewer.id, review_focus)
@@ -968,7 +965,6 @@ class CollaborationRunner:
         decision = "request_changes" if round_index == 1 else "approve"
         focus = {
             "backend_engineer": "接口边界、数据结构、错误码和状态流转需要更明确。",
-            "frontend_engineer": "页面状态、空状态、错误状态和关键交互需要更明确。",
             "tester": "验收标准、异常路径和边界条件需要更可测试。",
         }.get(reviewer.role, "需要补充当前角色关注点。")
         return (
@@ -998,7 +994,7 @@ class CollaborationRunner:
             f"## 原始草案摘要\n{draft[:1200]}\n\n"
             f"## 本轮审阅结论\n{review_summary}\n\n"
             "## 统一修订\n"
-            "- 补充接口、页面、测试三类关注点，确保后续研发和测试有一致输入。\n"
+            "- 补充接口、数据、测试三类关注点，确保后续研发和测试有一致输入。\n"
             "- 明确主路径、异常路径、非目标范围和验收标准。\n"
             "- 将 reviewer 意见作为后续实现文档和测试文档的约束。\n"
         )
@@ -1011,8 +1007,6 @@ class CollaborationRunner:
         round_index: int,
     ) -> str:
         """Build an actionable design baseline for offline smoke runs."""
-        if self._is_fullstack_workitem(workitem):
-            return self._build_mock_fullstack_design_revision(workitem, draft, reviews, round_index)
         if self._is_api_workitem(workitem):
             return self._build_mock_api_design_revision(workitem, draft, reviews, round_index)
         review_summary = "\n".join(f"- {review.role}: {review.decision.value}" for review in reviews) or "- No review notes."
@@ -1021,36 +1015,33 @@ class CollaborationRunner:
             f"# Overall Design - {workitem.id}\n\n"
             f"## Revision Round\n{round_index}\n\n"
             "## Goal\n"
-            "Define a browser-only implementation plan that downstream development and testing agents can execute without adding unrelated scope.\n\n"
+            "Define a backend/API implementation plan that downstream development and testing agents can execute without adding unrelated scope.\n\n"
             "## Requirement Understanding\n"
             f"{workitem.description}\n\n"
-            "The user workflow is a local single-page experience with visible state updates, durable browser storage, validation feedback, filtering, deletion, and export where requested.\n\n"
+            "The workflow is exposed through JSON HTTP endpoints with observable validation, filtering, mutation, and persistence behavior where requested.\n\n"
             "## Scope Boundary\n"
-            "- In scope: one static web page, semantic form controls, localStorage persistence, local CSV generation, delete action, filters, empty state, and validation errors.\n"
-            "- Out of scope / non-goals: backend services, server APIs, login/auth, accounts, cloud sync, payments, analytics, and remote storage.\n"
-            "- Constraint: keep all product data in the browser and avoid network dependencies.\n\n"
+            "- In scope: API routes, request/response schemas, validation errors, resource mutation, filtering, persistence boundaries, and contract tests.\n"
+            "- Out of scope / non-goals: login/auth, accounts, cloud sync, payments, analytics, and remote storage unless explicitly requested.\n"
+            "- Constraint: keep validation deterministic and avoid external network dependencies.\n\n"
             "## Solution\n"
-            "- Architecture: `index.html` defines form, toolbar filters, card/list region, empty state, and export control.\n"
-            "- Module: `app.js` owns state, validation, rendering, localStorage read/write, filtering, deletion, and CSV export.\n"
-            "- Component flow: load saved data -> render filters and list -> submit validated card -> persist -> rerender -> export current data.\n"
-            "- Interface boundary: use browser DOM and localStorage APIs only; no HTTP routes, server endpoint, or external service.\n\n"
+            "- Architecture: `app.py` exposes resource routes and delegates validation and storage to small service functions.\n"
+            "- API module owns create/list/filter/update/delete behavior plus status-code and error-payload consistency.\n"
+            "- Flow: receive request -> validate payload -> mutate or query storage -> return JSON response -> assert behavior with contract tests.\n"
+            "- Interface boundary: HTTP JSON only; no external service dependency.\n\n"
             "## Data And State\n"
-            "- Fields: id, question, answer, topic, status, createdAt.\n"
-            "- State: cards array, active topic filter, active status filter, validation error text, empty/list visibility.\n"
-            "- Storage: serialize cards to localStorage after create/delete/status updates and restore during initialization.\n"
-            "- CSV: escape commas, quotes, and newlines before creating a local Blob download.\n\n"
+            "- Fields: id, title/name, content/description, status, and created_at where useful.\n"
+            "- State: resource collection, optional status/query filters, validation errors, and mutation timestamps.\n"
+            "- Storage: in-memory by default, SQLite when persistence is explicitly requested.\n\n"
             "## Acceptance And Test Plan\n"
             f"{criteria}\n"
-            "- Test valid card creation updates the visible list and browser storage.\n"
-            "- Test empty required fields show validation errors and do not mutate state.\n"
-            "- Test topic/status filters change the visible card set without deleting data.\n"
-            "- Test delete removes one card and persists after reload.\n"
-            "- Test CSV export contains headers and all card fields.\n\n"
+            "- Test valid create requests return concrete JSON and appear in list responses.\n"
+            "- Test empty required fields return 4xx errors and do not mutate stored state.\n"
+            "- Test query/status filters change list responses without deleting data.\n"
+            "- Test update/delete endpoints return explicit status and payload evidence.\n\n"
             "## Risks And Assumptions\n"
-            "- Assumption: this is a single-user local browser tool.\n"
-            "- Risk: localStorage can be cleared by the browser, so persistence is best-effort.\n"
-            "- Risk: CSV escaping errors can corrupt exported answers that contain punctuation or line breaks.\n"
-            "- Open question: whether status is limited to new/learning/mastered or should be configurable.\n\n"
+            "- Assumption: local API execution is sufficient unless deployment is explicitly requested.\n"
+            "- Risk: generic test success is weak evidence, so tests must print endpoint, status, and payload signals.\n"
+            "- Open question: whether status values are fixed or configurable.\n\n"
             "## Review Resolution\n"
             f"{review_summary}\n"
             "- Reviewer concerns are resolved through explicit scope boundary, architecture, data/state, validation, acceptance tests, and risk notes.\n\n"
@@ -1065,8 +1056,6 @@ class CollaborationRunner:
         round_index: int,
     ) -> str:
         """Build a deterministic requirement baseline for offline smoke runs."""
-        if self._is_fullstack_workitem(workitem):
-            return self._build_mock_fullstack_requirement_revision(workitem, reviews, round_index)
         if self._is_api_workitem(workitem):
             return self._build_mock_api_requirement_revision(workitem, reviews, round_index)
         review_summary = "\n".join(f"- {review.role}: {review.decision.value}" for review in reviews) or "- No review notes."
@@ -1078,10 +1067,10 @@ class CollaborationRunner:
             "Deliver the smallest useful product that satisfies the user request while preserving explicit scope boundaries.\n\n"
             "## Requirement Understanding\n"
             f"{workitem.description}\n\n"
-            "The product must support the named user workflow, data fields, UI states, persistence behavior, and validation paths described above.\n\n"
+            "The product must support the named resource workflow, data fields, persistence behavior, and validation paths described above through an API boundary.\n\n"
             "## Scope Boundary\n"
-            "- In scope: the core user flow, visible UI state updates, local data handling, validation, and offline verification.\n"
-            "- Out of scope / non-goals: login, cloud sync, payment, notification, recommendation engines, analytics, and backend services unless explicitly requested.\n"
+            "- In scope: API routes, local data handling, validation, error responses, and offline verification.\n"
+            "- Out of scope / non-goals: login, cloud sync, payment, notification, recommendation engines, analytics, and external services unless explicitly requested.\n"
             "- The implementation must not add unrelated platform features beyond the stated requirement.\n\n"
             "## Non-Goals\n"
             "- No authentication or account system.\n"
@@ -1089,26 +1078,26 @@ class CollaborationRunner:
             "- No hidden admin dashboard or reporting module.\n\n"
             "## Acceptance Criteria\n"
             f"{criteria}\n"
-            "- Given valid input, when the user submits the form, then the visible list updates immediately.\n"
-            "- Given existing saved data, when the page reloads, then data is restored from localStorage or equivalent local persistence.\n"
-            "- Given invalid or empty required input, when the user submits, then a clear validation error is shown and no invalid record is added.\n"
-            "- Given a filter action, when the user selects all, active, or finished, then the list reflects the selected state.\n\n"
+            "- Given valid input, when the API receives a create request, then the response returns the created record.\n"
+            "- Given existing data, when the list endpoint is called, then persisted or in-memory state is returned as JSON.\n"
+            "- Given invalid or empty required input, when the API receives it, then a clear error payload is returned and no invalid record is added.\n"
+            "- Given filter parameters, when the list endpoint is called, then the response reflects the selected state.\n\n"
             "## Edge / Error Cases\n"
-            "- Empty title, author, or required field input must be rejected with visible feedback.\n"
-            "- Empty state must explain that no records exist yet.\n"
-            "- localStorage or browser storage failure must not corrupt the current in-memory UI state.\n"
-            "- Duplicate or unusual text input should remain visible and should not break rendering.\n\n"
+            "- Empty title, author, or required field input must be rejected with a 4xx response.\n"
+            "- Empty collections must return an explicit empty JSON list.\n"
+            "- Storage failures must return explicit API errors without corrupting current in-memory state.\n"
+            "- Duplicate or unusual text input should round-trip safely in JSON responses.\n\n"
             "## Risks And Assumptions\n"
-            "- Assumption: this is a single-user local browser experience.\n"
-            "- Risk: browser storage can be cleared by the user, so persistence is best-effort local persistence.\n"
+            "- Assumption: this is a local API service unless deployment is explicitly requested.\n"
+            "- Risk: in-memory storage is best-effort unless durable persistence is explicitly requested.\n"
             "- Risk: weak validation would make downstream tests ambiguous.\n\n"
             "## Open Questions / To Confirm\n"
-            "- Confirm whether UI copy should be English, Chinese, or configurable.\n"
-            "- Confirm whether records need edit and delete actions if not explicitly requested.\n\n"
+            "- Confirm whether response messages should be English, Chinese, or configurable.\n"
+            "- Confirm whether records need edit and delete endpoints if not explicitly requested.\n\n"
             "## Downstream Handoff Constraints\n"
             "- Design must preserve this requirement baseline as the contract for later stages.\n"
-            "- Frontend implementation must include index.html, JavaScript, CSS, localStorage persistence, validation, empty state, and filterable visible state.\n"
-            "- Testing must cover add, complete, filter, invalid input, empty state, persistence after reload, and offline static validation.\n\n"
+            "- Backend implementation must include API routes, service logic, validation, and contract tests.\n"
+            "- Testing must cover create, update/complete when requested, filter, invalid input, empty list, and persistence boundaries.\n\n"
             "## Review Resolution\n"
             f"{review_summary}\n"
             "- Reviewer concerns are resolved through explicit scope, acceptance, validation, persistence, edge cases, and downstream handoff constraints.\n"
@@ -1159,10 +1148,10 @@ class CollaborationRunner:
             "The product must expose JSON HTTP endpoints for the requested resource workflow and keep API behavior observable through contract tests.\n\n"
             "## Scope Boundary\n"
             f"- In scope: REST-style API endpoints, JSON request/response payloads, input validation, {persistence_scope}.\n"
-            "- Out of scope / non-goals: browser UI, localStorage, authentication, payments, cloud services, external databases, background jobs, and analytics unless explicitly requested.\n"
+            "- Out of scope / non-goals: authentication, payments, cloud services, external databases, background jobs, and analytics unless explicitly requested.\n"
             "- The implementation must not add unrelated platform features beyond the stated API requirement.\n\n"
             "## Non-Goals\n"
-            "- No frontend page or static web UI.\n"
+            "- No client-facing product surface.\n"
             "- No external network service dependency.\n"
             f"- {database_non_goal}\n\n"
             "## Acceptance Criteria\n"
@@ -1186,96 +1175,6 @@ class CollaborationRunner:
             f"{review_summary}\n"
             "- Reviewer concerns are resolved through explicit API scope, contract tests, validation cases, and endpoint evidence requirements.\n"
         )
-
-    def _build_mock_fullstack_requirement_revision(
-        self,
-        workitem: WorkItem,
-        reviews: list[ReviewContribution],
-        round_index: int,
-    ) -> str:
-        """Build a deterministic full-stack requirement baseline for offline web/API runs."""
-        review_summary = "\n".join(f"- {review.role}: {review.decision.value}" for review in reviews) or "- No review notes."
-        criteria = "\n".join(f"- {item}" for item in workitem.acceptance_criteria) or "- Downstream stages must verify the stated full-stack requirement."
-        return (
-            f"# Requirement Specification - {workitem.id}\n\n"
-            f"## Revision Round\n{round_index}\n\n"
-            "## Goal\n"
-            "Deliver the smallest useful full-stack web app that proves a browser frontend is integrated with a backend API.\n\n"
-            "## Requirement Understanding\n"
-            f"{workitem.description}\n\n"
-            "The product must include a visible browser workflow and JSON HTTP endpoints, with evidence that the frontend uses the backend API instead of local-only state.\n\n"
-            "## Scope Boundary\n"
-            "- In scope: FastAPI backend, /api/items JSON endpoints, static browser page, form submission, list rendering, query filtering, delete action, and stats evidence.\n"
-            "- Out of scope / non-goals: authentication, accounts, payments, cloud services, external integrations, external production databases, and background jobs unless explicitly requested.\n"
-            "- The deliverable must contain both browser interactions and backend API behavior in one verified flow.\n\n"
-            "## Non-Goals\n"
-            "- No login, account, payment, notification, recommendation, or admin system.\n"
-            "- A client-only implementation is insufficient for this profile.\n"
-            "- External network dependencies are excluded; validation runs locally.\n\n"
-            "## Acceptance Criteria\n"
-            f"{criteria}\n"
-            "- Given valid form input, when the user submits the page, then the frontend calls POST /api/items and the created item becomes visible.\n"
-            "- Given existing items, when the browser asks for the list or stats, then GET /api/items and GET /api/items/stats return concrete JSON payloads.\n"
-            "- Given a query filter, when the user types a non-matching term, then the visible list updates through backend-backed state.\n"
-            "- Given a delete action, when the user removes an item, then DELETE /api/items/{id} is called and the item disappears.\n\n"
-            "## Edge / Error Cases\n"
-            "- Blank required titles must be rejected by the API with a 4xx status code and must not create visible records.\n"
-            "- Missing item ids must return 404.\n"
-            "- Invalid filters must be handled predictably and must not break the browser page.\n\n"
-            "## Downstream Handoff Constraints\n"
-            "- Design must preserve this full-stack requirement baseline as the contract for later stages.\n"
-            "- Backend implementation must include app.py, index.html, static/app.js, static/style.css, and pytest full-stack contract tests.\n"
-            "- Testing must print endpoint/status/payload evidence plus browser interaction evidence for create, filter, delete, and stats.\n\n"
-            "## Review Resolution\n"
-            f"{review_summary}\n"
-            "- Reviewer concerns are resolved through explicit frontend/API scope, contract tests, browser evidence, and excluded-scope boundaries.\n"
-        )
-
-    def _build_mock_fullstack_design_revision(
-        self,
-        workitem: WorkItem,
-        draft: str,
-        reviews: list[ReviewContribution],
-        round_index: int,
-    ) -> str:
-        """Build an actionable full-stack design baseline for offline web/API runs."""
-        review_summary = "\n".join(f"- {review.role}: {review.decision.value}" for review in reviews) or "- No review notes."
-        criteria = "\n".join(f"- {item}" for item in workitem.acceptance_criteria) or "- Preserve the frozen requirement and produce an implementable full-stack handoff."
-        return (
-            f"# Overall Design - {workitem.id}\n\n"
-            f"## Revision Round\n{round_index}\n\n"
-            "## Goal\n"
-            "Define a FastAPI-backed browser app that downstream development and testing agents can execute without adding unrelated scope.\n\n"
-            "## Requirement Understanding\n"
-            f"{workitem.description}\n\n"
-            "The workflow is a local full-stack app: a static browser page renders items while all create/list/filter/delete/stats behavior is served by JSON API routes.\n\n"
-            "## Scope Boundary\n"
-            "- In scope: app.py FastAPI routes, static page/assets, frontend fetch calls, in-memory validation state, browser integration test, and API contract evidence.\n"
-            "- Out of scope / non-goals: login/auth, accounts, payments, remote services, external production databases, and deployment automation.\n"
-            "- Constraint: keep the generated app deterministic and self-contained for offline validation.\n\n"
-            "## Solution\n"
-            "- Architecture: app.py serves index.html, mounts /static, and exposes /api/items plus /api/items/stats.\n"
-            "- Frontend: static/app.js owns DOM events and uses fetch for create, list/query, stats refresh, toggle, and delete.\n"
-            "- Data model: item id, title, content, completed flag, and created_at timestamp with blank-title validation.\n"
-            "- Contract tests: tests/test_fullstack_contract.py uses FastAPI TestClient plus Playwright against a local uvicorn server.\n"
-            "- Validation command: pytest runs in the project root and emits endpoint/status/payload plus browser interaction evidence.\n\n"
-            "## Acceptance And Test Plan\n"
-            f"{criteria}\n"
-            "- Test GET / and GET /static/app.js return 200 and prove frontend fetch calls exist.\n"
-            "- Test browser form submission creates an item through POST /api/items and updates visible state.\n"
-            "- Test GET /api/items/stats returns a JSON payload after browser creation.\n"
-            "- Test browser filtering and delete actions update the visible list.\n\n"
-            "## Risks And Assumptions\n"
-            "- Assumption: local in-memory API state is acceptable for the full-stack smoke profile.\n"
-            "- Risk: tests that only inspect files cannot prove integration, so Playwright must exercise the running page.\n"
-            "- Risk: hidden stdout would weaken evidence, so pytest must expose status and payload prints.\n\n"
-            "## Review Resolution\n"
-            f"{review_summary}\n"
-            "- Reviewer concerns are resolved through explicit routes, frontend fetch boundary, browser/API tests, and evidence requirements.\n\n"
-            "## Previous Draft Summary\n"
-            f"{draft[:800]}\n"
-        )
-
     def _build_mock_api_design_revision(
         self,
         workitem: WorkItem,
@@ -1309,13 +1208,13 @@ class CollaborationRunner:
             f"# Overall Design - {workitem.id}\n\n"
             f"## Revision Round\n{round_index}\n\n"
             "## Goal\n"
-            "Define an API-first implementation plan that downstream development and testing agents can execute without adding UI scope.\n\n"
+            "Define an API-first implementation plan that downstream development and testing agents can execute without adding client-facing scope.\n\n"
             "## Requirement Understanding\n"
             f"{workitem.description}\n\n"
             "The workflow is a backend JSON API with observable endpoint behavior, validation, filtering/querying, mutation, deletion, and stats responses.\n\n"
             "## Scope Boundary\n"
             f"- In scope: FastAPI-compatible app.py, /api/items resource routes, JSON payload models, {persistence_scope}, validation errors, and pytest contract tests.\n"
-            f"- Out of scope / non-goals: browser UI, localStorage, static assets, login/auth, {database_boundary}, remote integrations, and background workers.\n"
+            f"- Out of scope / non-goals: login/auth, {database_boundary}, remote integrations, and background workers.\n"
             "- Constraint: keep the mock deterministic and self-contained for offline validation.\n\n"
             "## Solution\n"
             f"- Architecture: {architecture}\n"
@@ -1343,36 +1242,7 @@ class CollaborationRunner:
         """Return whether a mock collaboration artifact should stay API-first."""
         text = f"{workitem.kind} {workitem.description}".lower()
         api_terms = ("api", "rest", "http", "endpoint", "backend", "server", "service", "fastapi")
-        frontend_only_terms = ("browser-only", "static web", "localstorage", "local storage", "no backend")
-        return any(term in text for term in api_terms) and not any(term in text for term in frontend_only_terms)
-
-    def _is_fullstack_workitem(self, workitem: WorkItem) -> bool:
-        """Return whether a mock collaboration artifact should preserve frontend/API scope."""
-        text = f"{workitem.kind} {workitem.description}".lower()
-        api_terms = ("api", "rest", "http", "endpoint", "backend", "server", "service", "fastapi")
-        ui_terms = ("frontend", "browser", "web", "ui", "page", "form", "fullstack", "full-stack")
-        frontend_only_terms = (
-            "browser-only",
-            "static web",
-            "localstorage",
-            "local storage",
-            "no backend",
-            "without backend",
-            "no server",
-            "without server",
-        )
-        return (
-            any(term in text for term in api_terms)
-            and any(self._contains_full_word(text, term) for term in ui_terms)
-            and not any(term in text for term in frontend_only_terms)
-        )
-
-    def _contains_full_word(self, text: str, term: str) -> bool:
-        """Return whether a term appears as a standalone word or explicit phrase."""
-        if not term.replace("-", "").isalnum():
-            return term in text
-        pattern = rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])"
-        return re.search(pattern, text) is not None
+        return any(term in text for term in api_terms)
 
     def _is_sqlite_api_workitem(self, workitem: WorkItem) -> bool:
         """Return whether an API collaboration baseline should preserve SQLite persistence scope."""
@@ -1486,7 +1356,7 @@ class CollaborationRunner:
                 f"{draft}\n\n"
                 "## Downstream Contract\n"
                 "- 后续开发、测试必须以本冻结设计规格作为实现基线。\n"
-                "- 如需改变架构、接口或页面方案，必须创建新的设计修订或返工 WorkItem。\n"
+                "- 如需改变架构、接口或数据方案，必须创建新的设计修订或返工 WorkItem。\n"
             ),
             source_backend="collaboration",
             parent_artifact_id=review_artifact.id,

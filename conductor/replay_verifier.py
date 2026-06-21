@@ -1805,7 +1805,7 @@ class ManifestVerifier:
             for artifact in input_artifacts
         )
         has_design_baseline = any(
-            str(artifact.get("kind", "")) in {"frozen_design_spec", "design_overview", "feature_slice_plan", "ui_design", "api_design", "test_design"}
+            str(artifact.get("kind", "")) in {"frozen_design_spec", "design_overview", "feature_slice_plan", "api_design", "test_design"}
             or str(artifact.get("workitem_id", "")) in design_workitem_ids
             for artifact in input_artifacts
         )

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import sys
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
@@ -91,13 +92,18 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         help=(
             "Enable multi-agent collaboration for an additional WorkItem kind in this run. "
-            "Repeat to enable multiple kinds, e.g. ui_implementation and acceptance_check."
+            "Repeat to enable multiple kinds, e.g. api_implementation and acceptance_check."
         ),
     )
     parser.add_argument(
         "--static-requirement-review",
         action="store_true",
         help="Disable dynamic requirement review seats for faster controlled smoke runs.",
+    )
+    parser.add_argument(
+        "--skip-collaboration-review",
+        action="store_true",
+        help="Disable requirement/design collaboration review loops for faster demo runs.",
     )
     parser.add_argument(
         "--skip-preflight-gate",
@@ -108,6 +114,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--preflight-only",
         action="store_true",
         help="Run the current run-profile preflight gate and exit without creating a project.",
+    )
+    parser.add_argument(
+        "--progress",
+        action="store_true",
+        help="Print concise runtime progress to stderr while the project is advancing.",
     )
     parser.add_argument(
         "--resume-project-id",
@@ -272,6 +283,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             print(json.dumps(gate_payload, ensure_ascii=False, indent=2))
             return 2
+        _progress(args, f"[preflight] ok profile={run_profile.profile.value} llm={args.llm_harness or '-'} cli={agent_cli or '-'}")
 
     engine = ConductorEngine(
         log_dir=project_root / ".conductor" / "logs",
@@ -300,6 +312,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if args.resume_project_id:
         state = engine.get_project(args.resume_project_id)
+        _progress(args, f"[project] resumed id={state.project.id} root={state.project.project_root}")
     else:
         requirement = load_requirement_text(
             requirement=args.requirement,
@@ -308,6 +321,7 @@ def main(argv: list[str] | None = None) -> int:
             json_key=args.requirement_json_key,
         )
         state = engine.create_project(requirement=requirement, project_root=str(project_root))
+        _progress(args, f"[project] created id={state.project.id} root={state.project.project_root}")
     released_stale_task_count = 0
     released_expired_lease_task_count = 0
     pre_run_task_center_maintenance: dict[str, object] = {}
@@ -388,7 +402,12 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 0 if payload["resume_status"] in {"ready", "complete"} else 3
-    state = engine.run_project(state.project.id, max_steps=args.max_steps)
+    state = (
+        _run_project_with_progress(engine, state.project.id, max_steps=args.max_steps)
+        if args.progress
+        else engine.run_project(state.project.id, max_steps=args.max_steps)
+    )
+    _progress(args, f"[report] writing project report and audit outputs for {state.project.id}")
     report_path = engine.write_project_report(state.project.id)
     run_options = {
         "resumed": bool(args.resume_project_id),
@@ -453,6 +472,113 @@ def main(argv: list[str] | None = None) -> int:
     if _audit_bundle_exit_failed(audit_bundle_verification_payload, fail_on_warnings=args.audit_fail_on_warnings):
         return 2
     return 0 if state.project_status.value == "completed" else 1
+
+
+def _progress(args, message: str) -> None:
+    """Print human-readable progress without contaminating final JSON stdout."""
+    if getattr(args, "progress", False):
+        print(message, file=sys.stderr, flush=True)
+
+
+def _run_project_with_progress(engine: ConductorEngine, project_id: str, *, max_steps: int):
+    """Advance a project while emitting a compact progress trace."""
+    state = engine.get_project(project_id)
+    _progress_snapshot("start", state, step=0, max_steps=max_steps)
+    step_count = 0
+    while not engine.is_terminal(state) and step_count < max_steps:
+        action = engine.controller.decide_next_action(state)
+        next_item = _next_workitem_label(state)
+        print(
+            (
+                f"[step {step_count + 1}/{max_steps}] action={action} "
+                f"stage={state.current_stage or '-'} next={next_item}"
+            ),
+            file=sys.stderr,
+            flush=True,
+        )
+        previous = state
+        state = engine.step_project(project_id)
+        step_count += 1
+        _progress_delta(previous, state, step=step_count, max_steps=max_steps)
+        if action == "human_hold":
+            break
+    _progress_snapshot("finish", state, step=step_count, max_steps=max_steps)
+    return state
+
+
+def _progress_snapshot(label: str, state, *, step: int, max_steps: int) -> None:
+    counts = _workitem_status_counts(state)
+    print(
+        (
+            f"[{label}] step={step}/{max_steps} project={state.project.id} "
+            f"status={_enum_value(state.project_status)} stage={state.current_stage or '-'} "
+            f"workitems(done={counts.get('done', 0)}, failed={counts.get('failed', 0)}, "
+            f"running={counts.get('running', 0)}, pending={counts.get('pending', 0)}) "
+            f"artifacts={len(state.artifacts)} executions={len(state.executions)}"
+        ),
+        file=sys.stderr,
+        flush=True,
+    )
+
+
+def _progress_delta(previous, state, *, step: int, max_steps: int) -> None:
+    if previous.current_stage != state.current_stage or previous.project_status != state.project_status:
+        print(
+            (
+                f"[state] status={_enum_value(state.project_status)} "
+                f"stage={state.current_stage or '-'}"
+            ),
+            file=sys.stderr,
+            flush=True,
+        )
+    for execution in state.executions[len(previous.executions) :]:
+        print(
+            (
+                f"[execution] workitem={execution.workitem_id} status={_enum_value(execution.status)} "
+                f"backend={execution.source_backend or '-'} model={execution.model or '-'} "
+                f"duration_ms={execution.execution_duration_ms if execution.execution_duration_ms is not None else '-'} "
+                f"exit={execution.execution_exit_code if execution.execution_exit_code is not None else '-'}"
+            ),
+            file=sys.stderr,
+            flush=True,
+        )
+    for artifact in state.artifacts[len(previous.artifacts) :]:
+        print(
+            (
+                f"[artifact] id={artifact.id} kind={artifact.kind} "
+                f"backend={artifact.source_backend or '-'} path={artifact.path or '-'}"
+            ),
+            file=sys.stderr,
+            flush=True,
+        )
+    for event in state.recent_events[len(previous.recent_events) :][-3:]:
+        print(f"[event] {_single_line(event, 220)}", file=sys.stderr, flush=True)
+    _progress_snapshot("state", state, step=step, max_steps=max_steps)
+
+
+def _workitem_status_counts(state) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for item in state.workitems:
+        status = _enum_value(item.status)
+        counts[status] = counts.get(status, 0) + 1
+    return counts
+
+
+def _next_workitem_label(state) -> str:
+    for status in ("running", "pending", "failed"):
+        item = next((candidate for candidate in state.workitems if _enum_value(candidate.status) == status), None)
+        if item:
+            return f"{item.id}/{item.kind}/{status}"
+    return "-"
+
+
+def _enum_value(value: object) -> str:
+    return str(getattr(value, "value", value) or "")
+
+
+def _single_line(value: object, limit: int) -> str:
+    text = " ".join(str(value).split())
+    return text if len(text) <= limit else text[: limit - 1] + "..."
 
 
 def _resume_plan_payload(
@@ -1013,7 +1139,6 @@ def _build_cli_config(agent_cli: str | None, run_profile, aspirecode_model: str 
         "requirement_designer",
         "solution_designer",
         "backend_engineer",
-        "frontend_engineer",
         "tester",
     ]
     selected_cli_names = [agent_cli] if agent_cli and run_profile.cli_roles else []
@@ -1031,12 +1156,13 @@ def _build_cli_config(agent_cli: str | None, run_profile, aspirecode_model: str 
 
 def _build_llm_runtime_config(args, *, run_profile=None):
     runtime_config = load_llm_runtime_config()
-    if (
-        run_profile is not None
-        and run_profile.profile
-        in {RunProfile.MOCK, RunProfile.STATIC_WEB, RunProfile.FULLSTACK_WEB, RunProfile.API_MOCK, RunProfile.API_SQLITE}
-        and not args.llm_harness
+    delivery_profiles = {RunProfile.API_MOCK, RunProfile.API_SQLITE}
+    if run_profile is not None and (
+        run_profile.profile in delivery_profiles or (run_profile.profile == RunProfile.MOCK and not args.llm_harness)
     ):
+        # Delivery profiles have deterministic code/materialization harnesses.
+        # Explicit --llm-harness should power requirement/design review only,
+        # not replace file-generating delivery with generic LLM prose.
         runtime_config.usage.runner_enabled = False
     if not args.llm_harness:
         return runtime_config
@@ -1258,6 +1384,8 @@ def _build_system_config(args) -> SystemConfig:
             config.collaboration.enabled_kinds.add(normalized)
     if args.static_requirement_review:
         config.collaboration.dynamic_requirement_review_enabled = False
+    if args.skip_collaboration_review:
+        config.collaboration.enabled = False
     return config
 
 if __name__ == "__main__":

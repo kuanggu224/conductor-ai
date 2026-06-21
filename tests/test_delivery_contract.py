@@ -11,17 +11,17 @@ from conductor.delivery_contract import (
 def test_delivery_contract_dedupes_inputs_and_marks_rework_focus() -> None:
     contract = build_delivery_contract(
         stage="development",
-        kind="ui_implementation",
-        role="frontend_engineer",
+        kind="api_implementation",
+        role="backend_engineer",
         required_input_artifact_ids=["artifact-frozen", "artifact-frozen", "artifact-design"],
-        required_input_kinds=["frozen_requirement_spec", "frozen_requirement_spec", "ui_design"],
+        required_input_kinds=["frozen_requirement_spec", "frozen_requirement_spec", "api_design"],
         is_rework=True,
     )
 
     assert contract["required_input_artifact_ids"] == ["artifact-frozen", "artifact-design"]
-    assert contract["required_input_kinds"] == ["frozen_requirement_spec", "ui_design"]
+    assert contract["required_input_kinds"] == ["frozen_requirement_spec", "api_design"]
     assert "Fix only the referenced feedback" in contract["guardrails"][1]
-    assert "Visible UI state and interaction behavior" in contract["verification_focus"]
+    assert "API input/output contract behavior" in contract["verification_focus"]
     assert "Referenced testing feedback is directly addressed" in contract["verification_focus"]
 
     markdown = "\n".join(render_delivery_contract_markdown(contract))
@@ -34,8 +34,8 @@ def test_delivery_contract_dedupes_inputs_and_marks_rework_focus() -> None:
 def test_delivery_contract_marks_frozen_design_as_downstream_baseline() -> None:
     contract = build_delivery_contract(
         stage="development",
-        kind="ui_implementation",
-        role="frontend_engineer",
+        kind="api_implementation",
+        role="backend_engineer",
         required_input_artifact_ids=["artifact-frozen-req", "artifact-frozen-design"],
         required_input_kinds=["frozen_requirement_spec", "frozen_design_spec"],
     )
@@ -47,7 +47,7 @@ def test_delivery_contract_marks_frozen_design_as_downstream_baseline() -> None:
 
 def test_acceptance_trace_records_validation_and_changed_file_evidence() -> None:
     trace = build_acceptance_trace(
-        ["UI can add a book", "Data persists after refresh"],
+        ["API can add a book", "Data persists after refresh"],
         validation_success=True,
         changed_files=["index.html", "static/app.js"],
     )
@@ -57,5 +57,5 @@ def test_acceptance_trace_records_validation_and_changed_file_evidence() -> None
 
     markdown = "\n".join(render_acceptance_trace_markdown(trace))
 
-    assert "[passed] UI can add a book" in markdown
+    assert "[passed] API can add a book" in markdown
     assert "Post-edit validation passed" in markdown

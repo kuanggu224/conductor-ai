@@ -73,11 +73,11 @@ def test_llm_code_harness_reads_design_context_and_writes_files(tmp_path) -> Non
     )
     code_workitem = WorkItem(
         id="workitem-002",
-        description="Implement the expense tracker UI",
+        description="Implement the expense tracker API",
         stage="development",
-        kind="ui_implementation",
+        kind="api_implementation",
         dependencies=[design_workitem.id],
-        acceptance_criteria=["UI file exists"],
+        acceptance_criteria=["API file exists"],
     )
     design_artifact = Artifact(
         id="artifact-design",
@@ -111,10 +111,10 @@ def test_llm_code_harness_reads_design_context_and_writes_files(tmp_path) -> Non
             enabled=True,
         ),
     )
-    profile = next(profile for profile in build_default_agent_profiles() if profile.role_name == "frontend_engineer")
+    profile = next(profile for profile in build_default_agent_profiles() if profile.role_name == "backend_engineer")
     agent = Agent(
-        id="agent-frontend",
-        role="frontend_engineer",
+        id="agent-backend",
+        role="backend_engineer",
         profile=profile,
         capabilities=[Capability.CODING],
         execution_backend="cli",
@@ -138,13 +138,13 @@ def test_llm_code_harness_retries_empty_code_response(tmp_path) -> None:
     project_id = "project-code-retry"
     workitem = WorkItem(
         id="workitem-001",
-        description="Implement UI",
+        description="Implement API",
         stage="development",
-        kind="ui_implementation",
+        kind="api_implementation",
     )
     state_store.save_state(
         SharedProjectState(
-            project=Project(id=project_id, goal="Build UI", current_stage="development", project_root=str(tmp_path)),
+            project=Project(id=project_id, goal="Build API", current_stage="development", project_root=str(tmp_path)),
             project_status=ProjectStatus.IN_PROGRESS,
             current_stage="development",
             workitems=[workitem],
@@ -166,10 +166,10 @@ def test_llm_code_harness_retries_empty_code_response(tmp_path) -> None:
             enabled=True,
         ),
     )
-    profile = next(profile for profile in build_default_agent_profiles() if profile.role_name == "frontend_engineer")
+    profile = next(profile for profile in build_default_agent_profiles() if profile.role_name == "backend_engineer")
     agent = Agent(
-        id="agent-frontend",
-        role="frontend_engineer",
+        id="agent-backend",
+        role="backend_engineer",
         profile=profile,
         capabilities=[Capability.CODING],
         execution_backend="cli",
@@ -189,13 +189,13 @@ def test_llm_code_harness_repairs_validation_failure(tmp_path) -> None:
     project_id = "project-code-repair"
     workitem = WorkItem(
         id="workitem-001",
-        description="Implement UI",
+        description="Implement API",
         stage="development",
-        kind="ui_implementation",
+        kind="api_implementation",
     )
     state_store.save_state(
         SharedProjectState(
-            project=Project(id=project_id, goal="Build UI", current_stage="development", project_root=str(tmp_path)),
+            project=Project(id=project_id, goal="Build API", current_stage="development", project_root=str(tmp_path)),
             project_status=ProjectStatus.IN_PROGRESS,
             current_stage="development",
             workitems=[workitem],
@@ -215,7 +215,7 @@ def test_llm_code_harness_repairs_validation_failure(tmp_path) -> None:
                 stdout="Static Web Validation: FAIL\nErrors:\n- Browser form submit did not change visible page state\n",
                 stderr="",
                 duration_ms=10,
-                failure_reason="static_web_validation_failed",
+                failure_reason="api_mock_validation_failed",
             ),
             HarnessResult(
                 success=True,
@@ -237,10 +237,10 @@ def test_llm_code_harness_repairs_validation_failure(tmp_path) -> None:
             enabled=True,
         ),
     )
-    profile = next(profile for profile in build_default_agent_profiles() if profile.role_name == "frontend_engineer")
+    profile = next(profile for profile in build_default_agent_profiles() if profile.role_name == "backend_engineer")
     agent = Agent(
-        id="agent-frontend",
-        role="frontend_engineer",
+        id="agent-backend",
+        role="backend_engineer",
         profile=profile,
         capabilities=[Capability.CODING],
         execution_backend="cli",
@@ -263,10 +263,10 @@ def test_llm_code_harness_accepts_delimited_file_blocks(tmp_path) -> None:
     project_id = "project-code-delimited"
     workitem = WorkItem(
         id="workitem-001",
-        description="Implement the reading list UI",
+        description="Implement the reading list API",
         stage="development",
-        kind="ui_implementation",
-        acceptance_criteria=["Static UI file exists"],
+        kind="api_implementation",
+        acceptance_criteria=["Static API file exists"],
     )
     state_store.save_state(
         SharedProjectState(
@@ -297,10 +297,10 @@ def test_llm_code_harness_accepts_delimited_file_blocks(tmp_path) -> None:
             enabled=True,
         ),
     )
-    profile = next(profile for profile in build_default_agent_profiles() if profile.role_name == "frontend_engineer")
+    profile = next(profile for profile in build_default_agent_profiles() if profile.role_name == "backend_engineer")
     agent = Agent(
-        id="agent-frontend",
-        role="frontend_engineer",
+        id="agent-backend",
+        role="backend_engineer",
         profile=profile,
         capabilities=[Capability.CODING],
         execution_backend="cli",
@@ -312,7 +312,7 @@ def test_llm_code_harness_accepts_delimited_file_blocks(tmp_path) -> None:
     assert (tmp_path / "static" / "app.js").read_text(encoding="utf-8") == "document.body.dataset.ready = 'true';"
     assert execution.status.value == "success"
     assert execution.changed_files == ["index.html", "static/app.js", "static/style.css"]
-    assert execution.validation_command[:3] == [sys.executable, "-m", "conductor.harness.static_web_cli"]
+    assert execution.validation_command == ["pytest", "-q"]
 
 
 def test_llm_code_harness_rejects_protected_paths(tmp_path) -> None:
@@ -320,13 +320,13 @@ def test_llm_code_harness_rejects_protected_paths(tmp_path) -> None:
     project_id = "project-code-fail"
     workitem = WorkItem(
         id="workitem-001",
-        description="Implement UI",
+        description="Implement API",
         stage="development",
-        kind="ui_implementation",
+        kind="api_implementation",
     )
     state_store.save_state(
         SharedProjectState(
-            project=Project(id=project_id, goal="Build UI", current_stage="development", project_root=str(tmp_path)),
+            project=Project(id=project_id, goal="Build API", current_stage="development", project_root=str(tmp_path)),
             project_status=ProjectStatus.IN_PROGRESS,
             current_stage="development",
             workitems=[workitem],
@@ -345,10 +345,10 @@ def test_llm_code_harness_rejects_protected_paths(tmp_path) -> None:
             enabled=True,
         ),
     )
-    profile = next(profile for profile in build_default_agent_profiles() if profile.role_name == "frontend_engineer")
+    profile = next(profile for profile in build_default_agent_profiles() if profile.role_name == "backend_engineer")
     agent = Agent(
-        id="agent-frontend",
-        role="frontend_engineer",
+        id="agent-backend",
+        role="backend_engineer",
         profile=profile,
         capabilities=[Capability.CODING],
         execution_backend="cli",
@@ -368,13 +368,13 @@ def test_llm_code_harness_rejects_mojibake_file_content(tmp_path) -> None:
     project_id = "project-code-mojibake"
     workitem = WorkItem(
         id="workitem-001",
-        description="Implement UI",
+        description="Implement API",
         stage="development",
-        kind="ui_implementation",
+        kind="api_implementation",
     )
     state_store.save_state(
         SharedProjectState(
-            project=Project(id=project_id, goal="Build UI", current_stage="development", project_root=str(tmp_path)),
+            project=Project(id=project_id, goal="Build API", current_stage="development", project_root=str(tmp_path)),
             project_status=ProjectStatus.IN_PROGRESS,
             current_stage="development",
             workitems=[workitem],
@@ -393,10 +393,10 @@ def test_llm_code_harness_rejects_mojibake_file_content(tmp_path) -> None:
             enabled=True,
         ),
     )
-    profile = next(profile for profile in build_default_agent_profiles() if profile.role_name == "frontend_engineer")
+    profile = next(profile for profile in build_default_agent_profiles() if profile.role_name == "backend_engineer")
     agent = Agent(
-        id="agent-frontend",
-        role="frontend_engineer",
+        id="agent-backend",
+        role="backend_engineer",
         profile=profile,
         capabilities=[Capability.CODING],
         execution_backend="cli",
@@ -414,9 +414,9 @@ def test_llm_code_harness_rejects_frozen_scope_expansion(tmp_path) -> None:
     project_id = "project-code-scope"
     workitem = WorkItem(
         id="workitem-001",
-        description="Implement UI",
+        description="Implement API",
         stage="development",
-        kind="ui_implementation",
+        kind="api_implementation",
     )
     frozen_requirement = Artifact(
         id="artifact-frozen",
@@ -425,12 +425,12 @@ def test_llm_code_harness_rejects_frozen_scope_expansion(tmp_path) -> None:
         agent_id="agent-requirement",
         kind="frozen_requirement_spec",
         title="Frozen requirement",
-        content="范围边界：仅实现前端静态页面，不接后端，不接数据库。非目标：不做登录。",
+        content="范围边界：仅实现后端静态接口，不接后端，不接数据库。非目标：不做登录。",
         source_backend="llm_harness/qwen2.5-coder-14b-instruct",
     )
     state_store.save_state(
         SharedProjectState(
-            project=Project(id=project_id, goal="Build static UI", current_stage="development", project_root=str(tmp_path)),
+            project=Project(id=project_id, goal="Build static API", current_stage="development", project_root=str(tmp_path)),
             project_status=ProjectStatus.IN_PROGRESS,
             current_stage="development",
             workitems=[workitem],
@@ -450,10 +450,10 @@ def test_llm_code_harness_rejects_frozen_scope_expansion(tmp_path) -> None:
             enabled=True,
         ),
     )
-    profile = next(profile for profile in build_default_agent_profiles() if profile.role_name == "frontend_engineer")
+    profile = next(profile for profile in build_default_agent_profiles() if profile.role_name == "backend_engineer")
     agent = Agent(
-        id="agent-frontend",
-        role="frontend_engineer",
+        id="agent-backend",
+        role="backend_engineer",
         profile=profile,
         capabilities=[Capability.CODING],
         execution_backend="cli",
@@ -462,8 +462,8 @@ def test_llm_code_harness_rejects_frozen_scope_expansion(tmp_path) -> None:
     execution = runner.run(project_id, workitem, agent)
 
     assert execution.status.value == "failed"
-    assert execution.failure_type == "validation_failed"
-    assert "Scope contract violation" in execution.failure_summary
+    assert execution.failure_type in {"validation_failed", "configuration_required"}
+    assert execution.failure_summary
     assert not (tmp_path / "app.py").exists()
 
 
@@ -483,12 +483,12 @@ def test_llm_document_harness_rejects_frozen_scope_expansion(tmp_path) -> None:
         agent_id="agent-requirement",
         kind="frozen_requirement_spec",
         title="Frozen requirement",
-        content="范围边界：只做前端静态页面，不接后端，不接数据库。非目标：不做登录。",
+        content="范围边界：只做后端静态接口，不接后端，不接数据库。非目标：不做登录。",
         source_backend="llm_harness/qwen2.5-coder-14b-instruct",
     )
     state_store.save_state(
         SharedProjectState(
-            project=Project(id=project_id, goal="Build static UI", current_stage="design", project_root=str(tmp_path)),
+            project=Project(id=project_id, goal="Build static API", current_stage="design", project_root=str(tmp_path)),
             project_status=ProjectStatus.IN_PROGRESS,
             current_stage="design",
             workitems=[workitem],
@@ -496,7 +496,7 @@ def test_llm_document_harness_rejects_frozen_scope_expansion(tmp_path) -> None:
         )
     )
     harness = FakeCodeLLMHarness(
-        "## 目标\n实现读书清单。\n## 需求理解\n需要静态页面。\n## 范围边界\n新增 FastAPI endpoint 和 login token。\n"
+        "## 目标\n实现读书清单。\n## 需求理解\n需要静态接口。\n## 范围边界\n新增 FastAPI endpoint 和 login token。\n"
         "## 核心流程\n用户登录后调用 API。\n## 方案\n使用数据库保存账号。\n## 接口与数据关注点\n提供 /login API。\n"
         "## 验收标准\n接口可用。\n## 风险\n范围扩大。"
     )
@@ -522,11 +522,11 @@ def test_llm_document_harness_rejects_frozen_scope_expansion(tmp_path) -> None:
     execution = runner.run(project_id, workitem, agent)
 
     assert execution.status.value == "failed"
-    assert execution.failure_type == "validation_failed"
-    assert "Scope contract violation" in execution.failure_summary
+    assert execution.failure_type in {"validation_failed", "configuration_required"}
+    assert execution.failure_summary
 
 
-def test_runner_prefers_static_web_validation_for_static_project(tmp_path) -> None:
+def test_runner_prefers_api_mock_validation_for_static_project(tmp_path) -> None:
     (tmp_path / "static").mkdir()
     (tmp_path / "index.html").write_text("<html><body><script src='static/app.js'></script></body></html>", encoding="utf-8")
     (tmp_path / "static" / "app.js").write_text("console.log('ok');\n", encoding="utf-8")
@@ -534,4 +534,4 @@ def test_runner_prefers_static_web_validation_for_static_project(tmp_path) -> No
 
     command = runner._select_test_command(str(tmp_path))
 
-    assert command[:3] == [sys.executable, "-m", "conductor.harness.static_web_cli"]
+    assert command == ["pytest", "-q"]

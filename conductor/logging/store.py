@@ -402,7 +402,7 @@ class ProjectLogStore:
         validation_workitem_ids = {
             item.id
             for item in state.workitems
-            if item.kind in {"acceptance_check", "automated_test", "api_validation", "ui_validation"}
+            if item.kind in {"acceptance_check", "automated_test", "api_validation"}
         }
         lines: list[str] = []
         for execution in state.executions:

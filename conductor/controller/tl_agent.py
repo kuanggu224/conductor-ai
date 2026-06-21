@@ -364,7 +364,7 @@ class TechnicalLeadAgent:
             owner = next((spec.agent_id for spec in specs if spec.instance_id == instance_id), "")
             if owner:
                 return owner
-        for role in ("solution_designer", "backend_engineer", "frontend_engineer"):
+        for role in ("solution_designer", "backend_engineer"):
             owner = next((spec.agent_id for spec in specs if spec.role == role), "")
             if owner:
                 return owner
@@ -373,7 +373,7 @@ class TechnicalLeadAgent:
     def _merge_order(self, parallel_specs: list[DynamicAgentSpec], integration_risk: bool) -> list[str]:
         if not integration_risk:
             return [spec.agent_id for spec in parallel_specs]
-        priority = {"backend_engineer": 0, "frontend_engineer": 1}
+        priority = {"backend_engineer": 0}
         return [
             spec.agent_id
             for spec in sorted(parallel_specs, key=lambda item: (priority.get(item.role, 9), item.agent_id))
@@ -442,7 +442,7 @@ class TechnicalLeadAgent:
         """Add independent reviewers when TL sees weak historical role performance."""
         specs: list[DynamicAgentSpec] = []
         risky_roles = {role for role, _completed, _failed in history_risks}
-        if stage == "development" and risky_roles & {"frontend_engineer", "backend_engineer"}:
+        if stage == "development" and "backend_engineer" in risky_roles:
             specs.append(
                 planner.build_spec(
                     role="tester",
@@ -452,7 +452,7 @@ class TechnicalLeadAgent:
                     reason="TL detected elevated historical implementation failure rate and added independent quality review.",
                     scope="historical failure patterns, implementation checklist, regression risk, validation evidence",
                     mode="sequential_review",
-                    workitem_kinds=["ui_implementation", "api_implementation", "data_implementation", "generic_implementation"],
+                    workitem_kinds=["api_implementation", "data_implementation", "generic_implementation"],
                 )
             )
         if stage == "testing" and "tester" in risky_roles:
@@ -465,7 +465,7 @@ class TechnicalLeadAgent:
                     reason="TL detected elevated historical tester failure rate and added strategy review.",
                     scope="test strategy, coverage gaps, release risk, acceptance traceability",
                     mode="sequential_review",
-                    workitem_kinds=["acceptance_check", "automated_test", "api_validation", "ui_validation"],
+                    workitem_kinds=["acceptance_check", "automated_test", "api_validation"],
                 )
             )
         return specs
@@ -611,33 +611,8 @@ class TechnicalLeadAgent:
         candidate_specs: list[DynamicAgentSpec],
         workitems: list,
     ) -> bool:
-        """Return whether parallel implementation needs an explicit integration boundary owner."""
-        if stage != "development":
-            return False
-        roles = {spec.role for spec in candidate_specs if spec.parallel_safe}
-        if not {"frontend_engineer", "backend_engineer"} <= roles:
-            return False
-        text = " ".join([item.kind for item in workitems] + [item.description for item in workitems]).lower()
-        integration_terms = (
-            "api",
-            "backend",
-            "frontend",
-            "ui",
-            "data",
-            "storage",
-            "validation",
-            "contract",
-            "schema",
-            "接口",
-            "前端",
-            "后端",
-            "数据",
-            "存储",
-            "校验",
-            "契约",
-        )
-        return any(term in text for term in integration_terms)
-
+        """Frontend/backend integration guard is disabled in backend/API-only mode."""
+        return False
     def _integration_risk_specs(
         self,
         planner: AgentTeamPlanner,
@@ -645,7 +620,7 @@ class TechnicalLeadAgent:
         workitems: list,
         integration_risk: bool,
     ) -> list[DynamicAgentSpec]:
-        """Add a solution-design guard when parallel frontend/backend work may diverge."""
+        """Add a solution-design guard when parallel backend work may diverge."""
         if not integration_risk:
             return []
         return [
@@ -653,9 +628,9 @@ class TechnicalLeadAgent:
                 role="solution_designer",
                 instance_id="integration_contract_guard",
                 stage=stage,
-                mission="Review API/UI/data integration boundaries before parallel implementation diverges.",
-                reason="TL detected parallel frontend/backend implementation with integration contract risk.",
-                scope="API contracts, UI data flow, validation boundaries, shared ownership handoff",
+                mission="Review API/data integration boundaries before parallel implementation diverges.",
+                reason="TL detected parallel backend implementation with integration contract risk.",
+                scope="API contracts, validation boundaries, shared ownership handoff",
                 mode="sequential_review",
                 workitem_kinds=list(dict.fromkeys(item.kind for item in workitems)),
             )
@@ -754,7 +729,7 @@ class TechnicalLeadAgent:
     def _integration_risk_reasons(self, integration_risk: bool) -> list[str]:
         if not integration_risk:
             return []
-        return ["TL detected frontend/backend parallel implementation requiring an integration contract guard."]
+        return ["TL detected backend parallel implementation requiring an integration contract guard."]
 
     def _coordination_risk_reasons(self, coordination_risk: bool) -> list[str]:
         if not coordination_risk:

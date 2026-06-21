@@ -1,8 +1,9 @@
 """Benchmark and evaluator tests."""
 
 import json
+from pathlib import Path
 
-from conductor.benchmark import BenchmarkRunner, default_benchmark_cases, evaluate_run_manifest
+from conductor.benchmark import BenchmarkRunResult, BenchmarkRunner, RunEvaluation, default_benchmark_cases, evaluate_run_manifest
 
 
 def test_default_benchmark_cases_cover_five_scenarios() -> None:
@@ -31,6 +32,53 @@ def test_benchmark_runner_writes_results(tmp_path) -> None:
     assert result.json_path.endswith("benchmark-results.json")
     assert result.markdown_path.endswith("benchmark-results.md")
     assert "Req Coverage" in (tmp_path / "benchmark-results.md").read_text(encoding="utf-8")
+
+
+def test_quality_comparison_runs_single_and_multi_agent_variants(tmp_path, monkeypatch) -> None:
+    case = default_benchmark_cases()[0]
+    runner = BenchmarkRunner(tmp_path)
+    calls: list[bool] = []
+
+    def fake_run_case(case, profile_name, *, use_codex, max_steps, collaboration_enabled=True, variant=""):
+        calls.append(collaboration_enabled)
+        score = 82 if collaboration_enabled else 70
+        manifest_path = tmp_path / f"{variant}.json"
+        report_path = tmp_path / f"{variant}.md"
+        manifest_path.write_text("{}", encoding="utf-8")
+        report_path.write_text("# report", encoding="utf-8")
+        evaluation = RunEvaluation(
+            project_id=f"project-{variant}",
+            case_id=case.id,
+            run_profile=profile_name,
+            score=score,
+            passed=True,
+            checks={"completed": True},
+            metrics={},
+            findings=[],
+            manifest_path=str(manifest_path),
+            report_path=str(report_path),
+        )
+        return BenchmarkRunResult(
+            case_id=case.id,
+            case_name=case.name,
+            run_profile=profile_name,
+            project_root=str(tmp_path / variant),
+            manifest_path=str(manifest_path),
+            report_path=str(report_path),
+            duration_ms=1,
+            evaluation=evaluation,
+        )
+
+    monkeypatch.setattr(runner, "run_case", fake_run_case)
+
+    result = runner.run_quality_comparison(cases=[case], profile_name="api_mock", max_steps=1)
+
+    assert calls == [False, True]
+    assert result.results[0].score_delta == 12
+    assert result.results[0].winner == "multi_agent"
+    assert result.summary["multi_agent_wins"] == 1
+    assert result.json_path.endswith("quality-comparison-results.json")
+    assert "Single Score" in Path(result.markdown_path).read_text(encoding="utf-8")
 
 
 def test_evaluator_scores_manifest_and_flags_mock(tmp_path) -> None:
@@ -99,7 +147,7 @@ def test_evaluator_detects_cli_run_from_manifest(tmp_path) -> None:
 def test_evaluator_flags_missing_requirement_coverage_from_manifest(tmp_path) -> None:
     manifest = {
         "project_id": "project-coverage",
-        "run_profile": "static_web",
+        "run_profile": "api_mock",
         "project_root": str(tmp_path),
         "final_status": "completed",
         "summary": {"blocked_count": 0, "requirement_coverage_status": "missing_coverage"},
@@ -107,7 +155,7 @@ def test_evaluator_flags_missing_requirement_coverage_from_manifest(tmp_path) ->
             {
                 "id": "artifact-1",
                 "kind": "acceptance_check",
-                "source_backend": "cli/static_web",
+                "source_backend": "cli/api_mock",
                 "path": str(tmp_path / "artifact.md"),
             }
         ],
@@ -116,7 +164,7 @@ def test_evaluator_flags_missing_requirement_coverage_from_manifest(tmp_path) ->
                 "workitem_id": "workitem-validation",
                 "agent_id": "agent-tester",
                 "status": "success",
-                "source_backend": "cli/static_web",
+                "source_backend": "cli/api_mock",
             }
         ],
         "cli_runs": [
@@ -124,7 +172,7 @@ def test_evaluator_flags_missing_requirement_coverage_from_manifest(tmp_path) ->
                 "workitem_id": "workitem-validation",
                 "agent_id": "agent-tester",
                 "status": "success",
-                "source_backend": "cli/static_web",
+                "source_backend": "cli/api_mock",
             }
         ],
         "workitems": [{"id": "workitem-validation", "failure_type": ""}],

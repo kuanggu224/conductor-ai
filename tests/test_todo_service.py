@@ -51,14 +51,14 @@ def test_todo_service_exposes_basic_statistics() -> None:
 
 def test_todo_service_supports_keyword_querying() -> None:
     service = TodoService()
-    backend = service.create_todo("Write backend", content="Implement todo query")
-    frontend = service.create_todo("Write frontend", content="Render todo list")
+    query_backend = service.create_todo("Write backend", content="Implement todo query")
+    render_backend = service.create_todo("Write backend", content="Render todo list")
     other = service.create_todo("Review notes", content="Discuss backlog")
 
-    assert service.list_todos(query="todo") == [frontend, backend]
-    assert service.list_todos(query=" backend ") == [backend]
+    assert service.list_todos(query="todo") == [render_backend, query_backend]
+    assert service.list_todos(query=" backend ") == [render_backend, query_backend]
     assert service.list_todos(query="missing") == []
-    assert service.list_todos(query="") == [other, frontend, backend]
+    assert service.list_todos(query="") == [other, render_backend, query_backend]
 
 
 def test_todo_service_rejects_invalid_status_filters() -> None:

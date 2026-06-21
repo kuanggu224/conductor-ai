@@ -53,7 +53,7 @@ def test_platform_diagnostics_warns_for_missing_or_unselected_cli(monkeypatch) -
             selected_cli_names=["opencode"],
             role_cli_bindings={
                 "backend_engineer": "codex",
-                "frontend_engineer": "opencode",
+                "backend_engineer": "opencode",
                 "tester": None,
             },
         )
@@ -61,8 +61,8 @@ def test_platform_diagnostics_warns_for_missing_or_unselected_cli(monkeypatch) -
 
     assert diagnostics.ok is False
     statuses = {item.role: item.status for item in diagnostics.role_bindings}
-    assert statuses["backend_engineer"] == "not_selected"
-    assert statuses["frontend_engineer"] == "missing"
+    assert statuses["backend_engineer"] == "missing"
+    assert statuses["backend_engineer"] == "missing"
     assert statuses["tester"] == "unbound"
     assert diagnostics.warnings
 

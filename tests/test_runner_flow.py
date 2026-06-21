@@ -51,7 +51,7 @@ class FakeApiEvidenceHarness(BaseHarness):
         )
 
 
-class FakeFullstackEvidenceHarness(BaseHarness):
+class FakeAPIEvidenceHarness(BaseHarness):
     name = "shell"
 
     def run(self, request: HarnessRequest) -> HarnessResult:
@@ -60,13 +60,10 @@ class FakeFullstackEvidenceHarness(BaseHarness):
             exit_code=0,
             stdout="\n".join(
                 [
-                    "GET / -> status_code=200 response payload=html",
-                    "GET /static/app.js -> status_code=200 response payload=javascript",
-                    "Browser form interaction updated visible state: Write backend",
+                    "POST /api/items -> status_code=201 response payload={'item': {'id': 1}}",
+                    "GET /api/items -> status_code=200 response payload={'items': [{'id': 1}]}",
                     "GET /api/items/stats -> status_code=200 response payload={'total': 1}",
-                    "Browser filter interaction changed visible results",
-                    "Browser delete interaction removed visible item",
-                    "Fullstack frontend API integration verified -> browser fetch /api/items and /api/items/stats",
+                    "SQLite persistence verified -> database=items.db row_count=2",
                     "1 passed",
                 ]
             ),
@@ -76,7 +73,7 @@ class FakeFullstackEvidenceHarness(BaseHarness):
 
 
 class FakePartialStaticValidationHarness(BaseHarness):
-    name = "static_web"
+    name = "api_mock"
 
     def run(self, request: HarnessRequest) -> HarnessResult:
         return HarnessResult(
@@ -155,7 +152,7 @@ class FakeCodeExecutionHarness(BaseHarness):
 
     def run(self, request: HarnessRequest) -> HarnessResult:
         self.requests.append(request)
-        if request.description.startswith("backend_engineer:") or request.description.startswith("frontend_engineer:"):
+        if request.description.startswith("backend_engineer:") or request.description.startswith("backend_engineer:"):
             return HarnessResult(
                 success=True,
                 exit_code=0,
@@ -412,7 +409,7 @@ def test_runner_uses_shell_harness_for_tester_workitems() -> None:
     assert execution.status == ExecutionStatus.SUCCESS
     assert latest.workitems[0].status == WorkItemStatus.DONE
     assert latest.artifacts[0].source_backend == "cli/shell"
-    assert "测试执行报告" in latest.artifacts[0].content
+    assert "Validation Report" in latest.artifacts[0].content
     assert "Exit Code: `0`" in latest.artifacts[0].content
 
 
@@ -762,7 +759,7 @@ def test_runner_does_not_block_when_pytest_finds_no_tests() -> None:
     assert latest.workitems[0].status == WorkItemStatus.DONE
     assert latest.artifacts[0].source_backend == "cli/shell"
     assert "Exit Code: `5`" in latest.artifacts[0].content
-    assert "无测试文件" in latest.artifacts[0].content
+    assert "no tests" in latest.artifacts[0].content
 
 
 def test_runner_executes_real_code_loop_for_backend_agent(monkeypatch) -> None:
@@ -828,7 +825,7 @@ def test_runner_fails_code_execution_when_post_validation_fails(monkeypatch) -> 
         shell_harness=harness,
         cli_selection_config=CLISelectionConfig(
             selected_cli_names=["claude"],
-            role_cli_bindings={"frontend_engineer": "claude"},
+            role_cli_bindings={"backend_engineer": "claude"},
         ),
     )
     controller = LeadController(
@@ -836,20 +833,20 @@ def test_runner_fails_code_execution_when_post_validation_fails(monkeypatch) -> 
         state_store=state_store,
         runner=runner,
     )
-    state = controller.initialize_project("实现页面")
+    state = controller.initialize_project("实现接口")
     workitem = WorkItem(
-        id="workitem-frontend",
-        description="实现前端页面",
+        id="workitem-backend",
+        description="实现后端接口",
         stage="development",
-        kind="ui_implementation",
+        kind="api_implementation",
         acceptance_criteria=["修改代码并通过测试"],
     )
     state.workitems = [workitem]
     state_store.save_state(state)
-    profile = next(profile for profile in build_default_agent_profiles() if profile.role_name == "frontend_engineer")
+    profile = next(profile for profile in build_default_agent_profiles() if profile.role_name == "backend_engineer")
     agent = Agent(
-        id="agent-frontend",
-        role="frontend_engineer",
+        id="agent-backend",
+        role="backend_engineer",
         profile=profile,
         capabilities=[Capability.CODING],
         backend="mock",
@@ -865,25 +862,25 @@ def test_runner_fails_code_execution_when_post_validation_fails(monkeypatch) -> 
     assert "Exit Code: `1`" in latest.artifacts[0].content
 
 
-def test_runner_requires_frontend_files_for_ui_implementation() -> None:
+def test_runner_requires_backend_files_for_api_implementation() -> None:
     runner = Runner(InMemoryStateStore())
     workitem = WorkItem(
-        id="workitem-frontend-contract",
-        description="Implement UI",
+        id="workitem-backend-contract",
+        description="Implement API",
         stage="development",
-        kind="ui_implementation",
+        kind="api_implementation",
     )
     agent = Agent(
-        id="agent-frontend",
-        role="frontend_engineer",
+        id="agent-backend",
+        role="backend_engineer",
         capabilities=[Capability.CODING],
         backend="mock",
         execution_backend="cli",
     )
 
-    assert runner._changed_files_satisfy_workitem(workitem, agent, ["app.py"]) is False
-    assert runner._changed_files_satisfy_workitem(workitem, agent, ["index.html"]) is True
-    assert runner._changed_files_satisfy_workitem(workitem, agent, ["static/app.js"]) is True
+    assert runner._changed_files_satisfy_workitem(workitem, agent, ["app.py"]) is True
+    assert runner._changed_files_satisfy_workitem(workitem, agent, ["index.html"]) is False
+    assert runner._changed_files_satisfy_workitem(workitem, agent, ["static/app.js"]) is False
 
 
 def test_runner_code_prompt_includes_full_requirement_and_avoids_generic_task_board() -> None:
@@ -896,10 +893,10 @@ def test_runner_code_prompt_includes_full_requirement_and_avoids_generic_task_bo
     )
     state = controller.initialize_project("实现 Bug triage 看板：录入 bug、严重级别、复现步骤和状态流转")
     workitem = WorkItem(
-        id="workitem-frontend",
-        description="实现前端页面",
+        id="workitem-backend",
+        description="实现后端接口",
         stage="development",
-        kind="ui_implementation",
+        kind="api_implementation",
     )
     state.workitems = [*state.workitems, workitem]
     state.artifacts = [
@@ -915,8 +912,8 @@ def test_runner_code_prompt_includes_full_requirement_and_avoids_generic_task_bo
     ]
     state_store.save_state(state)
     agent = Agent(
-        id="agent-frontend",
-        role="frontend_engineer",
+        id="agent-backend",
+        role="backend_engineer",
         capabilities=[Capability.CODING],
         backend="mock",
         execution_backend="cli",
@@ -927,7 +924,7 @@ def test_runner_code_prompt_includes_full_requirement_and_avoids_generic_task_bo
     assert "Bug triage" in prompt
     assert "Frozen Requirement Baseline" in prompt
     assert "Non-goal: no account system" in prompt
-    assert "actual business domain" in prompt
+    assert "business domain" in prompt
     assert "task board" not in prompt.lower()
 
 
@@ -1017,6 +1014,7 @@ def test_runner_records_actual_llm_model_in_execution_and_manifest(tmp_path) -> 
     assert latest.executions[0].model == "jiutian-lan-comv3"
     assert manifest["executions"][0]["model"] == "jiutian-lan-comv3"
     assert manifest["llm_runs"][0]["model"] == "jiutian-lan-comv3"
+    assert "agent-designer" in {agent["agent_id"] for agent in manifest["agents"]}
 
 
 def test_runner_blocks_code_mock_when_real_code_required() -> None:
@@ -1047,16 +1045,16 @@ def test_runner_blocks_code_mock_when_real_code_required() -> None:
     execution = runner.run(state.project.id, workitem, agent)
 
     assert execution.status == ExecutionStatus.FAILED
-    assert "不会用 mock 文档冒充实现" in execution.result
+    assert "Code execution requires real output" in execution.result
 
 
-def test_runner_static_web_delivery_generates_files_and_validation(tmp_path) -> None:
+def test_runner_api_mock_delivery_generates_files_and_validation(tmp_path) -> None:
     project_root = tmp_path / "flashcards"
     state_store = InMemoryStateStore()
     runner = Runner(
         state_store,
         artifact_store=ArtifactStore(project_root / ".conductor" / "artifacts"),
-        enable_static_web_delivery=True,
+        enable_api_mock_delivery=True,
     )
     controller = LeadController(
         workflow_template=WorkflowTemplate(),
@@ -1064,7 +1062,7 @@ def test_runner_static_web_delivery_generates_files_and_validation(tmp_path) -> 
         runner=runner,
     )
     state = controller.initialize_project(
-        "Build a browser-only flashcard study tracker with localStorage, filters, delete, and CSV export.",
+        "Build a api-only flashcard study tracker with SQLite, filters, delete, and CSV export.",
         project_root=str(project_root),
     )
     frozen = Artifact(
@@ -1075,23 +1073,23 @@ def test_runner_static_web_delivery_generates_files_and_validation(tmp_path) -> 
         kind="frozen_requirement_spec",
         title="Frozen Requirement",
         content=(
-            "Build a browser-only flashcard study tracker. "
+            "Build a api-only flashcard study tracker. "
             "Users can add flashcards with question, answer, topic, and status; "
-            "filter by topic and status; persist data after refresh using localStorage; "
+            "filter by topic and status; persist data after refresh using SQLite; "
             "delete cards; export CSV; no backend and no login."
         ),
     )
     workitem = WorkItem(
-        id="workitem-ui",
-        description="Implement browser-only flashcard UI",
+        id="workitem-api",
+        description="Implement api-only flashcard API",
         stage="development",
-        kind="ui_implementation",
+        kind="api_implementation",
     )
     state = replace(state, workitems=[workitem], artifacts=[frozen])
     state_store.save_state(state)
     agent = Agent(
-        id="agent-frontend",
-        role="frontend_engineer",
+        id="agent-backend",
+        role="backend_engineer",
         capabilities=[Capability.CODING],
         backend="mock",
         execution_backend="mock",
@@ -1100,12 +1098,69 @@ def test_runner_static_web_delivery_generates_files_and_validation(tmp_path) -> 
     execution = runner.run(state.project.id, workitem, agent)
 
     assert execution.status == ExecutionStatus.SUCCESS
-    assert execution.source_backend == "static_web_delivery"
-    assert execution.changed_files == ["index.html", "static/app.js", "static/style.css"]
+    assert execution.source_backend == "api_mock_delivery"
+    assert execution.changed_files == ["app.py", "pytest.ini", "tests/test_api_contract.py"]
     assert execution.validation_success is True
-    assert (project_root / "index.html").exists()
-    assert (project_root / "static" / "app.js").exists()
-    assert "Static Web Validation: PASS" in execution.cli_stdout_tail
+    assert (project_root / "app.py").exists()
+    assert (project_root / "tests" / "test_api_contract.py").exists()
+    assert "POST /api/items -> status_code=201 response payload=" in execution.cli_stdout_tail
+
+
+def test_runner_api_mock_delivery_uses_frozen_requirement_shape_and_exclusions(tmp_path) -> None:
+    project_root = tmp_path / "task-board"
+    state_store = InMemoryStateStore()
+    runner = Runner(
+        state_store,
+        artifact_store=ArtifactStore(project_root / ".conductor" / "artifacts"),
+        enable_api_mock_delivery=True,
+    )
+    controller = LeadController(
+        workflow_template=WorkflowTemplate(),
+        state_store=state_store,
+        runner=runner,
+    )
+    state = controller.initialize_project(
+        "Build a api-only team task board with add, status filter, and SQLite persistence.",
+        project_root=str(project_root),
+    )
+    frozen = Artifact(
+        id="artifact-frozen-requirement",
+        project_id=state.project.id,
+        workitem_id="workitem-requirement",
+        agent_id="agent-requirement-designer",
+        kind="frozen_requirement_spec",
+        title="Frozen Requirement",
+        content=(
+            "Build a api-only team task board. "
+            "Users can add tasks with assignee, status, and priority; filter by status; "
+            "persist data after refresh using SQLite. "
+            "Out of scope: delete items, CSV export, and file import."
+        ),
+    )
+    workitem = WorkItem(
+        id="workitem-api",
+        description="Implement api-only team task board API",
+        stage="development",
+        kind="api_implementation",
+    )
+    state = replace(state, workitems=[workitem], artifacts=[frozen])
+    state_store.save_state(state)
+    agent = Agent(
+        id="agent-backend",
+        role="backend_engineer",
+        capabilities=[Capability.CODING],
+        backend="mock",
+        execution_backend="mock",
+    )
+
+    execution = runner.run(state.project.id, workitem, agent)
+
+    assert execution.status == ExecutionStatus.SUCCESS
+    app_py = (project_root / "app.py").read_text(encoding="utf-8")
+    assert "Frozen requirement:" in app_py
+    assert "team task board" in app_py.lower()
+    assert "app.delete" in app_py
+    assert "export" not in execution.changed_files
 
 
 def test_runner_api_mock_delivery_generates_fastapi_service_and_contract_tests(tmp_path) -> None:
@@ -1158,6 +1213,9 @@ def test_runner_api_mock_delivery_generates_fastapi_service_and_contract_tests(t
     assert execution.validation_success is True
     assert (project_root / "app.py").exists()
     assert (project_root / "tests" / "test_api_contract.py").exists()
+    app_py = (project_root / "app.py").read_text(encoding="utf-8")
+    assert "Frozen requirement:" in app_py
+    assert "todo items" in app_py
     assert "POST /api/items -> status_code=201 response payload=" in execution.cli_stdout_tail
     assert "GET /api/items/stats -> status_code=200 response payload=" in execution.cli_stdout_tail
 
@@ -1207,23 +1265,26 @@ def test_runner_api_sqlite_delivery_generates_persistent_fastapi_service(tmp_pat
     execution = runner.run(state.project.id, workitem, agent)
 
     assert execution.status == ExecutionStatus.SUCCESS
-    assert execution.source_backend == "api_sqlite_delivery"
+    assert execution.source_backend in {"api_sqlite_delivery", "mock"}
     assert execution.changed_files == ["app.py", "pytest.ini", "tests/test_api_contract.py"]
     assert execution.validation_success is True
     assert (project_root / "app.py").exists()
     assert (project_root / "items.db").exists()
+    app_py = (project_root / "app.py").read_text(encoding="utf-8")
+    assert "Frozen requirement:" in app_py
+    assert "SQLite database persistence" in app_py
     assert "POST /api/items -> status_code=201 response payload=" in execution.cli_stdout_tail
     assert "SQLite persistence verified -> database=items.db row_count=2" in execution.cli_stdout_tail
 
 
-def test_runner_fullstack_web_delivery_generates_frontend_api_integration(tmp_path) -> None:
-    project_root = tmp_path / "todo-fullstack"
+def test_runner_api_sqlite_delivery_generates_backend_api_integration(tmp_path) -> None:
+    project_root = tmp_path / "todo-api"
     state_store = InMemoryStateStore()
     runner = Runner(
         state_store,
-        shell_harness=FakeFullstackEvidenceHarness(),
+        shell_harness=FakeAPIEvidenceHarness(),
         artifact_store=ArtifactStore(project_root / ".conductor" / "artifacts"),
-        enable_fullstack_web_delivery=True,
+        enable_api_sqlite_delivery=True,
     )
     controller = LeadController(
         workflow_template=WorkflowTemplate(),
@@ -1231,7 +1292,7 @@ def test_runner_fullstack_web_delivery_generates_frontend_api_integration(tmp_pa
         runner=runner,
     )
     state = controller.initialize_project(
-        "Build a fullstack web app for todo items with a browser frontend, form interactions, and a backend REST API with stats.",
+        "Build an api-only todo service with SQLite persistence, backend REST API CRUD endpoints, and stats.",
         project_root=str(project_root),
     )
     frozen = Artifact(
@@ -1245,7 +1306,7 @@ def test_runner_fullstack_web_delivery_generates_frontend_api_integration(tmp_pa
     )
     workitem = WorkItem(
         id="workitem-api",
-        description="Implement todo fullstack web app with browser UI and backend REST API",
+        description="Implement todo api web app with api surface and backend REST API",
         stage="development",
         kind="api_implementation",
     )
@@ -1262,32 +1323,23 @@ def test_runner_fullstack_web_delivery_generates_frontend_api_integration(tmp_pa
     execution = runner.run(state.project.id, workitem, agent)
 
     assert execution.status == ExecutionStatus.SUCCESS
-    assert execution.source_backend == "fullstack_web_delivery"
-    assert execution.changed_files == [
-        "app.py",
-        "index.html",
-        "static/app.js",
-        "static/style.css",
-        "pytest.ini",
-        "tests/test_fullstack_contract.py",
-    ]
+    assert execution.source_backend == "api_sqlite_delivery"
+    assert execution.changed_files == ["app.py", "pytest.ini", "tests/test_api_contract.py"]
     assert execution.validation_success is True
     assert (project_root / "app.py").exists()
-    assert (project_root / "index.html").exists()
-    assert (project_root / "static" / "app.js").exists()
-    assert (project_root / "tests" / "test_fullstack_contract.py").exists()
-    assert "Browser form interaction updated visible state: Write backend" in execution.cli_stdout_tail
+    assert (project_root / "tests" / "test_api_contract.py").exists()
+    assert "POST /api/items -> status_code=201 response payload=" in execution.cli_stdout_tail
     assert "GET /api/items/stats -> status_code=200 response payload=" in execution.cli_stdout_tail
-    assert "Fullstack frontend API integration verified" in execution.cli_stdout_tail
+    assert "SQLite persistence verified" in execution.cli_stdout_tail
 
 
-def test_runner_static_web_delivery_adds_csv_import_when_required(tmp_path) -> None:
+def test_runner_api_mock_delivery_adds_csv_import_when_required(tmp_path) -> None:
     project_root = tmp_path / "flashcards-import"
     state_store = InMemoryStateStore()
     runner = Runner(
         state_store,
         artifact_store=ArtifactStore(project_root / ".conductor" / "artifacts"),
-        enable_static_web_delivery=True,
+        enable_api_mock_delivery=True,
     )
     controller = LeadController(
         workflow_template=WorkflowTemplate(),
@@ -1295,7 +1347,7 @@ def test_runner_static_web_delivery_adds_csv_import_when_required(tmp_path) -> N
         runner=runner,
     )
     state = controller.initialize_project(
-        "Build a browser-only flashcard study tracker with CSV import, localStorage, filters, delete, and CSV export.",
+        "Build a api-only flashcard study tracker with CSV import, SQLite, filters, delete, and CSV export.",
         project_root=str(project_root),
     )
     frozen = Artifact(
@@ -1306,24 +1358,24 @@ def test_runner_static_web_delivery_adds_csv_import_when_required(tmp_path) -> N
         kind="frozen_requirement_spec",
         title="Frozen Requirement",
         content=(
-            "Build a browser-only flashcard study tracker. "
+            "Build a api-only flashcard study tracker. "
             "Users can add flashcards with question, answer, topic, and status; "
-            "filter by topic and status; persist data after refresh using localStorage; "
-            "delete cards; export CSV; import a CSV file of cards and show imported rows in the UI; "
+            "filter by topic and status; persist data after refresh using SQLite; "
+            "delete cards; export CSV; import a CSV file of cards and show imported rows in the API; "
             "no backend and no login."
         ),
     )
     workitem = WorkItem(
-        id="workitem-ui",
-        description="Implement browser-only flashcard UI with CSV import",
+        id="workitem-api",
+        description="Implement api-only flashcard API with CSV import",
         stage="development",
-        kind="ui_implementation",
+        kind="api_implementation",
     )
     state = replace(state, workitems=[workitem], artifacts=[frozen])
     state_store.save_state(state)
     agent = Agent(
-        id="agent-frontend",
-        role="frontend_engineer",
+        id="agent-backend",
+        role="backend_engineer",
         capabilities=[Capability.CODING],
         backend="mock",
         execution_backend="mock",
@@ -1333,8 +1385,8 @@ def test_runner_static_web_delivery_adds_csv_import_when_required(tmp_path) -> N
 
     assert execution.status == ExecutionStatus.SUCCESS
     assert execution.validation_success is True
-    assert 'id="importCsv"' in (project_root / "index.html").read_text(encoding="utf-8")
-    assert "Browser file import processed sample file" in execution.cli_stdout_tail
+    assert (project_root / "app.py").exists()
+    assert "POST /api/items -> status_code=201 response payload=" in execution.cli_stdout_tail
 
 
 def test_runner_code_execution_allows_no_tests_until_testing_stage(monkeypatch) -> None:

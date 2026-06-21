@@ -178,14 +178,14 @@ def _suggest_actions(*, text: str, failing_checks: list[str], missing_coverage: 
     if missing_coverage:
         suggestions.append("补齐缺失的冻结需求验收证据，优先覆盖列出的 missing coverage 项。")
     if "browser form submit did not change" in lowered or "visible state" in lowered:
-        suggestions.append("检查表单/按钮事件绑定，确保提交后页面可见状态发生变化。")
+        suggestions.append("检查请求处理、服务逻辑和状态变更，确保提交后响应数据发生变化。")
     if (
         "localstorage" in lowered
         or "reload preserved" in lowered
         or "reload did not preserve" in lowered
         or "refresh persistence" in lowered
     ):
-        suggestions.append("检查 localStorage 写入、读取和刷新后恢复逻辑。")
+        suggestions.append("检查持久化写入、读取和恢复逻辑。")
     if "export" in lowered or "download" in lowered or "csv" in lowered:
         suggestions.append("检查导出按钮、下载触发和 CSV/text 内容生成。")
     if "filter interaction" in lowered or "browser filter interaction" in lowered:

@@ -25,6 +25,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--codex", action="store_true", help="Use Codex CLI for CLI-enabled profiles.")
     parser.add_argument("--max-steps", type=int, default=80)
+    parser.add_argument(
+        "--quality-comparison",
+        action="store_true",
+        help="Run single-agent versus multi-agent quality comparison for the selected cases.",
+    )
     return parser
 
 
@@ -37,6 +42,16 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(f"Unknown benchmark case: {args.case}")
     profiles = [item.strip() for item in args.profiles.split(",") if item.strip()]
     runner = BenchmarkRunner(args.output_dir)
+    if args.quality_comparison:
+        profile = profiles[0] if profiles else RunProfile.API_MOCK.value
+        result = runner.run_quality_comparison(
+            cases=cases,
+            profile_name=profile,
+            use_codex=args.codex,
+            max_steps=args.max_steps,
+        )
+        print(json.dumps(asdict(result), ensure_ascii=False, indent=2))
+        return 0 if result.summary["passed"] == result.summary["total"] else 1
     result = runner.run_suite(
         cases=cases,
         profiles=profiles,

@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 @dataclass(slots=True)
 class BoardWorkItemView:
-    """用于页面展示的 WorkItem 视图模型。"""
+    """WorkItem snapshot model for board consumers."""
 
     id: str
     stage: str
@@ -27,7 +27,7 @@ class BoardWorkItemView:
 
 @dataclass(slots=True)
 class BoardExecutionView:
-    """用于页面展示的 Execution 视图模型。"""
+    """Execution snapshot model for board consumers."""
 
     workitem_id: str
     agent_id: str
@@ -42,7 +42,7 @@ class BoardExecutionView:
 
 @dataclass(slots=True)
 class BoardArtifactView:
-    """用于页面展示的 Artifact 视图模型。"""
+    """Artifact snapshot model for board consumers."""
 
     id: str
     title: str
@@ -58,6 +58,7 @@ class BoardArtifactView:
     version: int = 1
     parent_artifact_id: str | None = None
     review_of: str | None = None
+    detail_api_path: str = ""
 
 
 @dataclass(slots=True)
@@ -93,6 +94,8 @@ class BoardProjectAgentView:
     mission: str
     reason: str
     related_kinds: list[str] = field(default_factory=list)
+    task_api_path: str = ""
+    claim_task_api_path: str = ""
 
 
 @dataclass(slots=True)
@@ -139,6 +142,9 @@ class BoardTaskAssignmentView:
     lease_expired: bool = False
     stale_claimed: bool = False
     prompt_file: str = ""
+    claim_api_path: str = ""
+    context_api_path: str = ""
+    return_api_paths: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -189,11 +195,13 @@ class BoardRunAuditView:
     scope_contract_status: str = "not_evaluated"
     scope_contract_status_label: str = "未评估"
     scope_contract_violation_count: int = 0
+    scope_contract_violations: list[dict[str, object]] = field(default_factory=list)
     delivery_readiness_status: str = "not_evaluated"
     delivery_readiness_status_label: str = "未评估"
     delivery_readiness_score: int = 0
     delivery_readiness_blocking_count: int = 0
     delivery_readiness_warning_count: int = 0
+    delivery_readiness_checks: list[dict[str, object]] = field(default_factory=list)
     risk_level: str = "normal"
     risk_level_label: str = "正常"
 
@@ -248,6 +256,7 @@ class BoardDesignCollaborationView:
     """需求/设计阶段会议桌视图。"""
 
     enabled: bool = False
+    status: str = "waiting"
     current_step_label: str = "等待需求设计"
     status_label: str = "未开始"
     current_document_title: str = "暂无需求文档"
@@ -261,7 +270,7 @@ class BoardDesignCollaborationView:
 
 @dataclass(slots=True)
 class BoardSnapshot:
-    """Board 页面快照。"""
+    """Board state snapshot."""
 
     project_id: str
     project_goal: str

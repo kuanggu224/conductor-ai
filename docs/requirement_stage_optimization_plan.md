@@ -55,7 +55,7 @@
 - 动态评审不是自由聊天，而是结构化 review seats；复杂项目可以出现多个同职责席位，例如 `designer.interaction`、`designer.information_architecture`、`solution_designer.process`、`tester.edge_cases`。
 - Collaboration 运行时会记录动态团队规划事件，并把虚拟评审席位写入 `reviewer_agent_ids` 和评审贡献记录。
 - Collaboration 会持久化 `team_plan`，Run Manifest 的 `collaboration_runs[].team_plan` 可直接审计复杂度、触发原因和评审席位。
-- Board Snapshot 的 `design_collaboration.team_plan` 会暴露同一份结构化计划，前端可直接展示需求评审团队组成原因。
+- Board Snapshot 的 `design_collaboration.team_plan` 会暴露同一份结构化计划，API 消费方可直接读取需求评审团队组成原因。
 - Board 模板已渲染 Team Plan 面板，展示复杂度、触发原因、评审席位和每个席位的 focus。
 - `python -m app.requirement_benchmark suite` 支持按目录批量比较多个固定 case 的平台需求产物和 direct baseline。
 - `python -m app.requirement_benchmark run-suite` 支持一键生成平台需求产物、读取或生成 direct baseline，并输出同一套对比报告。

@@ -1,6 +1,6 @@
 """Requirement coverage checks."""
 
-from conductor.testing.coverage import evaluate_requirement_coverage, infer_coverage_rules
+from conductor.testing.coverage import evaluate_requirement_coverage, infer_coverage_rules, infer_excluded_coverage_rules
 
 
 def test_infers_rules_from_chinese_requirement_terms() -> None:
@@ -35,7 +35,7 @@ def test_requirement_coverage_passes_when_harness_reports_required_evidence() ->
     assert result.missing_rules == []
     assert [item.status for item in result.traceability] == ["covered", "covered", "covered"]
     assert result.traceability[1].requirement_terms == ["\u5237\u65b0\u540e", "\u4fdd\u7559\u6570\u636e"]
-    assert result.traceability[1].evidence_terms == ["browser reload preserved submitted values"]
+    assert result.traceability[1].evidence_terms == ["api client reload preserved submitted values"]
     assert "Status: `pass`" in result.render_markdown()
     assert "Requirement Traceability" in result.render_markdown()
 
@@ -89,7 +89,7 @@ def test_requirement_coverage_requires_explicit_filter_interaction_evidence() ->
     assert missing.passed is False
     assert [rule.rule_id for rule in missing.missing_rules] == ["filter"]
     assert covered.passed is True
-    assert covered.traceability[0].evidence_terms == ["browser filter interaction changed visible results"]
+    assert covered.traceability[0].evidence_terms == ["api client filter interaction changed visible results"]
 
 
 def test_requirement_coverage_infers_delete_interaction() -> None:
@@ -101,7 +101,7 @@ def test_requirement_coverage_infers_delete_interaction() -> None:
     assert [rule.rule_id for rule in missing.required_rules] == ["delete_item"]
     assert missing.passed is False
     assert covered.passed is True
-    assert covered.traceability[0].evidence_terms == ["browser delete interaction removed visible item"]
+    assert covered.traceability[0].evidence_terms == ["api client delete interaction removed visible item"]
 
 
 def test_requirement_coverage_infers_file_import_interaction() -> None:
@@ -113,7 +113,7 @@ def test_requirement_coverage_infers_file_import_interaction() -> None:
     assert [rule.rule_id for rule in missing.required_rules] == ["file_import"]
     assert [rule.rule_id for rule in missing.missing_rules] == ["file_import"]
     assert covered.passed is True
-    assert covered.traceability[0].evidence_terms == ["browser file import processed sample file"]
+    assert covered.traceability[0].evidence_terms == ["api client file import processed sample file"]
 
 
 def test_requirement_coverage_infers_api_behavior_interaction() -> None:
@@ -128,9 +128,9 @@ def test_requirement_coverage_infers_api_behavior_interaction() -> None:
     assert covered.traceability[0].evidence_terms == ["api validation exercised endpoint behavior"]
 
 
-def test_requirement_coverage_requires_fullstack_frontend_api_integration_evidence() -> None:
+def test_requirement_coverage_requires_api_backend_api_integration_evidence() -> None:
     requirement = (
-        "Build a fullstack web app with a browser frontend that calls the backend REST API. "
+        "Build a api web app with a api client backend that calls the backend REST API. "
         "The page creates items through a form and shows API-backed stats."
     )
 
@@ -143,7 +143,7 @@ def test_requirement_coverage_requires_fullstack_frontend_api_integration_eviden
         "\n".join(
             [
                 "POST /api/items -> status_code=201 response payload={'id': 1}",
-                "Fullstack frontend API integration verified -> browser fetch /api/items and /api/items/stats",
+                "API backend API integration verified -> api client fetch /api/items and /api/items/stats",
             ]
         ),
     )
@@ -151,12 +151,12 @@ def test_requirement_coverage_requires_fullstack_frontend_api_integration_eviden
     assert [rule.rule_id for rule in missing.required_rules] == [
         "add_item",
         "api_behavior",
-        "fullstack_integration",
+        "api_integration",
     ]
-    assert [rule.rule_id for rule in missing.missing_rules] == ["add_item", "fullstack_integration"]
+    assert [rule.rule_id for rule in missing.missing_rules] == ["add_item", "api_integration"]
     assert covered.passed is False
     assert [rule.rule_id for rule in covered.missing_rules] == ["add_item"]
-    assert "fullstack frontend api integration verified" in covered.traceability[-1].evidence_terms
+    assert "api backend api integration verified" in covered.traceability[-1].evidence_terms
 
 
 def test_requirement_coverage_treats_api_only_non_goals_as_excluded_ui_scope() -> None:
@@ -164,13 +164,41 @@ def test_requirement_coverage_treats_api_only_non_goals_as_excluded_ui_scope() -
         [
             "Build a backend REST API for todo items.",
             "Support creating, updating, deleting, filtering, and querying items.",
-            "Out of scope: browser UI, frontend form, and localStorage persistence.",
+            "Out of scope: api surface, backend form, and SQLite persistence.",
         ]
     )
 
     rules = infer_coverage_rules(requirement)
 
     assert [rule.rule_id for rule in rules] == ["api_behavior"]
+
+
+def test_requirement_coverage_fails_when_excluded_feature_is_exercised() -> None:
+    requirement = "\n".join(
+        [
+            "Build a api-only team task board with add, status filter, and SQLite persistence.",
+            "Out of scope: delete items, CSV export, and file import.",
+        ]
+    )
+    output = "\n".join(
+        [
+            "Browser form interaction updated visible state: sample",
+            "Browser reload preserved submitted values: sample",
+            "Browser filter interaction changed visible results",
+            "feature present: delete item interaction",
+        ]
+    )
+
+    result = evaluate_requirement_coverage(requirement, output)
+
+    assert [rule.rule_id for rule in infer_excluded_coverage_rules(requirement)] == [
+        "export_csv",
+        "delete_item",
+        "file_import",
+    ]
+    assert result.passed is False
+    assert [rule.rule_id for rule in result.violated_excluded_rules] == ["delete_item"]
+    assert result.summary() == "Requirement coverage violates excluded scope: delete item interaction"
 
 
 def test_requirement_coverage_accepts_api_endpoint_status_payload_output() -> None:

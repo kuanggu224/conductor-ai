@@ -84,7 +84,6 @@ class AgentRegistry:
             "requirement_designer": "agent-requirement-designer",
             "solution_designer": "agent-solution-designer",
             "backend_engineer": "agent-backend",
-            "frontend_engineer": "agent-frontend",
             "tester": "agent-tester",
         }.get(profile.role_name, f"agent-{profile.role_name}")
 

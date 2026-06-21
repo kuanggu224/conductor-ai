@@ -42,7 +42,7 @@ def test_project_log_store_writes_structured_state_events_and_report(tmp_path) -
         artifact_dir=tmp_path / "artifacts",
         cli_selection_config=CLISelectionConfig(),
     )
-    state = engine.create_project("实现一个 API 和 UI")
+    state = engine.create_project("实现一个 API 和 API")
     state = engine.step_project(state.project.id)
 
     entries = engine.read_project_logs(state.project.id)
@@ -293,36 +293,36 @@ def test_project_report_includes_workitem_retry_and_blocker_details(tmp_path) ->
 def test_project_report_includes_structured_testing_feedback_for_rework(tmp_path) -> None:
     store = ProjectLogStore(tmp_path)
     failed_test = WorkItem(
-        id="workitem-ui-test",
-        description="Validate UI",
+        id="workitem-api-test",
+        description="Validate API",
         stage="testing",
-        kind="ui_validation",
+        kind="api_validation",
         status=WorkItemStatus.DONE,
         failure_type="validation_failed",
         failure_summary="Validation exit_code=1",
         blocked_reason="测试失败已回流到研发返工",
     )
     rework = WorkItem(
-        id="workitem-ui-rework",
-        description="Fix UI validation failure",
+        id="workitem-api-rework",
+        description="Fix API validation failure",
         stage="development",
-        kind="ui_implementation",
+        kind="api_implementation",
         feedback_from=[failed_test.id],
-        rework_of="workitem-ui-implementation",
+        rework_of="workitem-api-implementation",
     )
     state = SharedProjectState(
-        project=Project(id="project-feedback-report", goal="fix UI", current_stage="development"),
+        project=Project(id="project-feedback-report", goal="fix API", current_stage="development"),
         project_status=ProjectStatus.IN_PROGRESS,
         current_stage="development",
-        pending_test_scope=["ui_validation"],
+        pending_test_scope=["api_validation"],
         workitems=[failed_test, rework],
         executions=[
             Execution(
                 workitem_id=failed_test.id,
                 agent_id="agent-tester",
-                result="UI validation failed",
+                result="API validation failed",
                 status=ExecutionStatus.FAILED,
-                validation_command=["python", "-m", "conductor.harness.static_web_cli"],
+                validation_command=["python", "-m", "conductor.harness.api_validation_cli"],
                 validation_exit_code=1,
             )
         ],
@@ -332,8 +332,8 @@ def test_project_report_includes_structured_testing_feedback_for_rework(tmp_path
                 project_id="project-feedback-report",
                 workitem_id=failed_test.id,
                 agent_id="agent-tester",
-                kind="ui_validation",
-                title="Failed UI Validation",
+                kind="api_validation",
+                title="Failed API Validation",
                 content=(
                     "Static Web Validation: FAIL\n\n"
                     "Errors:\n"
@@ -345,12 +345,13 @@ def test_project_report_includes_structured_testing_feedback_for_rework(tmp_path
 
     report = store.render_project_report(state, [])
 
-    assert "structured_testing_feedback: source=workitem-ui-test" in report
-    assert "Pending Test Scope: ui_validation" in report
+    assert "structured_testing_feedback: source=workitem-api-test" in report
+    assert "Pending Test Scope: api_validation" in report
     assert "validation_exit_code=1" in report
-    assert "validation_command=python, -m, conductor.harness.static_web_cli" in report
+    assert "validation_command=python, -m, conductor.harness.api_validation_cli" in report
     assert "Browser form submit did not change visible page state" in report
-    assert "检查表单/按钮事件绑定" in report
+    assert "failing_checks=" in report
+    assert "suggested_fixes=" in report
 
 
 def test_project_report_includes_preflight_gate_summary(tmp_path) -> None:

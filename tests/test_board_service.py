@@ -58,6 +58,7 @@ def test_board_service_builds_snapshot_from_state() -> None:
     assert snapshot.artifacts[0].title
     assert snapshot.artifacts[0].content
     assert snapshot.artifacts[0].source_backend_label
+    assert snapshot.artifacts[0].detail_api_path == f"/api/projects/{state.project.id}/artifacts/{snapshot.artifacts[0].id}"
     assert snapshot.project_agents
     assert snapshot.project_agents[0].reason
     assert snapshot.activation_nodes
@@ -89,6 +90,9 @@ def test_board_service_builds_snapshot_from_state() -> None:
     assert isinstance(snapshot.task_assignments[0].lease_expires_at, str)
     assert snapshot.task_assignments[0].lease_expired in {True, False}
     assert snapshot.task_assignments[0].stale_claimed in {True, False}
+    assert snapshot.task_assignments[0].context_api_path.endswith("/context?include_content=false&max_content_chars=0")
+    assert isinstance(snapshot.task_assignments[0].claim_api_path, str)
+    assert isinstance(snapshot.task_assignments[0].return_api_paths, dict)
     assert isinstance(snapshot.workitems[0].remediation_suggestions, list)
     assert isinstance(snapshot.executions[0].remediation_suggestions, list)
     assert snapshot.preflight_gate.recorded is False
@@ -99,6 +103,35 @@ def test_board_service_builds_snapshot_from_state() -> None:
     assert isinstance(snapshot.run_audit.delivery_readiness_score, int)
     assert snapshot.human_control.active is False
     assert snapshot.human_control.action_count == len(state.human_control_actions)
+
+
+def test_board_service_labels_completed_stage_for_delivery() -> None:
+    state = SharedProjectState(
+        project=Project(id="project-completed-stage", goal="ship", current_stage="completed", project_root="C:/demo"),
+        project_status=ProjectStatus.COMPLETED,
+        current_stage="completed",
+    )
+
+    snapshot = BoardService().build_snapshot(state)
+
+    assert snapshot.current_stage_label == "交付"
+
+
+def test_board_service_display_stage_uses_delivery_for_completed_status() -> None:
+    state = SharedProjectState(
+        project=Project(id="project-completed-status", goal="ship", current_stage="development", project_root="C:/demo"),
+        project_status=ProjectStatus.COMPLETED,
+        current_stage="development",
+    )
+    service = BoardService()
+
+    snapshot = service.build_snapshot(state)
+    summary = service.build_project_summaries([state])[0]
+
+    assert snapshot.current_stage == "development"
+    assert snapshot.current_stage_label == "交付"
+    assert summary.current_stage == "development"
+    assert summary.current_stage_label == "交付"
 
 
 def test_board_service_exposes_active_human_control_state() -> None:
@@ -263,8 +296,12 @@ def test_board_service_exposes_run_audit_risk_summary(tmp_path) -> None:
     assert snapshot.run_audit.scope_contract_status == "violation"
     assert snapshot.run_audit.scope_contract_status_label == "范围风险"
     assert snapshot.run_audit.scope_contract_violation_count == 2
+    assert len(snapshot.run_audit.scope_contract_violations) == 2
+    assert snapshot.run_audit.scope_contract_violations[0]["artifact_id"] == "artifact-design"
     assert snapshot.run_audit.delivery_readiness_status == "blocked"
     assert snapshot.run_audit.delivery_readiness_blocking_count >= 1
+    assert snapshot.run_audit.delivery_readiness_checks
+    assert any(check["status"] == "fail" for check in snapshot.run_audit.delivery_readiness_checks)
     assert snapshot.run_audit.risk_level == "high"
     assert snapshot.run_audit.risk_level_label == "高风险"
 
@@ -276,7 +313,7 @@ def test_board_service_extracts_code_execution_reports() -> None:
         current_stage="development",
         workitems=[
             WorkItem(id="workitem-backend", description="后端实现", stage="development", kind="api_implementation"),
-            WorkItem(id="workitem-frontend", description="前端实现", stage="development", kind="ui_implementation"),
+            WorkItem(id="workitem-backend", description="后端实现", stage="development", kind="api_implementation"),
         ],
         artifacts=[
             Artifact(
@@ -290,13 +327,13 @@ def test_board_service_extracts_code_execution_reports() -> None:
                 source_backend="agent_cli/codex",
             ),
             Artifact(
-                id="artifact-frontend",
+                id="artifact-backend",
                 project_id="project-1",
-                workitem_id="workitem-frontend",
-                agent_id="agent-frontend",
-                kind="ui_implementation",
-                title="代码执行报告 - workitem-frontend",
-                content="frontend report",
+                workitem_id="workitem-backend",
+                agent_id="agent-backend",
+                kind="api_implementation",
+                title="代码执行报告 - workitem-backend",
+                content="backend report",
                 source_backend="agent_cli/codex",
             ),
         ],
@@ -343,6 +380,7 @@ def test_board_service_exposes_requirement_team_plan() -> None:
 
     snapshot = BoardService().build_snapshot(state)
 
+    assert snapshot.design_collaboration.status == "running"
     assert snapshot.design_collaboration.team_plan["complexity_level"] == "complex"
     assert snapshot.design_collaboration.team_plan["peer_seats"][0]["seat_id"] == "designer.interaction"
 
@@ -521,7 +559,7 @@ def test_board_service_exposes_task_center_readiness() -> None:
 
 def test_board_service_exposes_write_scope_conflicts() -> None:
     state = SharedProjectState(
-        project=Project(id="project-task-scope-conflict", goal="parallel UI work", current_stage="development"),
+        project=Project(id="project-task-scope-conflict", goal="parallel API work", current_stage="development"),
         project_status=ProjectStatus.IN_PROGRESS,
         current_stage="development",
         workitems=[
@@ -529,7 +567,7 @@ def test_board_service_exposes_write_scope_conflicts() -> None:
                 id="workitem-claimed",
                 description="Claimed layout task",
                 stage="development",
-                kind="ui_implementation",
+                kind="api_implementation",
                 status=WorkItemStatus.RUNNING,
                 owner_agent="agent-layout-a",
             ),
@@ -537,14 +575,14 @@ def test_board_service_exposes_write_scope_conflicts() -> None:
                 id="workitem-queued",
                 description="Queued layout task",
                 stage="development",
-                kind="ui_implementation",
+                kind="api_implementation",
             ),
         ],
         task_assignments=[
             TaskAssignment(
                 id="assignment-claimed",
                 workitem_id="workitem-claimed",
-                role="frontend_engineer",
+                role="backend_engineer",
                 status=TaskAssignmentStatus.CLAIMED,
                 assigned_agent_id="agent-layout-a",
                 claim_token="token-a",
@@ -552,26 +590,26 @@ def test_board_service_exposes_write_scope_conflicts() -> None:
             TaskAssignment(
                 id="assignment-queued",
                 workitem_id="workitem-queued",
-                role="frontend_engineer",
+                role="backend_engineer",
             ),
         ],
         agent_activations=[
             AgentActivation(
-                role="frontend_engineer",
+                role="backend_engineer",
                 agent_id="agent-layout-a",
                 stage="development",
                 reason="layout scope",
-                related_workitem_kinds=["ui_implementation"],
+                related_workitem_kinds=["api_implementation"],
                 dynamic=True,
                 parallel_safe=True,
                 write_scope=["index.html"],
             ),
             AgentActivation(
-                role="frontend_engineer",
+                role="backend_engineer",
                 agent_id="agent-layout-b",
                 stage="development",
                 reason="layout scope",
-                related_workitem_kinds=["ui_implementation"],
+                related_workitem_kinds=["api_implementation"],
                 dynamic=True,
                 parallel_safe=True,
                 write_scope=["index.html"],
@@ -585,6 +623,9 @@ def test_board_service_exposes_write_scope_conflicts() -> None:
     assert snapshot.task_center_summary["blocked_by_write_scope"] == 1
     assert queued.claimable is False
     assert queued.write_scope_conflict_assignment_ids == ["assignment-claimed"]
+    agent = next(item for item in snapshot.project_agents if item.agent_id == "agent-layout-b")
+    assert agent.task_api_path == "/api/projects/project-task-scope-conflict/agents/agent-layout-b/tasks?claimable_only=true"
+    assert agent.claim_task_api_path == "/api/projects/project-task-scope-conflict/agents/agent-layout-b/claim-task"
 
 
 def test_board_service_exposes_stale_task_assignment_state() -> None:
@@ -615,6 +656,11 @@ def test_board_service_exposes_stale_task_assignment_state() -> None:
     assert snapshot.task_assignments[0].heartbeat_age_seconds is not None
     assert snapshot.task_assignments[0].heartbeat_age_seconds >= 7200
     assert snapshot.task_assignments[0].stale_claimed is True
+    assert snapshot.task_assignments[0].claim_api_path == ""
+    assert snapshot.task_assignments[0].return_api_paths["complete"].endswith("/assignment-stale/complete")
+    assert snapshot.task_assignments[0].return_api_paths["fail"].endswith("/assignment-stale/fail")
+    assert snapshot.task_assignments[0].return_api_paths["heartbeat"].endswith("/assignment-stale/heartbeat")
+    assert snapshot.task_assignments[0].return_api_paths["release"].endswith("/assignment-stale/release")
 
 
 def test_board_service_uses_heartbeat_for_stale_task_assignment_state() -> None:
@@ -647,6 +693,36 @@ def test_board_service_uses_heartbeat_for_stale_task_assignment_state() -> None:
     assert snapshot.task_assignments[0].heartbeat_age_seconds is not None
     assert snapshot.task_assignments[0].heartbeat_age_seconds < 60
     assert snapshot.task_assignments[0].stale_claimed is False
+
+
+def test_board_service_exposes_failed_task_release_action() -> None:
+    state = SharedProjectState(
+        project=Project(id="project-failed-task", goal="failed task recovery", current_stage="development"),
+        project_status=ProjectStatus.IN_PROGRESS,
+        current_stage="development",
+        workitems=[
+            WorkItem(id="workitem-failed", description="Failed task", stage="development"),
+        ],
+        task_assignments=[
+            TaskAssignment(
+                id="assignment-failed",
+                workitem_id="workitem-failed",
+                role="backend_engineer",
+                status=TaskAssignmentStatus.FAILED,
+                assigned_agent_id="agent-backend",
+                claim_token="token-failed",
+                blocked_reason="needs retry",
+            )
+        ],
+    )
+
+    snapshot = BoardService().build_snapshot(state)
+
+    assignment = snapshot.task_assignments[0]
+    assert assignment.claim_api_path == ""
+    assert assignment.return_api_paths == {
+        "release": "/api/projects/project-failed-task/tasks/assignment-failed/release",
+    }
 
 
 def test_board_service_exposes_failure_remediation_suggestions() -> None:

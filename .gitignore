@@ -3,6 +3,7 @@ __pycache__/
 **/__pycache__/
 .venv/
 .env
+llm.config.json
 .idea/
 .vscode/
 .pytest_cache/

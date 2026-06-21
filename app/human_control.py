@@ -185,7 +185,7 @@ def _status_payload(state: SharedProjectState, service: HumanControlService) -> 
         "active_action": _action_payload(active) if active else {},
         "available_actions": service.available_actions(state),
         "operator_guidance": service.operator_guidance(state),
-        "operator_commands": service.operator_command_templates(state),
+        "operator_commands": service.operator_command_snippets(state),
         "action_count": len(state.human_control_actions),
         "actions": [_action_payload(action) for action in state.human_control_actions],
     }
@@ -233,7 +233,7 @@ def _project_status_payload(state: SharedProjectState, service: HumanControlServ
         "active_action": _action_payload(active) if active else {},
         "available_actions": service.available_actions(state),
         "operator_guidance": service.operator_guidance(state),
-        "operator_commands": service.operator_command_templates(state),
+        "operator_commands": service.operator_command_snippets(state),
         "action_count": len(state.human_control_actions),
     }
 

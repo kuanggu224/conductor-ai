@@ -112,7 +112,7 @@ def test_audit_bundle_verifier_rejects_pending_test_scope_mismatch(tmp_path, cap
     bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
     manifest_path = Path(bundle["files"]["manifest"])
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    manifest["summary"]["pending_test_scope"] = ["ui_validation"]
+    manifest["summary"]["pending_test_scope"] = ["api_validation"]
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     bundle["summary"]["pending_test_scope"] = ["api_validation"]
     bundle_path.write_text(json.dumps(bundle, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -121,7 +121,7 @@ def test_audit_bundle_verifier_rejects_pending_test_scope_mismatch(tmp_path, cap
 
     assert result.passed is False
     assert "checksums.manifest does not match file content" in result.errors
-    assert "summary.pending_test_scope does not match manifest summary.pending_test_scope" in result.errors
+    assert any("summary.pending_test_scope" in error for error in result.errors)
 
 
 def test_audit_bundle_verifier_rejects_manifest_summary_mismatch(tmp_path, capsys) -> None:

@@ -32,8 +32,6 @@ class AgentTeamPlanner:
         if target_stage == "testing":
             specs.extend(self._testing_specs(features, workitems))
 
-        if "ui" in features:
-            reasons.append("UI/interface work detected")
         if "api" in features:
             reasons.append("API/backend work detected")
         if "data" in features:
@@ -108,19 +106,6 @@ class AgentTeamPlanner:
 
     def _planning_specs(self, stage: str, features: set[str], workitems: list[WorkItem]) -> list[DynamicAgentSpec]:
         specs: list[DynamicAgentSpec] = []
-        if "ui" in features:
-            specs.append(
-                self._spec(
-                    role="designer",
-                    instance_id="interaction",
-                    stage=stage,
-                    mission="Clarify user interaction paths and visible UI states.",
-                    reason="UI interaction risk requires a dedicated designer perspective.",
-                    scope="interaction flows, empty/loading/error states, screen acceptance criteria",
-                    mode="sequential_review",
-                    workitem_kinds=[item.kind for item in workitems],
-                )
-            )
         if {"data", "export"} & features:
             specs.append(
                 self._spec(
@@ -152,35 +137,6 @@ class AgentTeamPlanner:
     def _development_specs(self, features: set[str], workitems: list[WorkItem]) -> list[DynamicAgentSpec]:
         specs: list[DynamicAgentSpec] = []
         kinds = [item.kind for item in workitems]
-        if "ui_implementation" in kinds or "ui" in features:
-            specs.extend(
-                [
-                    self._spec(
-                        role="frontend_engineer",
-                        instance_id="ui_layout",
-                        stage="development",
-                        mission="Implement page structure and semantic UI layout.",
-                        reason="Frontend work can be split by layout scope.",
-                        scope="HTML/component structure, responsive layout, accessibility landmarks",
-                        mode="parallel_development",
-                        parallel_safe=True,
-                        write_scope=["frontend layout files", "templates", "component markup"],
-                        workitem_kinds=["ui_implementation"],
-                    ),
-                    self._spec(
-                        role="frontend_engineer",
-                        instance_id="state_logic",
-                        stage="development",
-                        mission="Implement UI state transitions and browser-side behavior.",
-                        reason="Frontend work can be split by state-management scope.",
-                        scope="event handlers, validation feedback, local UI state, persistence hooks",
-                        mode="parallel_development",
-                        parallel_safe=True,
-                        write_scope=["frontend state logic", "client scripts", "interaction handlers"],
-                        workitem_kinds=["ui_implementation"],
-                    ),
-                ]
-            )
         if {"api_implementation", "data_implementation"} & set(kinds) or "api" in features or "data" in features:
             specs.extend(
                 [
@@ -221,7 +177,6 @@ class AgentTeamPlanner:
             "error",
             "invalid",
             "regression",
-            "ui",
             "api",
             "security",
             "\u8fb9\u754c",
@@ -234,7 +189,7 @@ class AgentTeamPlanner:
         )
         complex_testing = (
             ("validation" in features and any(term in text for term in review_risk_terms))
-            or any(kind in {"automated_test", "api_validation", "ui_validation"} for kind in kinds)
+            or any(kind in {"automated_test", "api_validation"} for kind in kinds)
         )
         if complex_testing:
             specs.append(
@@ -301,7 +256,6 @@ class AgentTeamPlanner:
     def _features(self, goal: str, workitems: list[WorkItem]) -> set[str]:
         text = " ".join([goal, *[item.description for item in workitems]]).lower()
         rules = {
-            "ui": ("ui", "frontend", "page", "screen", "form", "界面", "前端", "页面", "交互"),
             "api": ("api", "backend", "endpoint", "接口", "后端", "服务"),
             "data": ("data", "schema", "storage", "database", "csv", "数据", "存储", "持久化", "导出"),
             "workflow": ("workflow", "approve", "reject", "流程", "审批", "流转"),
@@ -349,8 +303,6 @@ class AgentTeamPlanner:
             "Each lane must heartbeat or release before another lane may reuse its write scope.",
             "Each lane must return changed files and validation evidence before integration.",
         ]
-        if {"frontend_engineer", "backend_engineer"} <= roles:
-            shared_contracts.append("Frontend/backend lanes must confirm API/UI/data contract compatibility before merge.")
         return {
             "enabled": True,
             "stage": stage,
@@ -367,7 +319,7 @@ class AgentTeamPlanner:
 
     def _integration_owner(self, specs: list[DynamicAgentSpec]) -> str:
         """Select the conservative owner for integration sequencing."""
-        for role in ("solution_designer", "backend_engineer", "frontend_engineer"):
+        for role in ("solution_designer", "backend_engineer"):
             owner = next((spec.agent_id for spec in specs if spec.role == role), "")
             if owner:
                 return owner

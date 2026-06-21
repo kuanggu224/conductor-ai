@@ -53,8 +53,6 @@ def expected_outputs_for(stage: str, kind: str) -> list[str]:
             "Concrete implementation changes or a precise implementation artifact if code execution is not enabled.",
             "Changed-file summary and verification notes tied to acceptance criteria.",
         ]
-        if kind == "ui_implementation":
-            outputs.append("UI behavior evidence for core interactions and visible states.")
         if kind == "api_implementation":
             outputs.append("API contract notes covering inputs, outputs, and error cases.")
         return outputs
@@ -82,8 +80,6 @@ def verification_focus_for(
         focus.extend(["Scope boundary preservation", "Runnable or inspectable implementation output"])
     if stage == "testing":
         focus.extend(["Executable validation evidence", "Actionable failure feedback"])
-    if kind == "ui_implementation":
-        focus.append("Visible UI state and interaction behavior")
     if kind == "api_implementation":
         focus.append("API input/output contract behavior")
     if is_rework:

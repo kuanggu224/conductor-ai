@@ -18,6 +18,7 @@ from conductor.domain.models import (
     AgentActivation,
     AgentCapabilityStats,
     AgentTeamPlan,
+    Artifact,
     DynamicAgentSpec,
     Execution,
     ExecutionStatus,
@@ -29,6 +30,7 @@ from conductor.domain.models import (
     WorkItem,
     WorkItemStatus,
 )
+from conductor.delivery_readiness import evaluate_delivery_readiness
 from conductor.execution.planner import Planner
 from conductor.execution.failure_policy import parse_retryable_failure
 from conductor.execution.router import Router
@@ -668,6 +670,7 @@ class LeadController:
         if next_stage is None:
             raise RuntimeError("advance_stage 时未找到下一阶段")
         latest = self.state_store.get_state(project_id)
+        latest = self._ensure_frozen_baseline_for_next_stage(latest, next_stage.name)
         planning_requirement = self._planning_requirement_text(latest)
         new_workitems = self.planner.plan_stage_workitems(next_stage, planning_requirement)
         new_workitems = self._dedupe_new_workitem_ids(latest, new_workitems)
@@ -713,6 +716,25 @@ class LeadController:
 
     def _complete_project(self, project_id: str) -> SharedProjectState:
         latest = self.state_store.get_state(project_id)
+        readiness = evaluate_delivery_readiness(latest, artifact_store=self.runner.artifact_store)
+        if readiness.status == "blocked":
+            blocker = (
+                "Delivery readiness blocked project completion: "
+                + "; ".join(
+                    f"{check.id}={check.evidence}"
+                    for check in readiness.checks
+                    if check.status == "fail" and check.severity == "blocker"
+                )
+            )
+            blocked_state = replace(
+                latest,
+                project=replace(latest.project, status=ProjectStatus.BLOCKED),
+                project_status=ProjectStatus.BLOCKED,
+                blockers=[*latest.blockers, blocker],
+                recent_events=[*latest.recent_events, blocker],
+            )
+            self.state_store.save_state(blocked_state)
+            return blocked_state
         completed_project = replace(latest.project, status=ProjectStatus.COMPLETED)
         completed_state = replace(
             latest,
@@ -722,6 +744,74 @@ class LeadController:
         )
         self.state_store.save_state(completed_state)
         return completed_state
+
+    def _ensure_frozen_baseline_for_next_stage(self, state: SharedProjectState, next_stage_name: str) -> SharedProjectState:
+        """Create frozen baselines from accepted artifacts when collaboration review is disabled."""
+        latest = state
+        if next_stage_name in {"design", "development", "testing"}:
+            latest = self._ensure_frozen_artifact(
+                latest,
+                target_kind="frozen_requirement_spec",
+                source_kinds={"requirement_spec"},
+                title="Frozen Requirement Spec",
+                event_label="Frozen requirement baseline created from accepted requirement artifact",
+            )
+        if next_stage_name in {"development", "testing"}:
+            latest = self._ensure_frozen_artifact(
+                latest,
+                target_kind="frozen_design_spec",
+                source_kinds={"design_overview"},
+                title="Frozen Design Spec",
+                event_label="Frozen design baseline created from accepted design artifact",
+            )
+        return latest
+
+    def _ensure_frozen_artifact(
+        self,
+        state: SharedProjectState,
+        *,
+        target_kind: str,
+        source_kinds: set[str],
+        title: str,
+        event_label: str,
+    ) -> SharedProjectState:
+        if any(artifact.kind == target_kind for artifact in state.artifacts):
+            return state
+        source = next((artifact for artifact in reversed(state.artifacts) if artifact.kind in source_kinds), None)
+        if source is None:
+            return state
+        if target_kind == "frozen_requirement_spec":
+            content = state.project.goal.strip() or source.content.strip()
+        else:
+            content = source.content.strip() or self.runner.artifact_store.read_content(source).strip()
+        frozen = Artifact(
+            id=f"artifact-auto-{target_kind}-{source.workitem_id}",
+            project_id=state.project.id,
+            workitem_id=source.workitem_id,
+            agent_id=source.agent_id,
+            kind=target_kind,
+            title=f"{title} - {source.workitem_id}",
+            content=(
+                f"# {title} - {source.workitem_id}\n\n"
+                "## Status\naccepted\n\n"
+                "## Baseline\n"
+                f"{content}\n\n"
+                "## Downstream Contract\n"
+                "- This frozen artifact is the controlling baseline for downstream design, implementation, and testing.\n"
+                "- Scope changes require a new requirement or design rework item.\n"
+            ),
+            source_backend=source.source_backend or "controller",
+            parent_artifact_id=source.id,
+            derived_from=[source.id],
+            review_of=source.review_of or source.id,
+            version=1,
+        )
+        persisted = self.runner.artifact_store.save_markdown(
+            frozen,
+            project_root=state.project.project_root or None,
+        )
+        self.state_store.add_artifact(state.project.id, persisted)
+        return self.state_store.add_event(state.project.id, f"{event_label}: {persisted.id}")
 
     def _planning_requirement_text(self, state: SharedProjectState) -> str:
         """Prefer the frozen requirement baseline when planning downstream stages."""
@@ -1049,15 +1139,13 @@ class LeadController:
 
     def _feedback_target_kind(self, failed_test: WorkItem) -> str:
         """Map testing failures to the development Agent that should fix them."""
-        if failed_test.kind == "ui_validation":
-            return "ui_implementation"
         if failed_test.kind == "api_validation":
             return "api_implementation"
         return "generic_implementation"
 
     def _feedback_test_scope(self, failed_test: WorkItem) -> list[str]:
         """Map a failed testing item to the smallest retest scope."""
-        if failed_test.kind in {"ui_validation", "api_validation", "automated_test", "acceptance_check"}:
+        if failed_test.kind in {"api_validation", "automated_test", "acceptance_check"}:
             return [failed_test.kind]
         return ["acceptance_check"]
 
@@ -1279,7 +1367,7 @@ class LeadController:
             )
             has_design_baseline = any(
                 artifact.kind == "frozen_design_spec"
-                or artifact.kind in {"design_overview", "feature_slice_plan", "ui_design", "api_design", "test_design"}
+                or artifact.kind in {"design_overview", "feature_slice_plan", "api_design", "test_design"}
                 or artifact.workitem_id in design_workitem_ids
                 for artifact in input_artifacts
             )
@@ -1583,12 +1671,10 @@ class LeadController:
         """Infer the default role for a WorkItem kind."""
         if kind == "requirement_spec":
             return "requirement_designer"
-        if kind in {"design_overview", "ui_design", "api_design", "test_design", "feature_slice_plan"}:
+        if kind in {"design_overview", "api_design", "test_design", "feature_slice_plan"}:
             return "designer"
         if kind in {"api_implementation", "data_implementation", "generic_implementation"}:
             return "backend_engineer"
-        if kind == "ui_implementation":
-            return "frontend_engineer"
-        if kind in {"acceptance_check", "automated_test", "api_validation", "ui_validation"}:
+        if kind in {"acceptance_check", "automated_test", "api_validation"}:
             return "tester"
         return None

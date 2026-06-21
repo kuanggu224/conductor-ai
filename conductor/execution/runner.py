@@ -1,4 +1,4 @@
-"""WorkItem runner."""
+﻿"""WorkItem runner."""
 
 from __future__ import annotations
 
@@ -31,7 +31,6 @@ from conductor.harness.base import BaseHarness
 from conductor.harness.llm import LLMHarnessRequest, OpenAICompatibleLLMHarness
 from conductor.harness.models import HarnessRequest, HarnessResult
 from conductor.harness.shell import ShellHarness
-from conductor.harness.static_web import StaticWebHarness
 from conductor.io.encoding import looks_like_mojibake
 from conductor.testing.coverage import CoverageResult, evaluate_requirement_coverage, infer_coverage_rules
 from conductor.execution.runtime_stream import RuntimeStreamStore
@@ -48,7 +47,7 @@ from conductor.execution.failure_policy import (
 from conductor.state.store import InMemoryStateStore
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class WorkItemRunResult:
     """Normalized runner result."""
 
@@ -75,10 +74,10 @@ class WorkItemRunResult:
 class Runner:
     """Execute workitems through Agent CLI, harness, LLM, or mock fallback."""
 
-    HARNESS_WORKITEM_KINDS = {"acceptance_check", "automated_test", "api_validation", "ui_validation"}
-    CODE_EDIT_WORKITEM_KINDS = {"api_implementation", "data_implementation", "generic_implementation", "ui_implementation"}
-    CODE_EDIT_AGENT_ROLES = {"backend_engineer", "frontend_engineer"}
-    DESIGN_DOCUMENT_WORKITEM_KINDS = {"requirement_spec", "design_overview", "feature_slice_plan", "ui_design", "api_design", "test_design"}
+    HARNESS_WORKITEM_KINDS = {"acceptance_check", "automated_test", "api_validation"}
+    CODE_EDIT_WORKITEM_KINDS = {"api_implementation", "data_implementation", "generic_implementation"}
+    CODE_EDIT_AGENT_ROLES = {"backend_engineer"}
+    DESIGN_DOCUMENT_WORKITEM_KINDS = {"requirement_spec", "design_overview", "feature_slice_plan", "api_design", "test_design"}
 
     def __init__(
         self,
@@ -87,8 +86,6 @@ class Runner:
         artifact_store: ArtifactStore | None = None,
         shell_harness: BaseHarness | None = None,
         enable_tester_harness: bool = False,
-        enable_static_web_delivery: bool = False,
-        enable_fullstack_web_delivery: bool = False,
         enable_api_mock_delivery: bool = False,
         enable_api_sqlite_delivery: bool = False,
         cli_selection_config: CLISelectionConfig | None = None,
@@ -106,8 +103,6 @@ class Runner:
         self._uses_default_shell_harness = shell_harness is None
         self.shell_harness = shell_harness or ShellHarness()
         self.enable_tester_harness = enable_tester_harness
-        self.enable_static_web_delivery = enable_static_web_delivery
-        self.enable_fullstack_web_delivery = enable_fullstack_web_delivery
         self.enable_api_mock_delivery = enable_api_mock_delivery
         self.enable_api_sqlite_delivery = enable_api_sqlite_delivery
         self.cli_selection_config = cli_selection_config or CLISelectionConfig()
@@ -130,11 +125,11 @@ class Runner:
             status=WorkItemStatus.RUNNING,
             owner_agent=agent.id,
         )
-        self.state_store.add_event(project_id, f"WorkItem {workitem.id} 开始执行，Agent={agent.id}")
+        self.state_store.add_event(project_id, f"WorkItem {workitem.id} 寮€濮嬫墽琛岋紝Agent={agent.id}")
         input_artifact_ids = self._context_artifact_ids(project_id, workitem)
 
         if self._should_fail_once(workitem):
-            result = f"模拟失败: {workitem.description}"
+            result = f"妯℃嫙澶辫触: {workitem.description}"
             failure = FailureDecision(FailureType.TRANSIENT, True, "Intentional fail_once retry test")
             self._failed_once_workitems.add(workitem.id)
             execution = Execution(
@@ -155,7 +150,7 @@ class Runner:
                 retryable=failure.retryable,
                 failure_summary=failure.summary,
             )
-            self.state_store.add_event(project_id, f"WorkItem {workitem.id} 执行失败")
+            self.state_store.add_event(project_id, f"WorkItem {workitem.id} 鎵ц澶辫触")
             self._finish_runtime_stream(project_id, succeeded=False, message=f"[mock] {result}")
             return execution
 
@@ -216,17 +211,17 @@ class Runner:
         if self.agent_cli_executor.is_binding_disabled(agent):
             self.state_store.add_event(
                 project_id,
-                f"Agent {agent.id} 绑定的 CLI 因 provider 兼容性问题已在当前进程内停用，直接回退到后备执行链路。",
+                f"Agent {agent.id} CLI binding is disabled; using fallback execution path.",
             )
         if self._should_use_llm_harness(workitem, agent):
-            self.state_store.add_event(project_id, f"WorkItem {workitem.id} 使用 LLMHarness 执行，role={agent.role}")
+            self.state_store.add_event(project_id, f"WorkItem {workitem.id} 浣跨敤 LLMHarness 鎵ц锛宺ole={agent.role}")
             return self._run_llm_harness(project_id, workitem, agent, project_root)
 
         if self._should_use_harness(workitem, agent):
             if self._uses_default_shell_harness and not self._has_project_deliverables(project_root, project_id):
                 self.state_store.add_event(
                     project_id,
-                    f"WorkItem {workitem.id} 未发现可验收交付文件，跳过真实验收 harness 以避免误跑平台测试。",
+                    f"WorkItem {workitem.id} has no deliverable files; skipping validation harness.",
                 )
                 return WorkItemRunResult(
                     content=self._build_harness_skip_report(workitem, agent, project_root),
@@ -235,7 +230,7 @@ class Runner:
             request = self._build_harness_request(workitem, project_root, self._build_stream_callback(project_id))
             self.state_store.add_event(
                 project_id,
-                f"WorkItem {workitem.id} 使用 Harness 执行，role={agent.role}, harness={self.shell_harness.name}",
+                f"WorkItem {workitem.id} 浣跨敤 Harness 鎵ц锛宺ole={agent.role}, harness={self.shell_harness.name}",
             )
             try:
                 harness_result = self.shell_harness.run(request)
@@ -244,7 +239,7 @@ class Runner:
                 if no_tests_discovered:
                     self.state_store.add_event(
                         project_id,
-                        f"WorkItem {workitem.id} 未发现测试文件，记录为待补测试报告并继续推进。",
+                        f"WorkItem {workitem.id} found no tests; recording a pending-test report.",
                     )
                 return WorkItemRunResult(
                     content=self._build_harness_report(workitem, agent, request, harness_result, coverage_result=coverage_result),
@@ -270,9 +265,9 @@ class Runner:
                     cli_stderr_tail=self._tail(harness_result.stderr),
                 )
             except Exception as error:
-                self.state_store.add_event(project_id, f"WorkItem {workitem.id} Harness 执行失败，使用 mock fallback: {error}")
+                self.state_store.add_event(project_id, f"WorkItem {workitem.id} Harness 鎵ц澶辫触锛屼娇鐢?mock fallback: {error}")
                 return WorkItemRunResult(
-                    content=self._build_mock_document(workitem, agent, "Harness 调用失败后的模拟兜底产物"),
+                    content=self._build_mock_document(workitem, agent, "Harness 璋冪敤澶辫触鍚庣殑妯℃嫙鍏滃簳浜х墿"),
                     source_backend="mock_fallback",
                 )
 
@@ -284,7 +279,7 @@ class Runner:
                 if is_code_edit
                 else self._build_agent_cli_document_prompt(workitem, agent, cli_name, project_id=project_id)
             )
-            self.state_store.add_event(project_id, f"WorkItem {workitem.id} 使用 Agent CLI 执行，role={agent.role}, cli={cli_name}")
+            self.state_store.add_event(project_id, f"WorkItem {workitem.id} 浣跨敤 Agent CLI 鎵ц锛宺ole={agent.role}, cli={cli_name}")
             try:
                 cli_execution = (
                     self._execute_code_edit_with_retry(project_id, workitem, agent, prompt)
@@ -301,7 +296,7 @@ class Runner:
                     )
                 )
                 if cli_execution is None:
-                    raise RuntimeError("未找到有效 Agent CLI 绑定")
+                    raise RuntimeError("鏈壘鍒版湁鏁?Agent CLI 缁戝畾")
                 if is_code_edit:
                     return self._finalize_code_execution(project_id, workitem, agent, cli_execution)
                 file_output = self._read_agent_cli_document_file(project_root, workitem, cli_execution.cli_name)
@@ -320,7 +315,7 @@ class Runner:
                 if cli_execution.cli_name == "opencode":
                     self.state_store.add_event(
                         project_id,
-                        f"WorkItem {workitem.id} OpenCode 未写入指定文档文件，拒绝将 stdout 当作真实产物。",
+                        f"WorkItem {workitem.id} OpenCode did not write the required document file.",
                     )
                     return WorkItemRunResult(
                         content=self._real_backend_required_result(
@@ -355,24 +350,24 @@ class Runner:
                 if "Unsupported reasoning_effort type" in cli_stdout:
                     self.state_store.add_event(
                         project_id,
-                        f"WorkItem {workitem.id} 的 {cli_name} provider 与 reasoning_effort 参数不兼容，当前进程内已停用该绑定并回退。",
+                        f"WorkItem {workitem.id} {cli_name} rejected reasoning_effort; disabling binding for this process.",
                     )
                 self.state_store.add_event(
                     project_id,
-                    f"WorkItem {workitem.id} Agent CLI 执行失败，回退到后备执行链路。exit_code={cli_execution.result.exit_code}",
+                    f"WorkItem {workitem.id} Agent CLI 鎵ц澶辫触锛屽洖閫€鍒板悗澶囨墽琛岄摼璺€俥xit_code={cli_execution.result.exit_code}",
                 )
             except Exception as error:
-                self.state_store.add_event(project_id, f"WorkItem {workitem.id} Agent CLI 调用异常，回退到后备执行链路: {error}")
+                self.state_store.add_event(project_id, f"WorkItem {workitem.id} Agent CLI 璋冪敤寮傚父锛屽洖閫€鍒板悗澶囨墽琛岄摼璺? {error}")
 
         if self._should_use_llm_code_harness(workitem, agent):
-            self.state_store.add_event(project_id, f"WorkItem {workitem.id} 使用 LLMHarness 生成代码，role={agent.role}")
+            self.state_store.add_event(project_id, f"WorkItem {workitem.id} 浣跨敤 LLMHarness 鐢熸垚浠ｇ爜锛宺ole={agent.role}")
             return self._run_llm_code_harness(project_id, workitem, agent, project_root)
 
         if self._should_use_harness(workitem, agent):
             if self._uses_default_shell_harness and not self._has_project_deliverables(project_root, project_id):
                 self.state_store.add_event(
                     project_id,
-                    f"WorkItem {workitem.id} 未发现可验收交付文件，跳过真实验收 harness 以避免误跑平台测试。",
+                    f"WorkItem {workitem.id} has no deliverable files; skipping validation harness.",
                 )
                 return WorkItemRunResult(
                     content=self._build_harness_skip_report(workitem, agent, project_root),
@@ -381,7 +376,7 @@ class Runner:
             request = self._build_harness_request(workitem, project_root, self._build_stream_callback(project_id))
             self.state_store.add_event(
                 project_id,
-                f"WorkItem {workitem.id} 使用 Harness 执行，role={agent.role}, harness={self.shell_harness.name}",
+                f"WorkItem {workitem.id} 浣跨敤 Harness 鎵ц锛宺ole={agent.role}, harness={self.shell_harness.name}",
             )
             try:
                 harness_result = self.shell_harness.run(request)
@@ -390,7 +385,7 @@ class Runner:
                 if no_tests_discovered:
                     self.state_store.add_event(
                         project_id,
-                        f"WorkItem {workitem.id} 未发现测试文件，记录为待补测试报告并继续推进。",
+                        f"WorkItem {workitem.id} found no tests; recording a pending-test report.",
                     )
                 return WorkItemRunResult(
                     content=self._build_harness_report(workitem, agent, request, harness_result, coverage_result=coverage_result),
@@ -416,15 +411,15 @@ class Runner:
                     cli_stderr_tail=self._tail(harness_result.stderr),
                 )
             except Exception as error:
-                self.state_store.add_event(project_id, f"WorkItem {workitem.id} Harness 执行失败，使用 mock fallback: {error}")
+                self.state_store.add_event(project_id, f"WorkItem {workitem.id} Harness 鎵ц澶辫触锛屼娇鐢?mock fallback: {error}")
                 return WorkItemRunResult(
-                    content=self._build_mock_document(workitem, agent, "Harness 调用失败后的模拟兜底产物"),
+                    content=self._build_mock_document(workitem, agent, "Harness 璋冪敤澶辫触鍚庣殑妯℃嫙鍏滃簳浜х墿"),
                     source_backend="mock_fallback",
                 )
 
         if self._should_use_llm(workitem, agent):
             preferred_backend = self.llm_usage_policy.preferred_backend or agent.preferred_llm_backend
-            self.state_store.add_event(project_id, f"WorkItem {workitem.id} 使用 LLM 执行，role={agent.role}, backend={preferred_backend}")
+            self.state_store.add_event(project_id, f"WorkItem {workitem.id} 浣跨敤 LLM 鎵ц锛宺ole={agent.role}, backend={preferred_backend}")
             try:
                 response = agent.llm_backend.generate(
                     LLMRequest(
@@ -435,10 +430,10 @@ class Runner:
                 )
                 content = response.content
                 if self._is_disabled_llm_response(content) and self._requires_real_design_output(workitem, agent):
-                    return self._real_backend_required_result(workitem, agent, f"LLM backend `{preferred_backend}` 未启用")
+                    return self._real_backend_required_result(workitem, agent, f"LLM backend `{preferred_backend}` is disabled.")
                 self.state_store.add_event(
                     project_id,
-                    f"WorkItem {workitem.id} LLM 响应完成，provider={response.provider.value}, model={response.model_name}",
+                    f"WorkItem {workitem.id} LLM 鍝嶅簲瀹屾垚锛宲rovider={response.provider.value}, model={response.model_name}",
                 )
                 return WorkItemRunResult(
                     content=content,
@@ -446,21 +441,13 @@ class Runner:
                     model=response.model_name,
                 )
             except Exception as error:
-                self.state_store.add_event(project_id, f"WorkItem {workitem.id} LLM 执行失败，使用 mock fallback: {error}")
+                self.state_store.add_event(project_id, f"WorkItem {workitem.id} LLM 鎵ц澶辫触锛屼娇鐢?mock fallback: {error}")
                 if self._requires_real_design_output(workitem, agent):
-                    return self._real_backend_required_result(workitem, agent, f"LLM 执行失败: {error}")
+                    return self._real_backend_required_result(workitem, agent, f"LLM 鎵ц澶辫触: {error}")
                 return WorkItemRunResult(
-                    content=self._build_mock_document(workitem, agent, "LLM 调用失败后的模拟兜底产物"),
+                    content=self._build_mock_document(workitem, agent, "LLM 璋冪敤澶辫触鍚庣殑妯℃嫙鍏滃簳浜х墿"),
                     source_backend="mock_fallback",
                 )
-
-        if self._should_use_static_web_delivery(project_id, workitem, agent):
-            self.state_store.add_event(project_id, f"WorkItem {workitem.id} 使用 StaticWebDelivery 生成真实静态 Web 交付物")
-            return self._run_static_web_delivery(project_id, workitem, agent, project_root)
-
-        if self._should_use_fullstack_web_delivery(project_id, workitem, agent):
-            self.state_store.add_event(project_id, f"WorkItem {workitem.id} uses FullstackWebDelivery for a verifiable frontend/API integration")
-            return self._run_fullstack_web_delivery(project_id, workitem, agent, project_root)
 
         if self._should_use_api_sqlite_delivery(project_id, workitem, agent):
             self.state_store.add_event(project_id, f"WorkItem {workitem.id} uses ApiSqliteDelivery for a verifiable SQLite API service")
@@ -474,147 +461,25 @@ class Runner:
             return self._real_backend_required_result(
                 workitem,
                 agent,
-                "设计阶段要求真实 Agent 产出，但当前没有可用 Agent CLI 或已启用的 LLM Runner",
+                "璁捐闃舵瑕佹眰鐪熷疄 Agent 浜у嚭锛屼絾褰撳墠娌℃湁鍙敤 Agent CLI 鎴栧凡鍚敤鐨?LLM Runner",
             )
 
         if self._requires_real_code_output(workitem, agent):
             return self._real_backend_required_result(
                 workitem,
                 agent,
-                "开发阶段要求真实代码产出，但当前没有可用 Agent CLI 绑定，系统不会用 mock 文档冒充实现。",
+                "Code execution requires real output, but no usable Agent CLI binding is available.",
             )
 
         if agent.execution_backend == "cli":
-            self.state_store.add_event(project_id, f"Agent {agent.id} 预设 CLI backend，当前未启用，使用 mock fallback")
+            self.state_store.add_event(project_id, f"Agent {agent.id} 棰勮 CLI backend锛屽綋鍓嶆湭鍚敤锛屼娇鐢?mock fallback")
             return WorkItemRunResult(
-                content=self._build_mock_document(workitem, agent, "CLI 未启用时的模拟兜底产物"),
+                content=self._build_mock_document(workitem, agent, "CLI fallback mock artifact"),
                 source_backend="mock_fallback",
             )
         return WorkItemRunResult(
-            content=self._build_mock_document(workitem, agent, "开发期模拟产物"),
+            content=self._build_mock_document(workitem, agent, "寮€鍙戞湡妯℃嫙浜х墿"),
             source_backend="mock",
-        )
-
-    def _should_use_static_web_delivery(self, project_id: str, workitem: WorkItem, agent: Agent) -> bool:
-        """Return whether the built-in static web backend should produce real frontend files."""
-        if not (
-            self.enable_static_web_delivery
-            and agent.role == "frontend_engineer"
-            and workitem.kind == "ui_implementation"
-        ):
-            return False
-        requirement_text = self._static_web_requirement_text(project_id).lower()
-        browser_terms = ("browser-only", "static web", "localstorage", "local storage", "frontend", "single-page")
-        excluded_server_terms = ("no backend", "no server", "without backend", "不接后端", "不做后端")
-        return any(term in requirement_text for term in browser_terms) or any(
-            term in requirement_text for term in excluded_server_terms
-        )
-
-    def _run_static_web_delivery(
-        self,
-        project_id: str,
-        workitem: WorkItem,
-        agent: Agent,
-        project_root: str,
-    ) -> WorkItemRunResult:
-        """Generate a concrete static web app and validate it with StaticWebHarness."""
-        root = Path(project_root)
-        changed_files = self._write_static_web_app(root, project_id)
-        validation_command = [sys.executable, "-m", "conductor.harness.static_web_cli"]
-        validation = StaticWebHarness().run(HarnessRequest(command=[], working_directory=str(root)))
-        report = self._build_static_web_delivery_report(
-            workitem=workitem,
-            agent=agent,
-            changed_files=changed_files,
-            validation=validation,
-            validation_command=validation_command,
-        )
-        return WorkItemRunResult(
-            content=report,
-            source_backend="static_web_delivery",
-            succeeded=validation.success,
-            failure=None if validation.success else validation_failed(validation),
-            cli_name="static_web_delivery",
-            working_directory=str(root),
-            execution_command=[],
-            execution_exit_code=0,
-            execution_duration_ms=validation.duration_ms,
-            changed_files=changed_files,
-            validation_command=validation_command,
-            validation_exit_code=validation.exit_code,
-            validation_success=validation.success,
-            cli_stdout_tail=self._tail(validation.stdout),
-            cli_stderr_tail=self._tail(validation.stderr),
-        )
-
-    def _should_use_fullstack_web_delivery(self, project_id: str, workitem: WorkItem, agent: Agent) -> bool:
-        """Return whether the built-in full-stack web backend should produce frontend and API files."""
-        if not (
-            self.enable_fullstack_web_delivery
-            and agent.role == "backend_engineer"
-            and workitem.kind == "api_implementation"
-        ):
-            return False
-        requirement_text = self._static_web_requirement_text(project_id).lower()
-        api_terms = ("api", "rest", "http", "endpoint", "backend", "server", "service", "fastapi")
-        ui_terms = ("frontend", "browser", "web", "ui", "page", "form", "fullstack", "full-stack")
-        backend_negation = ("no backend", "without backend", "no server", "without server")
-        return (
-            any(term in requirement_text for term in api_terms)
-            and any(self._contains_full_word(requirement_text, term) for term in ui_terms)
-            and not any(term in requirement_text for term in backend_negation)
-        )
-
-    def _contains_full_word(self, text: str, term: str) -> bool:
-        """Return whether a term appears as a standalone word or explicit phrase."""
-        if not term.replace("-", "").isalnum():
-            return term in text
-        pattern = rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])"
-        return re.search(pattern, text) is not None
-
-    def _run_fullstack_web_delivery(
-        self,
-        project_id: str,
-        workitem: WorkItem,
-        agent: Agent,
-        project_root: str,
-    ) -> WorkItemRunResult:
-        """Generate a concrete FastAPI + static frontend app and validate it with pytest."""
-        root = Path(project_root)
-        changed_files = self._write_fullstack_web_app(root)
-        validation_command = [sys.executable, "-m", "pytest", "-q"]
-        validation_request = HarnessRequest(
-            command=validation_command,
-            working_directory=str(root),
-            timeout_seconds=240.0,
-            description=f"fullstack_web_delivery:{workitem.id}",
-            stream_callback=self._build_stream_callback(project_id),
-            environment=self._validation_environment(),
-        )
-        validation = self.shell_harness.run(validation_request)
-        report = self._build_fullstack_web_delivery_report(
-            workitem=workitem,
-            agent=agent,
-            changed_files=changed_files,
-            validation=validation,
-            validation_command=validation_command,
-        )
-        return WorkItemRunResult(
-            content=report,
-            source_backend="fullstack_web_delivery",
-            succeeded=validation.success,
-            failure=None if validation.success else validation_failed(validation),
-            cli_name="fullstack_web_delivery",
-            working_directory=str(root),
-            execution_command=list(validation_command),
-            execution_exit_code=validation.exit_code,
-            execution_duration_ms=validation.duration_ms,
-            changed_files=changed_files,
-            validation_command=list(validation_command),
-            validation_exit_code=validation.exit_code,
-            validation_success=validation.success,
-            cli_stdout_tail=self._tail(validation.stdout),
-            cli_stderr_tail=self._tail(validation.stderr),
         )
 
     def _should_use_api_mock_delivery(self, project_id: str, workitem: WorkItem, agent: Agent) -> bool:
@@ -625,7 +490,7 @@ class Runner:
             and workitem.kind == "api_implementation"
         ):
             return False
-        requirement_text = self._static_web_requirement_text(project_id).lower()
+        requirement_text = self._delivery_requirement_text(project_id).lower()
         api_terms = ("api", "rest", "http", "endpoint", "backend", "server", "service", "fastapi")
         return any(term in requirement_text for term in api_terms)
 
@@ -637,7 +502,7 @@ class Runner:
             and workitem.kind == "api_implementation"
         ):
             return False
-        requirement_text = self._static_web_requirement_text(project_id).lower()
+        requirement_text = self._delivery_requirement_text(project_id).lower()
         api_terms = ("api", "rest", "http", "endpoint", "backend", "server", "service", "fastapi")
         sqlite_terms = ("sqlite", "database", "db", "sql", "persist", "persistence", "stored")
         return any(term in requirement_text for term in api_terms) and any(term in requirement_text for term in sqlite_terms)
@@ -651,7 +516,7 @@ class Runner:
     ) -> WorkItemRunResult:
         """Generate a concrete FastAPI mock service and validate it with pytest."""
         root = Path(project_root)
-        changed_files = self._write_api_mock_app(root)
+        changed_files = self._write_api_mock_app(root, project_id)
         validation_command = self._select_test_command(str(root))
         validation_request = HarnessRequest(
             command=validation_command,
@@ -696,7 +561,7 @@ class Runner:
     ) -> WorkItemRunResult:
         """Generate a concrete FastAPI + SQLite service and validate it with pytest."""
         root = Path(project_root)
-        changed_files = self._write_api_sqlite_app(root)
+        changed_files = self._write_api_sqlite_app(root, project_id)
         validation_command = self._select_test_command(str(root))
         validation_request = HarnessRequest(
             command=validation_command,
@@ -732,464 +597,13 @@ class Runner:
             cli_stderr_tail=self._tail(validation.stderr),
         )
 
-    def _write_fullstack_web_app(self, root: Path) -> list[str]:
-        """Write a small FastAPI-backed browser app plus full-stack tests."""
-        root.mkdir(parents=True, exist_ok=True)
-        static_dir = root / "static"
-        tests_dir = root / "tests"
-        static_dir.mkdir(parents=True, exist_ok=True)
-        tests_dir.mkdir(parents=True, exist_ok=True)
-        files = {
-            "app.py": self._fullstack_web_app_py(),
-            "index.html": self._fullstack_web_index_html(),
-            "static/app.js": self._fullstack_web_app_js(),
-            "static/style.css": self._fullstack_web_style_css(),
-            "pytest.ini": "[pytest]\naddopts = -s\n",
-            "tests/test_fullstack_contract.py": self._fullstack_web_contract_tests_py(),
-        }
-        changed: list[str] = []
-        for relative_path, content in files.items():
-            path = root / relative_path
-            previous = path.read_text(encoding="utf-8", errors="replace") if path.exists() else None
-            if previous != content:
-                path.write_text(content, encoding="utf-8")
-                changed.append(relative_path)
-        return changed
-
-    def _fullstack_web_app_py(self) -> str:
-        return '''"""Generated FastAPI full-stack web app for Conductor validation."""
-
-from __future__ import annotations
-
-from pathlib import Path
-
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
-
-
-ROOT = Path(__file__).resolve().parent
-app = FastAPI(title="Conductor Fullstack Web")
-app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
-
-_items: list[dict[str, object]] = []
-_next_id = 1
-
-
-class ItemCreate(BaseModel):
-    title: str = Field(min_length=1)
-    content: str = ""
-    completed: bool = False
-
-
-class ItemPatch(BaseModel):
-    title: str | None = None
-    content: str | None = None
-    completed: bool | None = None
-
-
-def reset_state() -> None:
-    global _next_id
-    _items.clear()
-    _next_id = 1
-
-
-def _normalize_title(title: str) -> str:
-    normalized = title.strip()
-    if not normalized:
-        raise HTTPException(status_code=422, detail="title must not be blank")
-    return normalized
-
-
-def _find_item(item_id: int) -> dict[str, object]:
-    for item in _items:
-        if item["id"] == item_id:
-            return item
-    raise HTTPException(status_code=404, detail="item not found")
-
-
-@app.get("/")
-def index() -> FileResponse:
-    return FileResponse(ROOT / "index.html")
-
-
-@app.post("/api/items", status_code=201)
-def create_item(payload: ItemCreate) -> dict[str, object]:
-    global _next_id
-    item = {
-        "id": _next_id,
-        "title": _normalize_title(payload.title),
-        "content": payload.content,
-        "completed": payload.completed,
-    }
-    _next_id += 1
-    _items.append(item)
-    return {"item": item}
-
-
-@app.get("/api/items")
-def list_items(
-    status: str = Query("all", pattern="^(all|active|completed)$"),
-    q: str = "",
-) -> dict[str, object]:
-    query = q.strip().lower()
-    items = list(reversed(_items))
-    if status == "active":
-        items = [item for item in items if not item["completed"]]
-    elif status == "completed":
-        items = [item for item in items if item["completed"]]
-    if query:
-        items = [
-            item
-            for item in items
-            if query in str(item["title"]).lower() or query in str(item["content"]).lower()
-        ]
-    return {"items": items}
-
-
-@app.get("/api/items/stats")
-def item_stats() -> dict[str, int]:
-    completed = sum(1 for item in _items if item["completed"])
-    return {"total": len(_items), "completed": completed, "active": len(_items) - completed}
-
-
-@app.patch("/api/items/{item_id}")
-def update_item(item_id: int, payload: ItemPatch) -> dict[str, object]:
-    item = _find_item(item_id)
-    if payload.title is not None:
-        item["title"] = _normalize_title(payload.title)
-    if payload.content is not None:
-        item["content"] = payload.content
-    if payload.completed is not None:
-        item["completed"] = payload.completed
-    return {"item": item}
-
-
-@app.delete("/api/items/{item_id}")
-def delete_item(item_id: int) -> dict[str, object]:
-    item = _find_item(item_id)
-    _items.remove(item)
-    return {"deleted": True}
-'''
-
-    def _fullstack_web_index_html(self) -> str:
-        return """<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Fullstack Task Tracker</title>
-    <link rel="stylesheet" href="/static/style.css">
-  </head>
-  <body>
-    <main class="app-shell">
-      <header>
-        <h1>Fullstack Task Tracker</h1>
-        <p id="summary">Loading API state...</p>
-      </header>
-      <form id="itemForm" class="panel">
-        <label>Title
-          <input id="title" name="title" required placeholder="Task title">
-        </label>
-        <label>Content
-          <textarea id="content" name="content" placeholder="Task notes"></textarea>
-        </label>
-        <button type="submit">Add item</button>
-        <p id="error" role="alert"></p>
-      </form>
-      <section class="toolbar" aria-label="Filters">
-        <label>Status
-          <select id="statusFilter">
-            <option value="all">All</option>
-            <option value="active">Active</option>
-            <option value="completed">Completed</option>
-          </select>
-        </label>
-        <label>Search
-          <input id="queryFilter" name="queryFilter" placeholder="Search items">
-        </label>
-      </section>
-      <section id="emptyState" class="empty">No records yet.</section>
-      <section id="items" class="items" aria-live="polite"></section>
-    </main>
-    <script src="/static/app.js"></script>
-  </body>
-</html>
-"""
-
-    def _fullstack_web_app_js(self) -> str:
-        return """const form = document.querySelector("#itemForm");
-const titleInput = document.querySelector("#title");
-const contentInput = document.querySelector("#content");
-const statusFilter = document.querySelector("#statusFilter");
-const queryFilter = document.querySelector("#queryFilter");
-const items = document.querySelector("#items");
-const summary = document.querySelector("#summary");
-const emptyState = document.querySelector("#emptyState");
-const error = document.querySelector("#error");
-
-async function api(path, options = {}) {
-  const response = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
-    ...options,
-  });
-  const text = await response.text();
-  const payload = text ? JSON.parse(text) : {};
-  if (!response.ok) {
-    throw new Error(payload.detail || `HTTP ${response.status}`);
-  }
-  return payload;
-}
-
-async function loadItems() {
-  const params = new URLSearchParams({
-    status: statusFilter.value,
-    q: queryFilter.value.trim(),
-  });
-  const payload = await api(`/api/items?${params.toString()}`);
-  render(payload.items);
-}
-
-function render(records) {
-  items.innerHTML = "";
-  emptyState.hidden = records.length > 0;
-  summary.textContent = `${records.length} visible item${records.length === 1 ? "" : "s"}`;
-  for (const record of records) {
-    const card = document.createElement("article");
-    card.className = "item-card";
-    card.dataset.itemId = record.id;
-    card.innerHTML = `
-      <div>
-        <h2>${escapeHtml(record.title)}</h2>
-        <p>${escapeHtml(record.content || "")}</p>
-        <p class="meta">${record.completed ? "Completed" : "Active"}</p>
-      </div>
-      <div class="actions">
-        <button type="button" data-action="toggle">${record.completed ? "Mark active" : "Complete"}</button>
-        <button type="button" data-action="delete">Delete</button>
-      </div>
-    `;
-    items.appendChild(card);
-  }
-}
-
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
-}
-
-form.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  error.textContent = "";
-  try {
-    await api("/api/items", {
-      method: "POST",
-      body: JSON.stringify({
-        title: titleInput.value,
-        content: contentInput.value,
-        completed: false,
-      }),
-    });
-    form.reset();
-    await loadItems();
-  } catch (err) {
-    error.textContent = err.message;
-  }
-});
-
-items.addEventListener("click", async (event) => {
-  const button = event.target.closest("button");
-  const card = event.target.closest("[data-item-id]");
-  if (!button || !card) {
-    return;
-  }
-  const id = card.dataset.itemId;
-  if (button.dataset.action === "delete") {
-    await api(`/api/items/${id}`, { method: "DELETE" });
-  } else {
-    await api(`/api/items/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ completed: button.textContent.includes("Complete") }),
-    });
-  }
-  await loadItems();
-});
-
-statusFilter.addEventListener("change", loadItems);
-queryFilter.addEventListener("input", loadItems);
-
-loadItems().catch((err) => {
-  error.textContent = err.message;
-});
-"""
-
-    def _fullstack_web_style_css(self) -> str:
-        return """body {
-  margin: 0;
-  font-family: Inter, Segoe UI, Arial, sans-serif;
-  color: #17202a;
-  background: #f5f7fb;
-}
-.app-shell {
-  max-width: 920px;
-  margin: 0 auto;
-  padding: 28px;
-}
-header, .panel, .toolbar, .item-card {
-  background: #ffffff;
-  border: 1px solid #d9e1ec;
-  border-radius: 8px;
-  padding: 16px;
-}
-.panel, .toolbar {
-  display: grid;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-input, textarea, select, button {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 10px;
-  margin-top: 4px;
-  font: inherit;
-}
-button {
-  cursor: pointer;
-  border: 0;
-  border-radius: 6px;
-  background: #1457d9;
-  color: #ffffff;
-}
-.items {
-  display: grid;
-  gap: 12px;
-}
-.item-card {
-  display: grid;
-  grid-template-columns: 1fr 180px;
-  gap: 16px;
-}
-.actions {
-  display: grid;
-  gap: 8px;
-  align-content: start;
-}
-.meta, .empty, #error {
-  color: #5f6b76;
-}
-@media (max-width: 720px) {
-  .item-card {
-    grid-template-columns: 1fr;
-  }
-}
-"""
-
-    def _fullstack_web_contract_tests_py(self) -> str:
-        return '''"""Full-stack contract tests for the generated FastAPI web app."""
-
-from __future__ import annotations
-
-import socket
-import threading
-import time
-from contextlib import closing
-from urllib.request import urlopen
-
-import uvicorn
-from fastapi.testclient import TestClient
-from playwright.sync_api import sync_playwright
-
-from app import app, reset_state
-
-
-def _free_port() -> int:
-    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return int(sock.getsockname()[1])
-
-
-def _start_server(port: int) -> tuple[uvicorn.Server, threading.Thread]:
-    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
-    server = uvicorn.Server(config)
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
-    deadline = time.time() + 10
-    while time.time() < deadline:
-        try:
-            with urlopen(f"http://127.0.0.1:{port}/", timeout=1) as response:
-                if response.status == 200:
-                    return server, thread
-        except Exception:
-            time.sleep(0.1)
-    raise RuntimeError("fullstack test server did not start")
-
-
-def test_fullstack_frontend_calls_backend_api_contract() -> None:
-    reset_state()
-    client = TestClient(app)
-    html_response = client.get("/")
-    script_response = client.get("/static/app.js")
-    print(f"GET / -> status_code={html_response.status_code} response payload=html")
-    print(f"GET /static/app.js -> status_code={script_response.status_code} response payload=javascript")
-    assert html_response.status_code == 200
-    assert script_response.status_code == 200
-    assert "fetch(" in script_response.text
-    assert "/api/items" in script_response.text
-
-    port = _free_port()
-    server, thread = _start_server(port)
-    try:
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(headless=True)
-            page = browser.new_page()
-            page.goto(f"http://127.0.0.1:{port}/", wait_until="networkidle")
-            page.fill("#title", "Write backend")
-            page.fill("#content", "Finish API integration")
-            page.click("button[type=submit]")
-            page.wait_for_selector("text=Write backend")
-            print("Browser form interaction updated visible state: Write backend")
-
-            stats = page.evaluate(
-                """async () => {
-                    const response = await fetch('/api/items/stats');
-                    return {status: response.status, payload: await response.json()};
-                }"""
-            )
-            print(f"GET /api/items/stats -> status_code={stats['status']} response payload={stats['payload']}")
-            assert stats["status"] == 200
-            assert stats["payload"]["total"] == 1
-
-            page.fill("#queryFilter", "__no_match_filter__")
-            page.wait_for_timeout(300)
-            assert not page.locator("text=Write backend").is_visible()
-            print("Browser filter interaction changed visible results")
-
-            page.fill("#queryFilter", "")
-            page.wait_for_selector("text=Write backend")
-            page.click("button[data-action=delete]")
-            page.wait_for_timeout(300)
-            assert not page.locator("text=Write backend").is_visible()
-            print("Browser delete interaction removed visible item")
-
-            browser.close()
-    finally:
-        server.should_exit = True
-        thread.join(timeout=5)
-
-    print("Fullstack frontend API integration verified -> browser fetch /api/items and /api/items/stats")
-'''
-
-    def _write_api_mock_app(self, root: Path) -> list[str]:
+    def _write_api_mock_app(self, root: Path, project_id: str) -> list[str]:
         """Write a small FastAPI CRUD mock plus contract tests into the project root."""
         root.mkdir(parents=True, exist_ok=True)
         tests_dir = root / "tests"
         tests_dir.mkdir(parents=True, exist_ok=True)
         files = {
-            "app.py": self._api_mock_app_py(),
+            "app.py": self._api_mock_app_py(project_id),
             "pytest.ini": "[pytest]\naddopts = -s\n",
             "tests/test_api_contract.py": self._api_mock_contract_tests_py(),
         }
@@ -1202,13 +616,13 @@ def test_fullstack_frontend_calls_backend_api_contract() -> None:
                 changed.append(relative_path)
         return changed
 
-    def _write_api_sqlite_app(self, root: Path) -> list[str]:
+    def _write_api_sqlite_app(self, root: Path, project_id: str) -> list[str]:
         """Write a small FastAPI + SQLite CRUD app plus contract tests into the project root."""
         root.mkdir(parents=True, exist_ok=True)
         tests_dir = root / "tests"
         tests_dir.mkdir(parents=True, exist_ok=True)
         files = {
-            "app.py": self._api_sqlite_app_py(),
+            "app.py": self._api_sqlite_app_py(project_id),
             "pytest.ini": "[pytest]\naddopts = -s\n",
             "tests/test_api_contract.py": self._api_sqlite_contract_tests_py(),
         }
@@ -1221,7 +635,9 @@ def test_fullstack_frontend_calls_backend_api_contract() -> None:
                 changed.append(relative_path)
         return changed
 
-    def _api_mock_app_py(self) -> str:
+    def _api_mock_app_py(self, project_id: str) -> str:
+        title = self._delivery_app_title(project_id, default="Conductor API Mock")
+        scope_comment = self._delivery_scope_comment(project_id)
         return '''"""Generated FastAPI mock service for Conductor API delivery validation."""
 
 from __future__ import annotations
@@ -1230,7 +646,8 @@ from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 
 
-app = FastAPI(title="Conductor API Mock")
+__SCOPE_COMMENT__
+app = FastAPI(title=__APP_TITLE__)
 _items: list[dict[str, object]] = []
 _next_id = 1
 
@@ -1323,7 +740,7 @@ def delete_item(item_id: int) -> dict[str, object]:
     item = _find_item(item_id)
     _items.remove(item)
     return {"deleted": True}
-'''
+'''.replace("__SCOPE_COMMENT__", scope_comment).replace("__APP_TITLE__", json.dumps(title))
 
     def _api_mock_contract_tests_py(self) -> str:
         return '''"""Contract tests for the generated API mock service."""
@@ -1382,7 +799,9 @@ def test_api_crud_filter_query_and_stats_contract() -> None:
     assert delete_response.json() == {"deleted": True}
 '''
 
-    def _api_sqlite_app_py(self) -> str:
+    def _api_sqlite_app_py(self, project_id: str) -> str:
+        title = self._delivery_app_title(project_id, default="Conductor SQLite API")
+        scope_comment = self._delivery_scope_comment(project_id)
         return '''"""Generated FastAPI + SQLite service for Conductor API delivery validation."""
 
 from __future__ import annotations
@@ -1395,8 +814,9 @@ from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 
 
+__SCOPE_COMMENT__
 DB_PATH = Path(os.environ.get("API_SQLITE_DB_PATH", "items.db"))
-app = FastAPI(title="Conductor SQLite API")
+app = FastAPI(title=__APP_TITLE__)
 
 
 class ItemCreate(BaseModel):
@@ -1553,7 +973,7 @@ def delete_item(item_id: int) -> dict[str, object]:
         conn.execute("DELETE FROM items WHERE id = ?", (item_id,))
         conn.commit()
     return {"deleted": True}
-'''
+'''.replace("__SCOPE_COMMENT__", scope_comment).replace("__APP_TITLE__", json.dumps(title))
 
     def _api_sqlite_contract_tests_py(self) -> str:
         return '''"""Contract tests for the generated SQLite API service."""
@@ -1628,35 +1048,7 @@ def test_sqlite_api_crud_filter_query_stats_and_persistence_contract() -> None:
     print("API SQLite evidence summary: POST /api/items -> status_code=201 response payload={'item': {'id': 1}}; SQLite persistence verified -> database=items.db row_count=2")
 '''
 
-    def _write_static_web_app(self, root: Path, project_id: str) -> list[str]:
-        """Write a small browser-only CRUD/filter/export app into the project root."""
-        root.mkdir(parents=True, exist_ok=True)
-        static_dir = root / "static"
-        static_dir.mkdir(parents=True, exist_ok=True)
-        title = self._static_web_app_title(project_id)
-        include_file_import = self._static_web_should_include_file_import(project_id)
-        files = {
-            "index.html": self._static_web_index_html(title, include_file_import=include_file_import),
-            "static/app.js": self._static_web_app_js(title, include_file_import=include_file_import),
-            "static/style.css": self._static_web_style_css(),
-        }
-        changed: list[str] = []
-        for relative_path, content in files.items():
-            path = root / relative_path
-            previous = path.read_text(encoding="utf-8", errors="replace") if path.exists() else None
-            if previous != content:
-                path.write_text(content, encoding="utf-8")
-                changed.append(relative_path)
-        return changed
-
-    def _static_web_should_include_file_import(self, project_id: str) -> bool:
-        """Return whether the frozen requirement asks for file import/upload behavior."""
-        return any(
-            rule.rule_id == "file_import"
-            for rule in infer_coverage_rules(self._static_web_requirement_text(project_id))
-        )
-
-    def _static_web_requirement_text(self, project_id: str) -> str:
+    def _delivery_requirement_text(self, project_id: str) -> str:
         state = self.state_store.get_state(project_id)
         frozen = next(
             (artifact for artifact in reversed(state.artifacts) if artifact.kind == "frozen_requirement_spec"),
@@ -1665,397 +1057,47 @@ def test_sqlite_api_crud_filter_query_stats_and_persistence_contract() -> None:
         frozen_text = self.artifact_store.read_content(frozen) if frozen is not None else ""
         return "\n".join([state.project.goal, frozen_text])
 
-    def _static_web_app_title(self, project_id: str) -> str:
-        text = self._static_web_requirement_text(project_id).lower()
-        if "flashcard" in text or "card" in text or "question" in text:
-            return "Flashcard Study Tracker"
-        if "reading" in text or "book" in text:
-            return "Reading List Tracker"
-        if "todo" in text or "task" in text:
-            return "Task Tracker"
-        return "Local Record Tracker"
+    def _delivery_app_title(self, project_id: str, *, default: str) -> str:
+        """Derive a generated app title from the frozen requirement baseline."""
+        text = self._delivery_requirement_text(project_id).lower()
+        if any(term in text for term in ("bug", "defect", "triage")):
+            return "Bug Triage Service"
+        if any(term in text for term in ("expense", "approval", "reimbursement")):
+            return "Expense Approval Service"
+        if any(term in text for term in ("task board", "team task", "kanban")):
+            return "Team Task Board Service"
+        if any(term in text for term in ("todo", "task")):
+            return "Task Service"
+        if "csv" in text:
+            return "CSV Processing Service"
+        return default
 
-    def _static_web_index_html(self, title: str, *, include_file_import: bool = False) -> str:
-        safe_title = self._escape_html(title)
-        import_control = (
-            """
-        <label>Import CSV
-          <input id="importCsv" name="importCsv" type="file" accept=".csv,text/csv">
-        </label>
-        <p id="importStatus" class="status" aria-live="polite"></p>"""
-            if include_file_import
-            else ""
+    def _delivery_scope_comment(self, project_id: str) -> str:
+        """Embed frozen delivery context into generated source for auditability."""
+        state = self.state_store.get_state(project_id)
+        frozen_requirement = next(
+            (artifact for artifact in reversed(state.artifacts) if artifact.kind == "frozen_requirement_spec"),
+            None,
         )
-        return f"""<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{safe_title}</title>
-    <link rel="stylesheet" href="static/style.css">
-  </head>
-  <body>
-    <main class="app-shell">
-      <header>
-        <h1>{safe_title}</h1>
-        <p id="summary">0 saved items</p>
-      </header>
-      <form id="itemForm" class="panel">
-        <label>Question
-          <input id="question" name="question" required placeholder="What do you want to remember?">
-        </label>
-        <label>Answer
-          <textarea id="answer" name="answer" required placeholder="Write the answer or note"></textarea>
-        </label>
-        <label>Topic
-          <input id="topic" name="topic" required placeholder="Topic">
-        </label>
-        <label>Status
-          <select id="status" name="status">
-            <option value="new">New</option>
-            <option value="learning">Learning</option>
-            <option value="mastered">Mastered</option>
-          </select>
-        </label>
-        <button type="submit">Add item</button>
-{import_control}
-        <p id="error" role="alert"></p>
-      </form>
-      <section class="toolbar" aria-label="Filters and export">
-        <label>Status filter
-          <select id="statusFilter">
-            <option value="all">All statuses</option>
-            <option value="new">New</option>
-            <option value="learning">Learning</option>
-            <option value="mastered">Mastered</option>
-          </select>
-        </label>
-        <label>Topic filter
-          <select id="topicFilter">
-            <option value="all">All topics</option>
-          </select>
-        </label>
-        <button id="exportCsv" type="button">Export CSV</button>
-      </section>
-      <section id="emptyState" class="empty">No records yet.</section>
-      <section id="items" class="items" aria-live="polite"></section>
-    </main>
-    <script src="static/app.js"></script>
-  </body>
-</html>
-"""
-
-    def _static_web_app_js(self, title: str, *, include_file_import: bool = False) -> str:
-        storage_key = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-") or "local-record-tracker"
-        import_bindings = (
-            """const importInput = document.querySelector("#importCsv");
-const importStatus = document.querySelector("#importStatus");
-"""
-            if include_file_import
-            else ""
+        frozen_design = next(
+            (artifact for artifact in reversed(state.artifacts) if artifact.kind == "frozen_design_spec"),
+            None,
         )
-        import_logic = (
-            """
-if (importInput) {
-  importInput.addEventListener("change", async () => {
-    const file = importInput.files && importInput.files[0];
-    if (!file) {
-      return;
-    }
-    try {
-      const text = await file.text();
-      const imported = recordsFromCsv(text);
-      if (imported.length < 1) {
-        importStatus.textContent = "No importable rows found.";
-        return;
-      }
-      records = [...records, ...imported];
-      saveRecords();
-      importStatus.textContent = `Imported ${imported.length} rows from ${file.name}`;
-      render();
-    } catch (err) {
-      importStatus.textContent = "CSV import failed.";
-    } finally {
-      importInput.value = "";
-    }
-  });
-}
+        requirement_text = self.artifact_store.read_content(frozen_requirement) if frozen_requirement else state.project.goal
+        design_text = self.artifact_store.read_content(frozen_design) if frozen_design else ""
+        lines = [
+            "# Conductor delivery context:",
+            f"# Frozen requirement: {self._comment_excerpt(requirement_text)}",
+        ]
+        if design_text:
+            lines.append(f"# Frozen design: {self._comment_excerpt(design_text)}")
+        return "\n".join(lines)
 
-function recordsFromCsv(text) {
-  const lines = text.split(/\\r?\\n/).map((line) => line.trim()).filter(Boolean);
-  if (lines.length < 2) {
-    return [];
-  }
-  return lines.slice(1).map((line) => {
-    const cells = splitCsvRow(line);
-    const question = normalize(cells[0] || "Imported card");
-    const answer = normalize(cells[1] || question);
-    const topic = normalize(cells[2] || "Imported");
-    const status = ["new", "learning", "mastered"].includes(normalize(cells[3] || "")) ? normalize(cells[3]) : "new";
-    if (!question) {
-      return null;
-    }
-    return {
-      id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()),
-      question,
-      answer,
-      topic,
-      status,
-      createdAt: new Date().toISOString()
-    };
-  }).filter(Boolean);
-}
-
-function splitCsvRow(row) {
-  const cells = [];
-  let current = "";
-  let quoted = false;
-  for (let index = 0; index < row.length; index += 1) {
-    const char = row[index];
-    const next = row[index + 1];
-    if (char === '"' && quoted && next === '"') {
-      current += '"';
-      index += 1;
-    } else if (char === '"') {
-      quoted = !quoted;
-    } else if (char === "," && !quoted) {
-      cells.push(current);
-      current = "";
-    } else {
-      current += char;
-    }
-  }
-  cells.push(current);
-  return cells;
-}
-"""
-            if include_file_import
-            else ""
-        )
-        return f"""const STORAGE_KEY = "conductor-{storage_key}";
-
-const form = document.querySelector("#itemForm");
-const questionInput = document.querySelector("#question");
-const answerInput = document.querySelector("#answer");
-const topicInput = document.querySelector("#topic");
-const statusInput = document.querySelector("#status");
-const topicFilter = document.querySelector("#topicFilter");
-const statusFilter = document.querySelector("#statusFilter");
-const exportButton = document.querySelector("#exportCsv");
-const itemsElement = document.querySelector("#items");
-const emptyState = document.querySelector("#emptyState");
-const summary = document.querySelector("#summary");
-const error = document.querySelector("#error");
-{import_bindings}
-
-let records = loadRecords();
-
-function loadRecords() {{
-  try {{
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  }} catch (err) {{
-    return [];
-  }}
-}}
-
-function saveRecords() {{
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
-}}
-
-function normalize(value) {{
-  return value.trim();
-}}
-
-function visibleRecords() {{
-  return records.filter((record) => {{
-    const topicMatches = topicFilter.value === "all" || record.topic === topicFilter.value;
-    const statusMatches = statusFilter.value === "all" || record.status === statusFilter.value;
-    return topicMatches && statusMatches;
-  }});
-}}
-
-function renderTopicOptions() {{
-  const current = topicFilter.value;
-  const topics = [...new Set(records.map((record) => record.topic).filter(Boolean))].sort();
-  topicFilter.innerHTML = '<option value="all">All topics</option>';
-  for (const topic of topics) {{
-    const option = document.createElement("option");
-    option.value = topic;
-    option.textContent = topic;
-    topicFilter.appendChild(option);
-  }}
-  topicFilter.value = topics.includes(current) ? current : "all";
-}}
-
-function render() {{
-  renderTopicOptions();
-  const visible = visibleRecords();
-  summary.textContent = `${{records.length}} saved items`;
-  emptyState.hidden = visible.length > 0;
-  itemsElement.innerHTML = "";
-  for (const record of visible) {{
-    const article = document.createElement("article");
-    article.className = "item-card";
-    article.dataset.id = record.id;
-    article.innerHTML = `
-      <div>
-        <h2></h2>
-        <p class="answer"></p>
-        <p class="meta"></p>
-      </div>
-      <button type="button" class="delete">Delete</button>
-    `;
-    article.querySelector("h2").textContent = record.question;
-    article.querySelector(".answer").textContent = record.answer;
-    article.querySelector(".meta").textContent = `${{record.topic}} / ${{record.status}}`;
-    article.querySelector(".delete").addEventListener("click", () => {{
-      records = records.filter((item) => item.id !== record.id);
-      saveRecords();
-      render();
-    }});
-    itemsElement.appendChild(article);
-  }}
-}}
-
-form.addEventListener("submit", (event) => {{
-  event.preventDefault();
-  const question = normalize(questionInput.value);
-  const answer = normalize(answerInput.value);
-  const topic = normalize(topicInput.value);
-  if (!question || !answer || !topic) {{
-    error.textContent = "Question, answer, and topic are required.";
-    return;
-  }}
-  error.textContent = "";
-  records.push({{
-    id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
-    question,
-    answer,
-    topic,
-    status: statusInput.value,
-    createdAt: new Date().toISOString()
-  }});
-  saveRecords();
-  form.reset();
-  statusInput.value = "new";
-  render();
-}});
-
-topicFilter.addEventListener("change", render);
-statusFilter.addEventListener("change", render);
-
-exportButton.addEventListener("click", () => {{
-  const rows = [["question", "answer", "topic", "status", "createdAt"], ...records.map((record) => [
-    record.question,
-    record.answer,
-    record.topic,
-    record.status,
-    record.createdAt
-  ])];
-  const csv = rows.map((row) => row.map(csvCell).join(",")).join("\\n");
-  const blob = new Blob([csv], {{ type: "text/csv;charset=utf-8" }});
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
-  link.download = "records.csv";
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(link.href);
-}});
-{import_logic}
-
-function csvCell(value) {{
-  return `"${{String(value).replaceAll('"', '""')}}"`;
-}}
-
-render();
-"""
-
-    def _static_web_style_css(self) -> str:
-        return """* { box-sizing: border-box; }
-body {
-  margin: 0;
-  font-family: Arial, sans-serif;
-  color: #172026;
-  background: #f6f7f9;
-}
-.app-shell {
-  width: min(960px, calc(100% - 32px));
-  margin: 32px auto;
-}
-header, .panel, .toolbar, .item-card, .empty {
-  background: #ffffff;
-  border: 1px solid #d8dee4;
-  border-radius: 8px;
-  padding: 16px;
-}
-header { margin-bottom: 16px; }
-h1, h2, p { margin-top: 0; }
-form, .toolbar { display: grid; gap: 12px; }
-label { display: grid; gap: 6px; font-weight: 700; }
-input, textarea, select, button { min-height: 40px; font: inherit; }
-input, textarea, select {
-  width: 100%;
-  border: 1px solid #b7c0c8;
-  border-radius: 6px;
-  padding: 8px 10px;
-}
-button {
-  border: 0;
-  border-radius: 6px;
-  padding: 0 14px;
-  color: #ffffff;
-  background: #2364aa;
-  cursor: pointer;
-}
-#error { min-height: 20px; color: #b42318; }
-.toolbar {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  align-items: end;
-  margin: 16px 0;
-}
-.items { display: grid; gap: 12px; }
-.item-card {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-}
-.meta, .empty { color: #5f6b76; }
-@media (max-width: 720px) {
-  .toolbar { grid-template-columns: 1fr; }
-  .item-card { display: grid; }
-}
-"""
-
-    def _escape_html(self, value: str) -> str:
-        return (
-            value.replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace('"', "&quot;")
-        )
-
-    def _build_static_web_delivery_report(
-        self,
-        *,
-        workitem: WorkItem,
-        agent: Agent,
-        changed_files: list[str],
-        validation: HarnessResult,
-        validation_command: list[str],
-    ) -> str:
-        return self._build_code_execution_report(
-            workitem=workitem,
-            agent=agent,
-            cli_name="static_web_delivery",
-            changed_files=changed_files,
-            cli_stdout="Generated static browser app files.",
-            cli_stderr="",
-            validation_result=validation,
-            validation_command=validation_command,
-            success=validation.success,
-        )
+    def _comment_excerpt(self, value: str, limit: int = 320) -> str:
+        compact = " ".join(value.replace("\r", "\n").split())
+        if len(compact) > limit:
+            compact = compact[:limit].rstrip() + "..."
+        return compact.replace("\n", " ")
 
     def _build_api_mock_delivery_report(
         self,
@@ -2093,27 +1135,6 @@ button {
             cli_name="api_sqlite_delivery",
             changed_files=changed_files,
             cli_stdout="Generated FastAPI SQLite service and API contract tests.",
-            cli_stderr="",
-            validation_result=validation,
-            validation_command=validation_command,
-            success=validation.success,
-        )
-
-    def _build_fullstack_web_delivery_report(
-        self,
-        *,
-        workitem: WorkItem,
-        agent: Agent,
-        changed_files: list[str],
-        validation: HarnessResult,
-        validation_command: list[str],
-    ) -> str:
-        return self._build_code_execution_report(
-            workitem=workitem,
-            agent=agent,
-            cli_name="fullstack_web_delivery",
-            changed_files=changed_files,
-            cli_stdout="Generated FastAPI full-stack web app and browser/API contract tests.",
             cli_stderr="",
             validation_result=validation,
             validation_command=validation_command,
@@ -2166,7 +1187,7 @@ button {
                 cli_stderr_tail=self._tail(cli_stderr),
             )
         if not changed_files:
-            self.state_store.add_event(project_id, f"WorkItem {workitem.id} Agent CLI 未产生代码变更")
+            self.state_store.add_event(project_id, f"WorkItem {workitem.id} Agent CLI produced no code changes.")
             report = self._build_code_execution_report(
                 workitem=workitem,
                 agent=agent,
@@ -2200,9 +1221,9 @@ button {
         validation_result = self._run_post_edit_validation(workitem, project_root)
         validation_passed = validation_result.success or self._is_no_tests_discovered(validation_result)
         if validation_passed:
-            self.state_store.add_event(project_id, f"WorkItem {workitem.id} 代码变更后自动验证通过")
+            self.state_store.add_event(project_id, f"WorkItem {workitem.id} 浠ｇ爜鍙樻洿鍚庤嚜鍔ㄩ獙璇侀€氳繃")
         else:
-            self.state_store.add_event(project_id, f"WorkItem {workitem.id} 代码变更后自动验证失败")
+            self.state_store.add_event(project_id, f"WorkItem {workitem.id} post-edit validation failed.")
         report = self._build_code_execution_report(
             workitem=workitem,
             agent=agent,
@@ -2261,17 +1282,14 @@ button {
             return cli_execution
         if self._changed_files_satisfy_workitem(workitem, agent, cli_execution.result.changed_files):
             return cli_execution
-        self.state_store.add_event(project_id, f"WorkItem {workitem.id} 首次代码执行未满足角色产物要求，触发一次强化重试")
+        self.state_store.add_event(project_id, f"WorkItem {workitem.id} first code execution did not satisfy deliverable requirements; retrying once.")
         retry_prompt = (
             f"{prompt}\n\n"
-            "# 上一次执行结果\n"
+            "# Previous execution output\n"
             f"{(cli_execution.result.stdout or '').strip()}\n\n"
-            "上一次执行没有满足当前角色的产物要求。"
-            "如果你是 frontend_engineer，必须创建或修改真实前端 UI 文件，例如 index.html、static/app.js、"
-            "static/style.css、src/App.tsx、src/App.jsx 等；不能只修改后端 Python 文件。"
-            "如果你是 backend_engineer，必须创建或修改后端服务/API/测试相关文件。"
-            "这次必须直接修改代码文件并让测试通过。"
-            "禁止只输出建议、说明或手工步骤；如果没有完成实际修改，这次执行视为失败。"
+            "The previous run did not produce acceptable backend/API code changes.\n"
+            "Directly edit backend service, API, data, or test files as required by the task.\n"
+            "Do not stop at advice or a plan. Run relevant tests when available.\n"
         )
         retry_execution = self.agent_cli_executor.execute(
             agent,
@@ -2406,7 +1424,7 @@ button {
             if attempt < 2:
                 self.state_store.add_event(
                     project_id,
-                    f"WorkItem {workitem.id} LLMHarness 代码生成返回空内容或失败，执行第 {attempt + 1} 次尝试",
+                    f"WorkItem {workitem.id} LLMHarness code generation returned empty output or failed; retrying attempt {attempt + 1}.",
                 )
         if result is None:
             return self._real_backend_required_result(workitem, agent, "LLMHarness code generation did not run")
@@ -2513,10 +1531,7 @@ button {
         validation_passed = validation_result.success or self._is_no_tests_discovered(validation_result)
         self.state_store.add_event(
             project_id,
-            (
-                f"WorkItem {workitem.id} LLMHarness 代码生成后自动验证"
-                f"{'通过' if validation_passed else '失败'}"
-            ),
+            f"WorkItem {workitem.id} LLMHarness post-generation validation {'passed' if validation_passed else 'failed'}.",
         )
         raw_output = result.content
         if not validation_passed:
@@ -2537,10 +1552,7 @@ button {
                 validation_passed = validation_result.success or self._is_no_tests_discovered(validation_result)
                 self.state_store.add_event(
                     project_id,
-                    (
-                        f"WorkItem {workitem.id} LLMHarness 修复后自动验证"
-                        f"{'通过' if validation_passed else '失败'}"
-                    ),
+                    f"WorkItem {workitem.id} LLMHarness repair validation {'passed' if validation_passed else 'failed'}.",
                 )
         return WorkItemRunResult(
             content=self._build_llm_code_report(
@@ -2613,7 +1625,7 @@ button {
             )
         )
         if not result.success or not result.content.strip():
-            self.state_store.add_event(project_id, f"WorkItem {workitem.id} LLMHarness 修复未返回可用内容")
+            self.state_store.add_event(project_id, f"WorkItem {workitem.id} LLMHarness repair returned no usable content.")
             return None
         try:
             repair_files = self._extract_generated_files(result.content)
@@ -2622,14 +1634,14 @@ button {
                 "\n\n".join(f"### {item['path']}\n{item['content']}" for item in repair_files),
             )
             if not scope_result.passed:
-                self.state_store.add_event(project_id, f"WorkItem {workitem.id} LLMHarness 修复违反冻结需求范围: {scope_result.summary()}")
+                self.state_store.add_event(project_id, f"WorkItem {workitem.id} LLMHarness 淇杩濆弽鍐荤粨闇€姹傝寖鍥? {scope_result.summary()}")
                 return None
             repair_changed_files = self._write_llm_generated_files(project_root, repair_files)
         except Exception as error:
-            self.state_store.add_event(project_id, f"WorkItem {workitem.id} LLMHarness 修复产物解析失败: {error}")
+            self.state_store.add_event(project_id, f"WorkItem {workitem.id} LLMHarness 淇浜х墿瑙ｆ瀽澶辫触: {error}")
             return None
         if not repair_changed_files:
-            self.state_store.add_event(project_id, f"WorkItem {workitem.id} LLMHarness 修复未产生文件变化")
+            self.state_store.add_event(project_id, f"WorkItem {workitem.id} LLMHarness repair produced no file changes.")
             return None
         repair_validation_result = self._run_post_edit_validation(workitem, project_root)
         return repair_changed_files, result.content, repair_validation_result
@@ -2707,46 +1719,46 @@ button {
         frozen_context = self._frozen_requirement_context(project_id)
         if workitem.kind == "requirement_spec":
             required_sections = [
-                "## 目标",
-                "## 需求理解",
-                "## 范围边界",
-                "## 非目标",
-                "## 验收标准",
-                "## 边界/异常场景",
-                "## 风险与假设",
-                "## 待确认问题",
-                "## 下游交付约束",
+                "## Goal",
+                "## Requirement Understanding",
+                "## Scope Boundaries",
+                "## Non-Goals",
+                "## Acceptance Criteria",
+                "## Edge Cases",
+                "## Risks And Assumptions",
+                "## Open Questions",
+                "## Downstream Constraints",
             ]
             quality_instruction = (
-                "需求规格必须可冻结：明确不做什么、哪些问题是假设、哪些边界/异常需要验收，"
-                "并写清后续设计、开发、测试必须遵守的需求基线。"
+                "The requirement spec must be frozen-ready: clarify exclusions, assumptions, edge cases, "
+                "and constraints that downstream design, development, and testing must preserve."
             )
         else:
             required_sections = [
-                "## 目标",
-                "## 需求理解",
-                "## 范围边界",
-                "## 核心流程",
-                "## 方案",
-                "## 接口与数据关注点",
-                "## 验收标准",
-                "## 风险",
+                "## Goal",
+                "## Requirement Understanding",
+                "## Scope Boundaries",
+                "## Core Flow",
+                "## Approach",
+                "## API And Data Notes",
+                "## Acceptance Criteria",
+                "## Risks",
             ]
-            quality_instruction = "设计文档必须能被后续 Agent 直接执行，并保留清晰范围边界。"
+            quality_instruction = "The document must be directly executable by downstream agents and preserve clear scope boundaries."
         return (
-            "请直接产出一份中文 Markdown 需求/设计文档。\n"
-            "不要说明你准备做什么，不要输出寒暄，不要反问。\n"
-            "总长度控制在 1200-1800 个中文字符，每个章节 2-4 条要点。\n"
-            "必须完整输出全部指定标题，不能在中途停止，不能展开长篇背景说明。\n\n"
+            "璇风洿鎺ヤ骇鍑轰竴浠戒腑鏂?Markdown 闇€姹?璁捐鏂囨。銆俓n"
+            "涓嶈璇存槑浣犲噯澶囧仛浠€涔堬紝涓嶈杈撳嚭瀵掓殑锛屼笉瑕佸弽闂€俓n"
+            "鎬婚暱搴︽帶鍒跺湪 1200-1800 涓腑鏂囧瓧绗︼紝姣忎釜绔犺妭 2-4 鏉¤鐐广€俓n"
+            "蹇呴』瀹屾暣杈撳嚭鍏ㄩ儴鎸囧畾鏍囬锛屼笉鑳藉湪涓€斿仠姝紝涓嶈兘灞曞紑闀跨瘒鑳屾櫙璇存槑銆俓n\n"
             f"{quality_instruction}\n\n"
-            f"项目需求:\n{state.project.goal}\n\n"
-            f"当前角色: {agent.role}\n"
+            f"椤圭洰闇€姹?\n{state.project.goal}\n\n"
+            f"褰撳墠瑙掕壊: {agent.role}\n"
             f"WorkItem ID: {workitem.id}\n"
-            f"WorkItem 类型: {workitem.kind}\n"
-            f"任务描述: {workitem.description}\n\n"
-            f"验收标准:\n{criteria}\n\n"
+            f"WorkItem 绫诲瀷: {workitem.kind}\n"
+            f"浠诲姟鎻忚堪: {workitem.description}\n\n"
+            f"楠屾敹鏍囧噯:\n{criteria}\n\n"
             f"{frozen_context}\n"
-            "必须包含这些二级标题:\n"
+            "蹇呴』鍖呭惈杩欎簺浜岀骇鏍囬:\n"
             + "\n".join(required_sections)
             + "\n"
         )
@@ -2761,12 +1773,7 @@ button {
             f"### Upstream Artifact\n{artifact[:900]}"
             for artifact in context_pack.artifacts[-3:]
         )
-        if agent.role == "frontend_engineer":
-            file_hint = (
-                "Prefer a small local web UI. Generate index.html, static/app.js, and static/style.css "
-                "unless the upstream design clearly requires another minimal structure. Keep the total code concise."
-            )
-        elif agent.role == "backend_engineer":
+        if agent.role == "backend_engineer":
             file_hint = (
                 "Prefer a small Python API/service implementation with tests when no framework is already present. "
                 "Use app.py and tests/test_app.py for a minimal backend."
@@ -2926,77 +1933,79 @@ button {
         error: str = "",
     ) -> str:
         """Build a report for controlled LLM code generation."""
-        changed_lines = "\n".join(f"- `{path}`" for path in changed_files) or "- 无"
-        stdout = ((validation_result.stdout or "") if validation_result else "").strip() or "(无 stdout)"
-        stderr = ((validation_result.stderr or "") if validation_result else "").strip() or "(无 stderr)"
+        changed_lines = "\n".join(f"- `{path}`" for path in changed_files) or "- none"
+        stdout = ((validation_result.stdout or "") if validation_result else "").strip() or "(鏃?stdout)"
+        stderr = ((validation_result.stderr or "") if validation_result else "").strip() or "(鏃?stderr)"
         validation_section = (
-            "## 自动验证\n"
+            "## 鑷姩楠岃瘉\n"
             f"- Command: `{' '.join(validation_command or [])}`\n"
             f"- Exit Code: `{validation_result.exit_code}`\n"
             f"- Duration: `{validation_result.duration_ms}ms`\n"
             f"```text\n{stdout}\n```\n\n"
             f"```text\n{stderr}\n```\n"
             if validation_result is not None
-            else "## 自动验证\n- 未执行\n"
+            else "## 鑷姩楠岃瘉\n- 鏈墽琛孿n"
         )
-        status = "成功" if success else "失败"
-        error_section = f"\n## 失败原因\n- {error}\n" if error else ""
+        status = "鎴愬姛" if success else "澶辫触"
+        error_section = f"\n## 澶辫触鍘熷洜\n- {error}\n" if error else ""
         return (
-            f"# LLMHarness 代码生成报告 - {workitem.id}\n\n"
-            "## 执行摘要\n"
-            f"- 角色: `{agent.role}`\n"
-            f"- 模型: `{model}`\n"
-            f"- WorkItem 类型: `{workitem.kind}`\n"
-            f"- 结果: {status}\n\n"
-            f"## 写入文件\n{changed_lines}\n"
+            f"# LLMHarness 浠ｇ爜鐢熸垚鎶ュ憡 - {workitem.id}\n\n"
+            "## 鎵ц鎽樿\n"
+            f"- 瑙掕壊: `{agent.role}`\n"
+            f"- 妯″瀷: `{model}`\n"
+            f"- WorkItem 绫诲瀷: `{workitem.kind}`\n"
+            f"- 缁撴灉: {status}\n\n"
+            f"## 鍐欏叆鏂囦欢\n{changed_lines}\n"
             f"{error_section}\n"
             f"{validation_section}\n\n"
-            "## LLM 原始输出摘要\n"
+            "## LLM 鍘熷杈撳嚭鎽樿\n"
             f"```text\n{self._tail(raw_output, limit=1600)}\n```\n"
         )
 
     def _missing_llm_harness_sections(self, content: str, workitem: WorkItem) -> list[str]:
         """Validate the minimum sections needed by downstream agents."""
         if workitem.kind == "requirement_spec":
-            required = ["目标", "需求理解", "范围边界", "非目标", "验收标准", "边界/异常场景", "风险与假设", "待确认问题", "下游交付约束"]
+            required = ["Goal", "Requirement Understanding", "Scope Boundaries", "Non-Goals", "Acceptance Criteria"]
         elif workitem.kind == "design_overview":
-            required = ["目标", "需求理解", "范围边界", "核心流程", "方案", "接口与数据关注点", "验收标准", "风险"]
+            required = ["Goal", "Requirement Understanding", "Scope Boundaries", "Approach", "Acceptance Criteria"]
         elif workitem.kind == "api_design":
-            required = ["目标", "接口", "数据", "验收"]
+            required = ["Goal", "API", "Data", "Acceptance"]
         else:
-            required = ["目标", "方案", "验收", "风险"]
+            required = ["Goal", "Approach", "Acceptance", "Risks"]
         return [section for section in required if section not in content]
 
     def _changed_files_satisfy_workitem(self, workitem: WorkItem, agent: Agent, changed_files: list[str]) -> bool:
         """Return whether code-edit changed files match the agent's output contract."""
         if not changed_files:
             return False
-        if agent.role == "frontend_engineer" and workitem.kind == "ui_implementation":
-            return any(self._is_frontend_file(path) for path in changed_files)
+        if agent.role == "backend_engineer" and workitem.kind in {"api_implementation", "data_implementation"}:
+            return any(self._is_backend_file(path) for path in changed_files)
         return True
 
-    def _is_frontend_file(self, path: str) -> bool:
-        """Return whether a changed file is a concrete frontend deliverable."""
+    def _is_backend_file(self, path: str) -> bool:
+        """Return whether a changed file is a concrete backend/API deliverable."""
         normalized = path.replace("\\", "/").lower()
-        frontend_suffixes = (
-            ".html",
-            ".css",
-            ".js",
-            ".jsx",
-            ".ts",
-            ".tsx",
-            ".vue",
-            ".svelte",
+        backend_suffixes = (".py", ".sql", ".toml", ".ini", ".yaml", ".yml", ".json")
+        backend_markers = (
+            "/app/",
+            "/conductor/",
+            "/api/",
+            "/services/",
+            "/models/",
+            "/schemas/",
+            "/tests/",
+            "app.py",
+            "main.py",
+            "requirements.txt",
+            "pyproject.toml",
+            "pytest.ini",
         )
-        frontend_markers = (
-            "/frontend/",
-            "/static/",
-            "/templates/",
-            "/src/",
-            "package.json",
-            "vite.config.",
+        frontend_only_suffixes = (".html", ".css", ".js", ".jsx", ".ts", ".tsx", ".vue", ".svelte")
+        return (
+            (normalized.endswith(backend_suffixes) or any(marker in normalized for marker in backend_markers))
+            and not normalized.endswith(frontend_only_suffixes)
         )
-        return normalized.endswith(frontend_suffixes) or any(marker in normalized for marker in frontend_markers)
+
 
     def _should_fail_once(self, workitem: WorkItem) -> bool:
         """Return whether the workitem should fail once for retry tests."""
@@ -3106,7 +2115,7 @@ button {
                 f"- {reason}\n\n"
                 "## 需要处理\n"
                 f"- 为 `{agent.role}` 绑定可用 Agent CLI，或启用 LLM Runner。\n"
-                "- 重新运行当前步骤后，才会生成真实需求/设计文档。\n"
+                "- 重新运行当前步骤后，才会生成真实需求/设计/代码产物。\n"
             ),
             source_backend="real_backend_required",
             succeeded=False,
@@ -3115,34 +2124,31 @@ button {
 
     def _build_document_prompt(self, workitem: WorkItem, agent: Agent) -> str:
         """Build the document-style execution prompt."""
-        criteria = "\n".join(f"- {item}" for item in workitem.acceptance_criteria) or "- 无显式验收标准"
+        criteria = "\n".join(f"- {item}" for item in workitem.acceptance_criteria) or "- No explicit acceptance criteria"
         role_instruction = {
             "requirement_designer": (
-                "请产出可冻结的需求规格，不要反问用户；信息不足时给出明确假设。"
-                "必须覆盖：用户目标、需求理解、范围边界、非目标、验收标准、边界/异常场景、风险与假设、待确认问题、下游交付约束。"
-                "不得把用户未明确要求的功能写入正式范围；编辑、删除、登录、同步、导入等只能作为待确认问题或非目标，除非原始需求明确要求。"
+                "Produce a frozen-ready requirement specification. Cover user goal, scope boundaries, "
+                "non-goals, acceptance criteria, edge cases, risks, assumptions, open questions, and downstream constraints."
             ),
             "solution_designer": (
-                "请从流程完整性、信息结构和下游可执行性角度产出需求设计文档。"
-                "必须覆盖范围边界、非目标、核心流程、验收标准、边界/异常场景、风险与后续约束。"
+                "Produce a solution design document focused on process completeness, data/API boundaries, "
+                "validation constraints, and downstream execution risks."
             ),
             "designer": (
-                "请产出可直接交给后端、前端、测试 Agent 使用的需求设计文档。"
-                "不要反问用户；信息不足时基于现有需求给出合理假设，并明确标注为假设。"
-                "必须覆盖：用户目标、范围边界、核心流程、页面/接口/数据/验收关注点、非目标范围、边界/异常场景、风险、下游交付约束。"
+                "Produce a design document that backend and testing agents can execute. "
+                "Do not introduce client UI implementation scope."
             ),
-            "backend_engineer": "请产出后端实现说明文档，不要写入文件、不执行命令；包含接口、数据结构、关键流程和风险。",
-            "frontend_engineer": "请产出前端实现说明文档，不要写入文件、不执行命令；包含页面结构、组件拆分、状态和交互。",
-            "tester": "请产出测试/验收文档，不要执行命令；包含测试范围、测试用例、验收标准和风险。",
-        }.get(agent.role, "请产出该 WorkItem 的执行说明文档，不要写入文件、不执行命令。")
+            "backend_engineer": "Produce a backend/API implementation note covering services, data, tests, and risks.",
+            "tester": "Produce a validation document covering API behavior, data behavior, acceptance evidence, and risks.",
+        }.get(agent.role, "Produce a concise execution document for this WorkItem.")
         return (
-            f"你是 Conductor 的 {agent.role} agent。\n"
+            f"You are the Conductor {agent.role} agent.\n"
             f"{role_instruction}\n"
             f"WorkItem ID: {workitem.id}\n"
-            f"类型: {workitem.kind}\n"
-            f"描述: {workitem.description}\n"
-            f"验收标准:\n{criteria}\n\n"
-            "请使用中文输出结构化 Markdown 文档。需求规格类任务至少包含：目标、需求理解、范围边界、非目标、验收标准、边界/异常场景、风险与假设、待确认问题、下游交付约束。"
+            f"Kind: {workitem.kind}\n"
+            f"Description: {workitem.description}\n"
+            f"Acceptance criteria:\n{criteria}\n\n"
+            "Return structured Markdown. Keep the scope backend/API-only; do not add client-facing product surfaces."
         )
 
     def _build_agent_cli_document_prompt(
@@ -3177,16 +2183,16 @@ button {
         delivery_contract = self._delivery_contract_prompt(workitem, agent)
         if workitem.kind == "requirement_spec" or agent.role == "requirement_designer":
             role_goal = "Produce a frozen-ready requirement specification for downstream design, development, and testing agents."
-            required_sections = "目标, 需求理解, 范围边界, 非目标, 验收标准, 边界/异常场景, 风险与假设, 待确认问题, 下游交付约束"
+            required_sections = "鐩爣, 闇€姹傜悊瑙? 鑼冨洿杈圭晫, 闈炵洰鏍? 楠屾敹鏍囧噯, 杈圭晫/寮傚父鍦烘櫙, 椋庨櫓涓庡亣璁? 寰呯‘璁ら棶棰? 涓嬫父浜や粯绾︽潫"
         elif agent.role == "designer":
             role_goal = (
-                "Produce a complete requirement/design document that downstream backend, frontend, "
+                "Produce a complete requirement/design document that downstream backend, "
                 "and testing agents can execute from."
             )
-            required_sections = "目标, 需求理解, 范围边界, 核心流程, 页面设计关注点, 接口与数据关注点, 验收标准, 风险"
+            required_sections = "鐩爣, 闇€姹傜悊瑙? 鑼冨洿杈圭晫, 鏍稿績娴佺▼, 椤甸潰璁捐鍏虫敞鐐? 鎺ュ彛涓庢暟鎹叧娉ㄧ偣, 楠屾敹鏍囧噯, 椋庨櫓"
         else:
             role_goal = f"Produce a practical execution document for the {agent.role} role."
-            required_sections = "目标, 需求理解, 方案, 交付物, 验收标准, 风险"
+            required_sections = "鐩爣, 闇€姹傜悊瑙? 鏂规, 浜や粯鐗? 楠屾敹鏍囧噯, 椋庨櫓"
         return (
             "You are running as a non-interactive Conductor agent.\n"
             "Do not introduce yourself. Do not ask follow-up questions. Do not say you are waiting for a task.\n"
@@ -3210,7 +2216,6 @@ button {
             "requirement_spec": "Create a frozen-ready requirement specification with user goals, scope boundaries, non-goals, acceptance cases, edge/error cases, risks, assumptions, open questions, and downstream handoff constraints.",
             "design_overview": "Create a requirement design document with user goals, scope boundaries, main flows, implementation constraints, acceptance criteria, and risks.",
             "feature_slice_plan": "Create a milestone-based feature-slice plan with dependencies, implementation boundaries, and validation evidence for each slice.",
-            "ui_design": "Describe UI structure, core interactions, primary views, and state changes.",
             "api_design": "Describe API boundaries, payloads, main endpoints, and failure handling.",
             "test_design": "Describe testing scope, acceptance checks, edge cases, and validation focus.",
             "acceptance_check": "Summarize acceptance status, unresolved risks, and release readiness.",
@@ -3226,20 +2231,20 @@ button {
             f"Delivery contract:\n{delivery_contract}\n\n"
             "Return concise Chinese markdown.\n"
             "Do not ask follow-up questions.\n"
-            "For requirement_spec use sections: 目标, 需求理解, 范围边界, 非目标, 验收标准, 边界/异常场景, 风险与假设, 待确认问题, 下游交付约束.\n"
+            "For requirement_spec use sections: 鐩爣, 闇€姹傜悊瑙? 鑼冨洿杈圭晫, 闈炵洰鏍? 楠屾敹鏍囧噯, 杈圭晫/寮傚父鍦烘櫙, 椋庨櫓涓庡亣璁? 寰呯‘璁ら棶棰? 涓嬫父浜や粯绾︽潫.\n"
             "For requirement_spec, do not promote unrequested features such as edit, delete, login, sync, or import into scope; keep them as open questions or non-goals unless explicitly requested.\n"
-            "For other document tasks use sections: 目标, 需求理解, 范围边界, 关键假设, 方案, 交付物, 验收标准, 风险.\n"
+            "For other document tasks use sections: 鐩爣, 闇€姹傜悊瑙? 鑼冨洿杈圭晫, 鍏抽敭鍋囪, 鏂规, 浜や粯鐗? 楠屾敹鏍囧噯, 椋庨櫓.\n"
         )
 
     def _build_compact_opencode_document_prompt(self, workitem: WorkItem, agent: Agent) -> str:
         """Build a file-output document prompt for OpenCode/local models."""
         output_path = f"CONDUCTOR_OUTPUT_{workitem.id}.md"
         if workitem.kind == "requirement_spec" or agent.role == "requirement_designer":
-            sections = "目标, 需求理解, 范围边界, 非目标, 验收标准, 边界/异常场景, 风险与假设, 待确认问题, 下游交付约束"
+            sections = "鐩爣, 闇€姹傜悊瑙? 鑼冨洿杈圭晫, 闈炵洰鏍? 楠屾敹鏍囧噯, 杈圭晫/寮傚父鍦烘櫙, 椋庨櫓涓庡亣璁? 寰呯‘璁ら棶棰? 涓嬫父浜や粯绾︽潫"
         elif agent.role == "designer":
-            sections = "目标, 需求理解, 范围边界, 核心流程, 接口与数据关注点, 验收标准, 风险"
+            sections = "鐩爣, 闇€姹傜悊瑙? 鑼冨洿杈圭晫, 鏍稿績娴佺▼, 鎺ュ彛涓庢暟鎹叧娉ㄧ偣, 楠屾敹鏍囧噯, 椋庨櫓"
         else:
-            sections = "目标, 需求理解, 方案, 交付物, 验收标准, 风险"
+            sections = "鐩爣, 闇€姹傜悊瑙? 鏂规, 浜や粯鐗? 楠屾敹鏍囧噯, 椋庨櫓"
         description = workitem.description.replace("\n", " ")
         criteria = "; ".join(workitem.acceptance_criteria) or "No explicit acceptance criteria"
         delivery_contract = self._delivery_contract_prompt(workitem, agent).replace("\n", " ")
@@ -3307,23 +2312,11 @@ button {
             f"### Upstream Artifact\n{artifact[:1600]}"
             for artifact in context_pack.artifacts[-5:]
         )
-        role_hint = ""
-        if agent.role == "frontend_engineer":
-            role_hint = (
-                "You own the frontend/UI deliverable. Create or update actual UI files first, "
-                "such as index.html, static/app.js, static/style.css, src/App.tsx, src/App.jsx, "
-                "templates/*.html, or equivalent frontend files. "
-                "Do not satisfy this task by only editing backend Python/API files. "
-                "The UI must implement the actual business domain from the project requirement, not a generic task board.\n"
-                "For a minimal Python/FastAPI project, prefer creating index.html plus static/app.js and static/style.css. "
-                "Do not inspect or edit .conductor/, .pytest_cache/, __pycache__, or generated artifact/log files.\n"
-            )
-        elif agent.role == "backend_engineer":
-            role_hint = (
-                "You own the backend/API deliverable. Implement endpoints, data structures, and tests that match "
-                "the actual business domain from the project requirement. Do not build a generic project/task API "
-                "unless the requirement explicitly asks for one.\n"
-            )
+        role_hint = (
+            "You own the backend/API deliverable. Implement endpoints, data structures, and tests that match "
+            "the actual business domain from the project requirement. Do not build a generic project/task API "
+            "unless the requirement explicitly asks for one.\n"
+        )
 
         prompt = (
             "You must directly edit files in the current workspace.\n"
@@ -3355,20 +2348,6 @@ button {
         """Build a short code-edit prompt for OpenCode to avoid slow artifact exploration."""
         criteria = "; ".join(workitem.acceptance_criteria) or "no explicit acceptance criteria"
         delivery_contract = self._delivery_contract_prompt(workitem, agent)
-        if agent.role == "frontend_engineer" and workitem.kind == "ui_implementation":
-            return (
-                "You are the frontend_engineer. Work only in the current directory.\n"
-                "Do not inspect or edit .conductor/, .pytest_cache/, __pycache__, node_modules/, or generated logs.\n"
-                f"Full project requirement: {project_goal}\n"
-                f"{frozen_context}\n"
-                f"Delivery contract:\n{delivery_contract}\n"
-                "Task: create a minimal frontend UI for the actual business domain described above.\n"
-                "Required files: create or update index.html, static/app.js, and static/style.css, unless an equivalent frontend structure already exists.\n"
-                "UI requirements: cover the entities, fields, actions, and filters in the requirement. Use the matching backend API paths when possible.\n"
-                "If app.py is FastAPI and does not serve the UI, add only the minimal root/static serving code needed. Do not rewrite backend API logic.\n"
-                f"Acceptance criteria: {criteria}\n"
-                "Run the local tests if available. Then output exactly: done"
-            )
         return (
             f"You are the {agent.role}. Work only in the current directory.\n"
             "Do not inspect or edit .conductor/, .pytest_cache/, __pycache__, node_modules/, or generated logs.\n"
@@ -3543,7 +2522,7 @@ button {
             return "[done]"
         if len(compact) <= limit:
             return compact
-        return compact[: limit - 1].rstrip() + "…"
+        return compact[: limit - 1].rstrip() + "..."
 
     def _select_test_command(self, working_directory: str | None = None) -> list[str]:
         """Choose the local validation command."""
@@ -3558,26 +2537,11 @@ button {
                 return ["npm", "test"]
         if (root / "pytest.ini").exists() or (root / "conftest.py").exists() or any(root.glob("test*.py")) or (root / "tests").exists():
             return [sys.executable, "-m", "pytest", "-q"]
-        if self._looks_like_static_web_project(root):
-            return [sys.executable, "-m", "conductor.harness.static_web_cli"]
         if self._pyproject_declares_pytest(root) and shutil.which("uv"):
             return ["uv", "run", "python", "-m", "pytest", "-q"]
         if shutil.which("pytest"):
             return ["pytest", "-q"]
         return [sys.executable, "-m", "pytest", "-q"]
-
-    def _looks_like_static_web_project(self, root: Path) -> bool:
-        """Return whether a workspace should use static web validation."""
-        index = root / "index.html"
-        if not index.exists():
-            return False
-        return (
-            (root / "static").exists()
-            or any(root.glob("*.js"))
-            or any(root.glob("*.css"))
-            or any(root.glob("static/*.js"))
-            or any(root.glob("static/*.css"))
-        )
 
     def _has_project_deliverables(self, working_directory: str, project_id: str | None = None) -> bool:
         """Return whether a project root contains files worth validating."""
@@ -3585,7 +2549,6 @@ button {
         if self._is_conductor_source_root(root) and project_id and not self._has_recorded_code_changes(project_id):
             return False
         deliverable_paths = [
-            "index.html",
             "app.py",
             "main.py",
             "package.json",
@@ -3616,17 +2579,17 @@ button {
     def _build_harness_skip_report(self, workitem: WorkItem, agent: Agent, working_directory: str) -> str:
         """Build a report when no concrete deliverable exists to validate."""
         return (
-            f"# 验收检查报告 - {workitem.id}\n\n"
-            "## 执行摘要\n"
-            f"- 角色: `{agent.role}`\n"
-            f"- WorkItem 类型: `{workitem.kind}`\n"
+            f"# 楠屾敹妫€鏌ユ姤鍛?- {workitem.id}\n\n"
+            "## 鎵ц鎽樿\n"
+            f"- 瑙掕壊: `{agent.role}`\n"
+            f"- WorkItem 绫诲瀷: `{workitem.kind}`\n"
             f"- Working Directory: `{working_directory}`\n"
-            "- 结果: 跳过真实命令执行\n\n"
-            "## 原因\n"
-            "- 当前项目目录未发现可验收交付文件，因此没有运行测试命令。\n"
-            "- 这可以避免在平台源码目录下误触发平台自身测试套件。\n\n"
-            "## 结论\n"
-            "- 该 WorkItem 已记录为无可验收目标；真实项目应在 development 阶段产生交付文件后再进入验收。\n"
+            "- 缁撴灉: 璺宠繃鐪熷疄鍛戒护鎵ц\n\n"
+            "## 鍘熷洜\n"
+            "- 褰撳墠椤圭洰鐩綍鏈彂鐜板彲楠屾敹浜や粯鏂囦欢锛屽洜姝ゆ病鏈夎繍琛屾祴璇曞懡浠ゃ€俓n"
+            "- 杩欏彲浠ラ伩鍏嶅湪骞冲彴婧愮爜鐩綍涓嬭瑙﹀彂骞冲彴鑷韩娴嬭瘯濂椾欢銆俓n\n"
+            "## 缁撹\n"
+            "- 璇?WorkItem 宸茶褰曚负鏃犲彲楠屾敹鐩爣锛涚湡瀹為」鐩簲鍦?development 闃舵浜х敓浜や粯鏂囦欢鍚庡啀杩涘叆楠屾敹銆俓n"
         )
 
     def _pyproject_declares_pytest(self, root: Path) -> bool:
@@ -3652,35 +2615,34 @@ button {
     ) -> str:
         """Convert a harness result into a Markdown report."""
         no_tests_discovered = self._is_no_tests_discovered(result)
-        status_label = "无测试文件" if no_tests_discovered else ("通过" if result.success else "失败")
-        no_tests_note = "- 当前项目目录未发现测试文件，本次记录为待补测试报告，不阻塞主流程。\n" if no_tests_discovered else ""
-        stdout = (result.stdout or "").strip() or "(无 stdout)"
-        stderr = (result.stderr or "").strip() or "(无 stderr)"
+        status_label = "no tests discovered" if no_tests_discovered else ("passed" if result.success else "failed")
+        no_tests_note = "- No test files were discovered; this is recorded as a pending-test report.\n" if no_tests_discovered else ""
+        stdout = (result.stdout or "").strip() or "(鏃?stdout)"
+        stderr = (result.stderr or "").strip() or "(鏃?stderr)"
         command = " ".join(request.command)
         checklist_section = self._testing_checklist_report(workitem)
         coverage_section = f"{coverage_result.render_markdown()}\n" if coverage_result else ""
         return (
-            f"# 测试执行报告 - {workitem.id}\n\n"
-            "## 目标\n"
-            f"- 由 `{agent.role}` 使用 Harness 对当前测试类 WorkItem 进行真实执行验证。\n"
-            f"- 当前类型：`{workitem.kind}`。\n\n"
-            "## 执行摘要\n"
-            f"- 状态：{status_label}\n"
+            f"# Validation Report - {workitem.id}\n\n"
+            "## Summary\n"
+            f"- Agent: `{agent.role}`\n"
+            f"- Kind: `{workitem.kind}`\n"
+            f"- Status: {status_label}\n"
             f"- Exit Code: `{result.exit_code}`\n"
             f"- Duration: `{result.duration_ms}ms`\n"
             f"- Working Directory: `{request.working_directory}`\n"
             f"- Command: `{command}`\n\n"
-            "## 原始工作项\n"
-            f"- 描述：{workitem.description}\n"
-            f"- 阶段：{workitem.stage}\n\n"
+            "## WorkItem\n"
+            f"- Description: {workitem.description}\n"
+            f"- Stage: {workitem.stage}\n\n"
             f"{checklist_section}"
             f"## stdout\n```text\n{stdout}\n```\n\n"
             f"## stderr\n```text\n{stderr}\n```\n\n"
             f"{coverage_section}"
-            "## 结论\n"
-            f"- 当前测试执行{status_label}。\n"
+            "## Conclusion\n"
+            f"- Validation {status_label}.\n"
             f"{no_tests_note}"
-            "- 若失败，Gate 应据此进入重试或升级路径。\n"
+            "- Failed validation should trigger retry or escalation.\n"
         )
 
     def _testing_checklist_report(self, workitem: WorkItem) -> str:
@@ -3823,7 +2785,6 @@ button {
         role_title = {
             "designer": "产品/设计文档",
             "backend_engineer": "后端实现说明",
-            "frontend_engineer": "前端实现说明",
             "tester": "测试/验收文档",
         }.get(agent.role, "执行说明文档")
         return f"{role_title} - {workitem.id}"
@@ -3834,7 +2795,6 @@ button {
         role_sections = {
             "designer": self._mock_designer_sections(workitem),
             "backend_engineer": self._mock_backend_sections(workitem),
-            "frontend_engineer": self._mock_frontend_sections(workitem),
             "tester": self._mock_tester_sections(workitem),
         }.get(agent.role, self._mock_generic_sections(workitem))
         return (
@@ -3864,7 +2824,7 @@ button {
         return (
             "## 方案\n"
             "- 明确用户目标、核心场景和非目标范围。\n"
-            "- 将需求拆成页面、接口、验收三类交付关注点。\n"
+            "- 将需求拆成接口、数据、验收三类交付关注点。\n"
             "- 优先保证主路径闭环，再补充异常和边界条件。\n\n"
             "## 交付物\n"
             "- 一份产品/设计说明。\n"
@@ -3882,22 +2842,12 @@ button {
             "- 数据结构和关键流程说明。\n"
         )
 
-    def _mock_frontend_sections(self, workitem: WorkItem) -> str:
-        return (
-            "## 方案\n"
-            "- 页面围绕主操作流组织：输入、列表、状态反馈和错误提示。\n"
-            "- 将组件拆分为容器、表单、列表项和状态展示区。\n"
-            "- 保持交互轻量，先不引入复杂前端状态管理。\n\n"
-            "## 交付物\n"
-            "- 页面结构说明。\n"
-            "- 组件拆分和交互状态说明。\n"
-        )
 
     def _mock_tester_sections(self, workitem: WorkItem) -> str:
         return (
             "## 方案\n"
             "- 覆盖主路径、异常输入、边界条件和回归风险。\n"
-            "- 将测试用例按接口、页面交互和验收标准分组。\n"
+            "- 将测试用例按接口交互、数据状态和验收标准分组。\n"
             "- 对不可自动化的检查项保留人工验收说明。\n\n"
             "## 交付物\n"
             "- 测试计划。\n"

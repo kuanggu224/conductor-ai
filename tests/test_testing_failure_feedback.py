@@ -4,12 +4,12 @@ from conductor.domain.models import Artifact, Execution, ExecutionStatus, Projec
 from conductor.testing.failure_feedback import build_testing_failure_feedback, build_testing_feedback_for_workitem
 
 
-def test_testing_failure_feedback_extracts_static_web_errors_and_suggestions() -> None:
+def test_testing_failure_feedback_extracts_api_mock_errors_and_suggestions() -> None:
     workitem = WorkItem(
-        id="workitem-ui-validation",
-        description="Validate UI",
+        id="workitem-api-validation",
+        description="Validate API",
         stage="testing",
-        kind="ui_validation",
+        kind="api_validation",
         failure_type="validation_failed",
         failure_summary="Validation exit_code=1",
     )
@@ -18,8 +18,8 @@ def test_testing_failure_feedback_extracts_static_web_errors_and_suggestions() -
         project_id="project-1",
         workitem_id=workitem.id,
         agent_id="agent-tester",
-        kind="ui_validation",
-        title="Failed UI Validation",
+        kind="api_validation",
+        title="Failed API Validation",
         content=(
             "Static Web Validation: FAIL\n\n"
             "Errors:\n"
@@ -33,8 +33,8 @@ def test_testing_failure_feedback_extracts_static_web_errors_and_suggestions() -
 
     assert feedback.failure_type == "validation_failed"
     assert "Browser form submit did not change visible page state" in feedback.failing_checks
-    assert "检查表单/按钮事件绑定" in markdown
-    assert "检查 localStorage 写入" in markdown
+    assert "检查请求处理" in markdown
+    assert "检查持久化写入" in markdown
 
 
 def test_testing_failure_feedback_extracts_requirement_coverage_gaps() -> None:
@@ -50,14 +50,14 @@ def test_testing_failure_feedback_extracts_requirement_coverage_gaps() -> None:
                 "label": "refresh persistence",
                 "status": "pending",
                 "requirement_terms": ["刷新后"],
-                "required_evidence_terms": ["browser reload preserved submitted values"],
+                "required_evidence_terms": ["api client reload preserved submitted values"],
             },
             {
                 "rule_id": "export_csv",
                 "label": "CSV export/download",
                 "status": "pending",
                 "requirement_terms": ["CSV"],
-                "required_evidence_terms": ["browser export/download action triggered"],
+                "required_evidence_terms": ["api client export/download action triggered"],
             },
         ],
     )
@@ -82,7 +82,7 @@ def test_testing_failure_feedback_extracts_requirement_coverage_gaps() -> None:
     assert feedback.missing_coverage == ["refresh persistence", "CSV export/download"]
     assert [item["rule_id"] for item in feedback.missing_checklist_items] == ["persistence", "export_csv"]
     assert all(item["status"] == "missing" for item in feedback.missing_checklist_items)
-    assert "browser reload preserved submitted values" in feedback.render_markdown()
+    assert "api client reload preserved submitted values" in feedback.render_markdown()
     assert "补齐缺失的冻结需求验收证据" in feedback.render_markdown()
 
 
@@ -99,7 +99,7 @@ def test_testing_failure_feedback_suggests_filter_fix_for_missing_filter_coverag
                 "label": "filter interaction",
                 "status": "pending",
                 "requirement_terms": ["filter"],
-                "required_evidence_terms": ["browser filter interaction changed visible results"],
+                "required_evidence_terms": ["api client filter interaction changed visible results"],
             }
         ],
     )
@@ -109,7 +109,7 @@ def test_testing_failure_feedback_suggests_filter_fix_for_missing_filter_coverag
 
     assert feedback.missing_coverage == ["filter interaction"]
     assert feedback.missing_checklist_items[0]["rule_id"] == "filter"
-    assert "browser filter interaction changed visible results" in markdown
+    assert "api client filter interaction changed visible results" in markdown
     assert "\u68c0\u67e5\u7b5b\u9009/\u641c\u7d22\u63a7\u4ef6\u4e8b\u4ef6\u7ed1\u5b9a" in markdown
 
 
@@ -126,7 +126,7 @@ def test_testing_failure_feedback_suggests_delete_fix_for_missing_delete_coverag
                 "label": "delete item interaction",
                 "status": "pending",
                 "requirement_terms": ["delete"],
-                "required_evidence_terms": ["browser delete interaction removed visible item"],
+                "required_evidence_terms": ["api client delete interaction removed visible item"],
             }
         ],
     )
@@ -136,7 +136,7 @@ def test_testing_failure_feedback_suggests_delete_fix_for_missing_delete_coverag
 
     assert feedback.missing_coverage == ["delete item interaction"]
     assert feedback.missing_checklist_items[0]["rule_id"] == "delete_item"
-    assert "browser delete interaction removed visible item" in markdown
+    assert "api client delete interaction removed visible item" in markdown
     assert "\u68c0\u67e5\u5220\u9664/\u79fb\u9664\u6309\u94ae\u4e8b\u4ef6\u7ed1\u5b9a" in markdown
 
 
@@ -153,7 +153,7 @@ def test_testing_failure_feedback_suggests_file_import_fix() -> None:
                 "label": "file import/upload",
                 "status": "pending",
                 "requirement_terms": ["import"],
-                "required_evidence_terms": ["browser file import processed sample file"],
+                "required_evidence_terms": ["api client file import processed sample file"],
             }
         ],
     )
@@ -163,7 +163,7 @@ def test_testing_failure_feedback_suggests_file_import_fix() -> None:
 
     assert feedback.missing_coverage == ["file import/upload"]
     assert feedback.missing_checklist_items[0]["rule_id"] == "file_import"
-    assert "browser file import processed sample file" in markdown
+    assert "api client file import processed sample file" in markdown
     assert "Check file selection, import/upload handlers" in markdown
 
 
@@ -200,18 +200,18 @@ def test_testing_failure_feedback_suggests_api_validation_fix() -> None:
 
 def test_testing_feedback_for_rework_follows_feedback_from_testing_workitem() -> None:
     failed_test = WorkItem(
-        id="workitem-ui-test",
-        description="Validate UI",
+        id="workitem-api-test",
+        description="Validate API",
         stage="testing",
-        kind="ui_validation",
+        kind="api_validation",
         failure_type="validation_failed",
         failure_summary="Validation exit_code=1",
     )
     rework = WorkItem(
-        id="workitem-ui-rework",
-        description="Fix UI",
+        id="workitem-api-rework",
+        description="Fix API",
         stage="development",
-        kind="ui_implementation",
+        kind="api_implementation",
         feedback_from=[failed_test.id],
     )
     artifact = Artifact(
@@ -219,12 +219,12 @@ def test_testing_feedback_for_rework_follows_feedback_from_testing_workitem() ->
         project_id="project-1",
         workitem_id=failed_test.id,
         agent_id="agent-tester",
-        kind="ui_validation",
-        title="Failed UI Validation",
+        kind="api_validation",
+        title="Failed API Validation",
         content="- Browser form submit did not change visible page state",
     )
     state = SharedProjectState(
-        project=Project(id="project-1", goal="Build UI", current_stage="development"),
+        project=Project(id="project-1", goal="Build API", current_stage="development"),
         project_status=ProjectStatus.IN_PROGRESS,
         current_stage="development",
         workitems=[failed_test, rework],

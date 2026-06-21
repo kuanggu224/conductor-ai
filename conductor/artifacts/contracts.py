@@ -16,17 +16,14 @@ DEFAULT_REQUIRED_SECTIONS: dict[str, list[str]] = {
     "frozen_design_spec": ["目标", "范围", "方案", "验收"],
     "requirement_spec": ["目标", "范围", "验收", "风险"],
     "frozen_requirement_spec": ["目标", "范围", "验收", "风险"],
-    "ui_design": ["页面", "交互", "验收"],
     "api_design": ["接口", "输入", "输出", "验收"],
     "test_design": ["测试", "通过标准"],
     "api_implementation": ["实现", "接口", "运行"],
-    "ui_implementation": ["实现", "页面", "运行"],
     "data_implementation": ["数据", "结构", "运行"],
     "generic_implementation": ["实现", "运行"],
     "acceptance_check": ["结论", "风险"],
     "automated_test": ["命令", "结果"],
     "api_validation": ["接口", "结论"],
-    "ui_validation": ["页面", "结论"],
     "collaboration_review": ["审阅", "结论"],
 }
 

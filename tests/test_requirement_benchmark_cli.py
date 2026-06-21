@@ -32,7 +32,7 @@ def test_requirement_benchmark_cli_compares_documents(tmp_path) -> None:
     output_dir = tmp_path / "out"
     platform.write_text(
         "目标：个人读书清单。范围：书名、作者、阅读状态、评分、备注、状态筛选、CSV 导出、刷新后保留数据。"
-        "非目标：登录。页面和数据：表单、列表、localStorage。验收标准：新增、筛选、导出、刷新保留。"
+        "非目标：登录。接口和数据：表单、列表、SQLite。验收标准：新增、筛选、导出、刷新保留。"
         "风险：CSV 编码。测试：验证新增、筛选、持久化、导出。",
         encoding="utf-8",
     )
@@ -62,7 +62,7 @@ def test_requirement_benchmark_cli_can_generate_direct_llm_baseline(tmp_path, mo
     output_dir = tmp_path / "out"
     platform.write_text(
         "目标：个人读书清单。范围：书名、作者、阅读状态、评分、备注、状态筛选、CSV 导出、刷新后保留数据。"
-        "非目标：登录。页面和数据：表单、列表、localStorage。验收标准：新增、筛选、导出、刷新保留。"
+        "非目标：登录。接口和数据：表单、列表、SQLite。验收标准：新增、筛选、导出、刷新保留。"
         "风险：CSV 编码。测试：验证新增、筛选、持久化、导出。",
         encoding="utf-8",
     )
@@ -107,7 +107,7 @@ def test_requirement_benchmark_cli_runs_suite_from_directories(tmp_path) -> None
     direct_dir.mkdir()
     strong = (
         "目标：Reading list. 范围：book title, author, status, rating, CSV export, persistence, filtering. "
-        "非目标：login. 页面和数据：form, list, localStorage. "
+        "非目标：login. 接口和数据：form, list, SQLite. "
         "验收标准：add, filter, export, refresh keeps data. 风险：CSV encoding. 测试：verify add/filter/export/storage."
     )
     weak = "Build a reading list with title and author."
@@ -166,7 +166,7 @@ def test_requirement_benchmark_cli_runs_generated_suite(tmp_path, monkeypatch) -
             "steps": 1,
             "document": (
                 "目标：Reading list. 范围：book title, author, status, rating, CSV export, persistence, filtering. "
-                "非目标：login. 页面和数据：form, list, localStorage. "
+                "非目标：login. 接口和数据：form, list, SQLite. "
                 "验收标准：add, filter, export, refresh keeps data. 风险：CSV encoding. "
                 "测试：verify add/filter/export/storage."
             ),

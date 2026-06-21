@@ -53,8 +53,8 @@ def test_mock_run_profile_disables_configured_runner_llm(monkeypatch) -> None:
     assert resolved.usage.runner_enabled is False
 
 
-def test_static_web_run_profile_disables_configured_runner_llm(monkeypatch) -> None:
-    args = build_parser().parse_args(["--requirement", "demo", "--project-root", "demo", "--run-profile", "static_web"])
+def test_api_mock_run_profile_disables_configured_runner_llm(monkeypatch) -> None:
+    args = build_parser().parse_args(["--requirement", "demo", "--project-root", "demo", "--run-profile", "api_mock"])
     runtime_config = LLMRuntimeConfig(
         local=LLMHTTPConfig(base_url="http://127.0.0.1:1234/v1", model_name="local-model", enabled=True),
         cloud=LLMHTTPConfig(base_url="https://example.com/v1", model_name="cloud-model", enabled=True),
@@ -62,9 +62,26 @@ def test_static_web_run_profile_disables_configured_runner_llm(monkeypatch) -> N
     )
     monkeypatch.setattr(run_project, "load_llm_runtime_config", lambda: runtime_config)
 
-    resolved = run_project._build_llm_runtime_config(args, run_profile=resolve_run_profile("static_web"))
+    resolved = run_project._build_llm_runtime_config(args, run_profile=resolve_run_profile("api_mock"))
 
     assert resolved.usage.runner_enabled is False
+
+
+def test_api_mock_run_profile_keeps_llm_harness_without_generic_runner(monkeypatch) -> None:
+    args = build_parser().parse_args(
+        ["--requirement", "demo", "--project-root", "demo", "--run-profile", "api_mock", "--llm-harness", "cloud"]
+    )
+    runtime_config = LLMRuntimeConfig(
+        local=LLMHTTPConfig(base_url="http://127.0.0.1:1234/v1", model_name="local-model", enabled=True),
+        cloud=LLMHTTPConfig(base_url="https://example.com/v1", model_name="cloud-model", enabled=False),
+        usage=LLMUsagePolicy(runner_enabled=True),
+    )
+    monkeypatch.setattr(run_project, "load_llm_runtime_config", lambda: runtime_config)
+
+    resolved = run_project._build_llm_runtime_config(args, run_profile=resolve_run_profile("api_mock"))
+
+    assert resolved.usage.runner_enabled is False
+    assert resolved.cloud.enabled is True
 
 
 def test_mock_run_profile_keeps_explicit_llm_harness_enabled(monkeypatch) -> None:
@@ -152,7 +169,7 @@ def test_run_project_parser_accepts_collaboration_overrides() -> None:
             "--collaboration-max-rounds",
             "1",
             "--collaboration-kind",
-            "ui_implementation",
+            "api_implementation",
             "--collaboration-kind",
             "acceptance_check",
             "--static-requirement-review",
@@ -162,7 +179,7 @@ def test_run_project_parser_accepts_collaboration_overrides() -> None:
     )
 
     assert args.collaboration_max_rounds == 1
-    assert args.collaboration_kind == ["ui_implementation", "acceptance_check"]
+    assert args.collaboration_kind == ["api_implementation", "acceptance_check"]
     assert args.static_requirement_review is True
     assert args.diagnose_cli is True
     assert args.diagnose_llm is True
@@ -174,7 +191,7 @@ def test_run_project_system_config_applies_collaboration_kind_override(monkeypat
             "--requirement",
             "demo",
             "--collaboration-kind",
-            "ui_implementation",
+            "api_implementation",
             "--collaboration-kind",
             "acceptance_check",
         ]
@@ -183,7 +200,7 @@ def test_run_project_system_config_applies_collaboration_kind_override(monkeypat
 
     config = run_project._build_system_config(args)
 
-    assert "ui_implementation" in config.collaboration.enabled_kinds
+    assert "api_implementation" in config.collaboration.enabled_kinds
     assert "acceptance_check" in config.collaboration.enabled_kinds
 
 

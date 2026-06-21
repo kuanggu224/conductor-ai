@@ -18,22 +18,18 @@
     "runner_allowed_roles": [
       "designer",
       "backend_engineer",
-      "frontend_engineer",
       "tester"
     ],
     "runner_allowed_kinds": [
       "design_overview",
-      "ui_design",
       "api_design",
       "test_design",
       "generic_implementation",
       "api_implementation",
       "data_implementation",
-      "ui_implementation",
       "acceptance_check",
       "automated_test",
-      "api_validation",
-      "ui_validation"
+      "api_validation"
     ],
     "preferred_backend": "cloud"
   }

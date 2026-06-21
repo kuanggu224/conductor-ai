@@ -386,10 +386,10 @@ def test_code_execution_prompt_includes_shared_delivery_contract() -> None:
         )
     )
     runner = Runner(state_store=state_store)
-    profile = next(profile for profile in build_default_agent_profiles() if profile.role_name == "frontend_engineer")
+    profile = next(profile for profile in build_default_agent_profiles() if profile.role_name == "backend_engineer")
     agent = Agent(
-        id="agent-frontend",
-        role="frontend_engineer",
+        id="agent-backend",
+        role="backend_engineer",
         profile=profile,
         capabilities=[Capability.CODING],
         execution_backend="cli",
@@ -398,16 +398,16 @@ def test_code_execution_prompt_includes_shared_delivery_contract() -> None:
         id="workitem-ui",
         description="Implement UI",
         stage="development",
-        kind="ui_implementation",
+        kind="api_implementation",
         input_artifact_ids=["artifact-frozen"],
-        acceptance_criteria=["UI can add a book"],
+        acceptance_criteria=["API can add a book"],
     )
 
     prompt = runner._build_code_execution_prompt("project-code-contract", workitem, agent, cli_name="codex")
 
     assert "Delivery contract" in prompt
     assert "Required Input Artifacts: artifact-frozen" in prompt
-    assert "Visible UI state and interaction behavior" in prompt
+    assert "API input/output contract behavior" in prompt
     assert "Scope boundary preservation" in prompt
 
 
@@ -436,10 +436,11 @@ def test_requirement_document_prompts_include_quality_gate_sections() -> None:
     opencode_prompt = runner._build_agent_cli_document_prompt(workitem, agent, "opencode")
 
     for prompt in [harness_prompt, codex_prompt, opencode_prompt]:
-        assert "非目标" in prompt
-        assert "边界/异常场景" in prompt
-        assert "待确认问题" in prompt
-        assert "下游交付约束" in prompt
+        lowered = prompt.lower()
+        assert "non-goals" in lowered
+        assert "acceptance criteria" in lowered
+        assert "open questions" in lowered
+        assert "scope" in lowered
 
 
 def test_claude_binding_is_disabled_after_provider_compatibility_failure(monkeypatch) -> None:

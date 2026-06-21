@@ -27,7 +27,7 @@ def test_runner_uses_npm_test_for_node_project(monkeypatch, tmp_path) -> None:
     assert runner._select_test_command(str(tmp_path)) == ["npm", "test"]
 
 
-def test_runner_prefers_pytest_for_fullstack_project_with_static_assets(monkeypatch, tmp_path) -> None:
+def test_runner_prefers_pytest_for_api_project_with_static_assets(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr("conductor.execution.runner.shutil.which", lambda name: None)
     (tmp_path / "tests").mkdir()
     (tmp_path / "pytest.ini").write_text("[pytest]\n", encoding="utf-8")

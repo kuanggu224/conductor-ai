@@ -411,7 +411,7 @@ pre-check and final status payloads. Use `--check-only` for read-only probes.
 
 - `operator_guidance`: compact text describing how an operator/watchdog should
   use the maintenance loop.
-- `operator_commands`: copyable CLI command templates for running scheduled
+- `operator_commands`: copyable CLI command snippets for running scheduled
   maintenance and checking the latest pointer with `maintenance-status`.
 
 When `maintenance-status` reads an older latest pointer without command hints, it

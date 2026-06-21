@@ -5,15 +5,17 @@ from fastapi.testclient import TestClient
 
 from app import board
 from conductor.agents.llm import LLMHTTPConfig
+from conductor.config.cli import CLISelectionConfig
 from conductor.config.llm import LLMRuntimeConfig, LLMUsagePolicy
 from conductor.control.human import HumanControlService
-from conductor.domain.models import AgentActivation, Artifact, TaskAssignment, TaskAssignmentStatus, WorkItem, WorkItemStatus
+from conductor.domain.models import AgentActivation, Artifact, ProjectStatus, TaskAssignment, TaskAssignmentStatus, WorkItem, WorkItemStatus
+from conductor.preflight_gate import write_preflight_gate_payload
 
 
 def test_project_api_returns_snapshot_payload() -> None:
     client = TestClient(board.app)
     state = board.engine.create_project(
-        requirement="实现一个包含 API、UI 和测试的最小系统",
+        requirement="实现一个包含 API、API 和测试的最小系统",
         project_root=r"C:\99_self\conductor\conductor-front",
     )
 
@@ -35,13 +37,102 @@ def test_project_api_returns_snapshot_payload() -> None:
     assert "task_status" in payload
 
 
+def test_project_live_api_returns_operation_console_state(tmp_path) -> None:
+    client = TestClient(board.app)
+    project_root = tmp_path / "live-project"
+    state = board.engine.create_project(requirement="Build controllable operation console", project_root=str(project_root))
+    write_preflight_gate_payload(
+        project_root,
+        {
+            "ok": False,
+            "preflight_gate": {
+                "errors": ["local LLM preflight failed"],
+                "recommendations": ["Check local server"],
+            },
+        },
+    )
+
+    response = client.get(f"/api/projects/{state.project.id}/live")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["project_id"] == state.project.id
+    assert payload["project_status"] == "initialized"
+    assert payload["task_status"]["running"] is False
+    assert payload["runtime_stream"]["status"] == "idle"
+    assert payload["workitems"]["total"] >= 1
+    assert payload["human_control"]["active"] is False
+    snapshot = payload["snapshot"]
+    assert snapshot["preflight_gate"]["recorded"] is True
+    assert snapshot["preflight_gate"]["status"] == "fail"
+    assert snapshot["preflight_gate"]["errors"] == ["local LLM preflight failed"]
+    assert snapshot["preflight_gate"]["recommendations"] == ["Check local server"]
+    assert "delivery_readiness_checks" in snapshot["run_audit"]
+    assert "scope_contract_violations" in snapshot["run_audit"]
+    assert snapshot["operation_console"]["available"] is True
+    assert any(action["id"] == "human-control-pause" for action in snapshot["operation_console"]["actions"])
+    assert snapshot["design_collaboration"]["enabled"] is True
+    assert snapshot["design_collaboration"]["status"]
+    assert "current_step_label" in snapshot["design_collaboration"]
+    assert "agents" in snapshot["design_collaboration"]
+    assert snapshot["project_agents"]
+    assert snapshot["project_agents"][0]["task_api_path"].startswith(f"/api/projects/{state.project.id}/agents/")
+    assert snapshot["project_agents"][0]["claim_task_api_path"].startswith(f"/api/projects/{state.project.id}/agents/")
+    assignment = snapshot["task_assignments"][0]
+    assert assignment["claim_api_path"].endswith(f"/tasks/{assignment['id']}/claim")
+    assert assignment["context_api_path"].endswith(f"/tasks/{assignment['id']}/context?include_content=false&max_content_chars=0")
+    assert assignment["return_api_paths"] == {}
+
+    pause = client.post(
+        f"/api/projects/{state.project.id}/human-control/pause",
+        json={"actor": "operator", "reason": "inspect output"},
+    )
+    assert pause.status_code == 200
+
+    paused_live = client.get(f"/api/projects/{state.project.id}/live").json()
+    assert paused_live["human_control"]["active"] is True
+    action_ids = {action["id"] for action in paused_live["snapshot"]["operation_console"]["actions"]}
+    assert "human-control-resume" in action_ids
+    assert "human-control-pause" not in action_ids
+
+
+def test_project_artifact_detail_api_returns_persisted_content(tmp_path) -> None:
+    client = TestClient(board.app)
+    state = board.engine.create_project(requirement="Build artifact detail API", project_root=str(tmp_path / "project"))
+    artifact_path = tmp_path / "project" / ".conductor" / "artifacts" / "artifact-detail.md"
+    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+    artifact_path.write_text("# Persisted Artifact\n\nFile content wins.", encoding="utf-8")
+    artifact = Artifact(
+        id="artifact-detail",
+        project_id=state.project.id,
+        workitem_id=state.workitems[0].id,
+        agent_id="agent-backend",
+        kind="api_implementation",
+        title="Persisted API Artifact",
+        content="stale in-memory content",
+        path=str(artifact_path),
+        source_backend="agent_cli/codex",
+    )
+    board.engine.state_store.save_state(replace(state, artifacts=[*state.artifacts, artifact]))
+
+    response = client.get(f"/api/projects/{state.project.id}/artifacts/{artifact.id}")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["project_id"] == state.project.id
+    assert payload["artifact"]["id"] == artifact.id
+    assert payload["artifact"]["detail_api_path"] == f"/api/projects/{state.project.id}/artifacts/{artifact.id}"
+    assert payload["artifact"]["content"] == "# Persisted Artifact\n\nFile content wins."
+    assert payload["artifact"]["content_source"] == "file"
+
+
 def test_create_project_api_creates_project() -> None:
     client = TestClient(board.app)
 
     response = client.post(
         "/api/projects",
         json={
-            "requirement": "实现一个包含 API、UI 和测试的最小系统",
+            "requirement": "实现一个包含 API、API 和测试的最小系统",
             "project_root": r"C:\99_self\conductor\conductor-front",
         },
     )
@@ -55,7 +146,7 @@ def test_create_project_api_creates_project() -> None:
 def test_create_project_api_accepts_utf8_requirement_file(tmp_path) -> None:
     client = TestClient(board.app)
     requirement_path = tmp_path / "requirement.txt"
-    requirement_path.write_text("实现中文需求：费用报销审批 Web UI 和 API", encoding="utf-8")
+    requirement_path.write_text("实现中文需求：费用报销审批 Web API 和 API", encoding="utf-8")
 
     response = client.post(
         "/api/projects",
@@ -66,7 +157,7 @@ def test_create_project_api_accepts_utf8_requirement_file(tmp_path) -> None:
     )
 
     assert response.status_code == 201
-    assert response.json()["snapshot"]["project_goal"] == "实现中文需求：费用报销审批 Web UI 和 API"
+    assert response.json()["snapshot"]["project_goal"] == "实现中文需求：费用报销审批 Web API 和 API"
 
 
 def test_cli_settings_api_returns_discovered_tools() -> None:
@@ -224,6 +315,113 @@ def test_project_human_control_api_can_pause_resume_and_approve_gate() -> None:
     assert service.has_clearance(reloaded, "escalate_project", "requirement") is True
 
 
+def test_project_run_apis_reject_active_human_control_hold() -> None:
+    client = TestClient(board.app)
+    state = board.engine.create_project(requirement="Build gated run controls", project_root="")
+    pause = client.post(
+        f"/api/projects/{state.project.id}/human-control/pause",
+        json={"actor": "operator", "reason": "inspect delivery"},
+    )
+    assert pause.status_code == 200
+
+    step = client.post(f"/api/projects/{state.project.id}/step")
+    run = client.post(f"/api/projects/{state.project.id}/run")
+
+    assert step.status_code == 409
+    assert step.json()["accepted"] is False
+    assert step.json()["task_status"]["running"] is False
+    assert "human_paused: inspect delivery" in step.json()["task_status"]["error"]
+    assert step.json()["human_control"]["active"] is True
+    assert run.status_code == 409
+    assert run.json()["accepted"] is False
+    assert "human_paused: inspect delivery" in run.json()["task_status"]["error"]
+    assert board.get_project_task_status(state.project.id).running is False
+
+
+def test_project_run_redirect_routes_respect_active_human_control_hold() -> None:
+    client = TestClient(board.app)
+    state = board.engine.create_project(requirement="Build gated fallback run controls", project_root="")
+    pause = client.post(
+        f"/api/projects/{state.project.id}/human-control/pause",
+        json={"actor": "operator", "reason": "inspect fallback"},
+    )
+    assert pause.status_code == 200
+
+    step = client.get(f"/projects/{state.project.id}/step", follow_redirects=False)
+    run = client.get(f"/projects/{state.project.id}/run", follow_redirects=False)
+
+    assert step.status_code == 404
+    assert run.status_code == 404
+    return
+    assert step.headers["location"] == f"/projects/{state.project.id}"
+    assert run.headers["location"] == f"/projects/{state.project.id}"
+    assert board.get_project_task_status(state.project.id).running is False
+    assert board.get_project_task_status(state.project.id).action == ""
+
+
+def test_project_run_apis_reject_terminal_project_statuses() -> None:
+    client = TestClient(board.app)
+    completed = board.engine.create_project(requirement="Build completed run guard", project_root="")
+    completed = replace(
+        completed,
+        project=replace(completed.project, status=ProjectStatus.COMPLETED, current_stage="development"),
+        project_status=ProjectStatus.COMPLETED,
+        current_stage="development",
+    )
+    blocked = board.engine.create_project(requirement="Build blocked run guard", project_root="")
+    blocked = replace(
+        blocked,
+        project=replace(blocked.project, status=ProjectStatus.BLOCKED, current_stage="development"),
+        project_status=ProjectStatus.BLOCKED,
+        current_stage="development",
+    )
+    board.engine.state_store.save_state(completed)
+    board.engine.state_store.save_state(blocked)
+
+    completed_step = client.post(f"/api/projects/{completed.project.id}/step")
+    blocked_run = client.post(f"/api/projects/{blocked.project.id}/run")
+    completed_get = client.get(f"/projects/{completed.project.id}/run", follow_redirects=False)
+
+    assert completed_step.status_code == 409
+    assert completed_step.json()["accepted"] is False
+    assert completed_step.json()["project_status"] == "completed"
+    assert completed_step.json()["task_status"]["error"] == "project_completed"
+    assert blocked_run.status_code == 409
+    assert blocked_run.json()["accepted"] is False
+    assert blocked_run.json()["project_status"] == "blocked"
+    assert blocked_run.json()["task_status"]["error"] == "project_blocked"
+    assert completed_get.status_code == 404
+    assert board.get_project_task_status(completed.project.id).running is False
+    assert board.get_project_task_status(blocked.project.id).running is False
+
+
+def test_project_run_apis_reject_missing_profile_cli_roles(monkeypatch) -> None:
+    monkeypatch.setattr(
+        board,
+        "load_cli_selection_config",
+        lambda: CLISelectionConfig(
+            selected_cli_names=["codex"],
+            role_cli_bindings={"backend_engineer": "codex"},
+        ),
+    )
+    client = TestClient(board.app)
+    original_profile = board.engine.run_profile
+    try:
+        board.engine.run_profile = "full_cli"
+        state = board.engine.create_project(requirement="Build profile guarded run API", project_root="")
+
+        response = client.post(f"/api/projects/{state.project.id}/step")
+    finally:
+        board.engine.run_profile = original_profile
+
+    payload = response.json()
+    assert response.status_code == 409
+    assert payload["accepted"] is False
+    assert payload["task_status"]["running"] is False
+    assert "missing required CLI roles" in payload["task_status"]["error"]
+    assert board.get_project_task_status(state.project.id).running is False
+
+
 def test_project_tasks_api_returns_task_center_assignments() -> None:
     client = TestClient(board.app)
     state = board.engine.create_project(
@@ -274,30 +472,32 @@ def test_project_tasks_summary_api_returns_counts() -> None:
     assert payload["summary"]["total"] == 1
     assert payload["summary"]["claimable"] == 1
     assert payload["summary"]["blocked_by_dependencies"] == 0
+    assert payload["snapshot"]["project_id"] == state.project.id
+    assert payload["snapshot"]["task_center_summary"]["claimable"] == 1
     assert "tasks" not in payload
 
 
 def test_project_dynamic_agent_task_api_can_list_and_claim_matching_task(tmp_path) -> None:
     client = TestClient(board.app)
     project_root = tmp_path / "project"
-    state = board.engine.create_project(requirement="Build a local reading list UI", project_root=str(project_root))
+    state = board.engine.create_project(requirement="Build a local reading list API", project_root=str(project_root))
     downstream = WorkItem(
         id="workitem-board-dynamic-ui",
-        description="Implement UI layout",
+        description="Implement API layout",
         stage="development",
-        kind="ui_implementation",
+        kind="api_implementation",
     )
     assignment = TaskAssignment(
         id="assignment-board-dynamic-ui",
         workitem_id=downstream.id,
-        role="frontend_engineer",
+        role="backend_engineer",
     )
     activation = AgentActivation(
-        role="frontend_engineer",
-        agent_id="agent-frontend-engineer-ui-layout-board",
+        role="backend_engineer",
+        agent_id="agent-backend-engineer-ui-layout-board",
         stage="development",
-        reason="Frontend layout can be split safely.",
-        related_workitem_kinds=["ui_implementation"],
+        reason="Backend layout can be split safely.",
+        related_workitem_kinds=["api_implementation"],
         instance_id="ui_layout",
         scope="HTML layout and responsive structure",
         dynamic=True,
@@ -308,8 +508,8 @@ def test_project_dynamic_agent_task_api_can_list_and_claim_matching_task(tmp_pat
         role="backend_engineer",
         agent_id="agent-backend-engineer-api-board",
         stage="development",
-        reason="Backend API work.",
-        related_workitem_kinds=["api_implementation"],
+            reason="Testing work.",
+            related_workitem_kinds=["automated_test"],
         dynamic=True,
     )
     state = replace(
@@ -334,6 +534,8 @@ def test_project_dynamic_agent_task_api_can_list_and_claim_matching_task(tmp_pat
     tasks_payload = tasks.json()
     assert tasks_payload["activation_count"] == 1
     assert tasks_payload["task_count"] == 1
+    assert tasks_payload["snapshot"]["project_id"] == state.project.id
+    assert tasks_payload["snapshot"]["task_center_summary"]["claimable"] >= 1
     assert tasks_payload["tasks"][0]["assignment_id"] == assignment.id
     assert tasks_payload["tasks"][0]["parallel_safe"] is True
     assert tasks_payload["tasks"][0]["write_scope"] == ["index.html", "styles.css"]
@@ -380,46 +582,46 @@ def test_project_dynamic_agent_task_api_can_list_and_claim_matching_task(tmp_pat
 
 def test_project_dynamic_agent_tasks_expose_write_scope_conflicts(tmp_path) -> None:
     client = TestClient(board.app)
-    state = board.engine.create_project(requirement="Build parallel UI layout work", project_root=str(tmp_path / "project"))
+    state = board.engine.create_project(requirement="Build parallel API layout work", project_root=str(tmp_path / "project"))
     workitem_a = WorkItem(
         id="workitem-board-layout-a",
         description="Implement layout A",
         stage="development",
-        kind="ui_implementation",
+        kind="api_implementation",
     )
     workitem_b = WorkItem(
         id="workitem-board-layout-b",
         description="Implement layout B",
         stage="development",
-        kind="ui_implementation",
+        kind="api_implementation",
     )
     assignment_a = TaskAssignment(
         id="assignment-board-layout-a",
         workitem_id=workitem_a.id,
-        role="frontend_engineer",
+        role="backend_engineer",
     )
     assignment_b = TaskAssignment(
         id="assignment-board-layout-b",
         workitem_id=workitem_b.id,
-        role="frontend_engineer",
+        role="backend_engineer",
     )
     activation_a = AgentActivation(
-        role="frontend_engineer",
+        role="backend_engineer",
         agent_id="agent-board-layout-a",
         stage="development",
         reason="layout scope",
-        related_workitem_kinds=["ui_implementation"],
+        related_workitem_kinds=["api_implementation"],
         instance_id="layout_a",
         dynamic=True,
         parallel_safe=True,
         write_scope=["index.html"],
     )
     activation_b = AgentActivation(
-        role="frontend_engineer",
+        role="backend_engineer",
         agent_id="agent-board-layout-b",
         stage="development",
         reason="layout scope",
-        related_workitem_kinds=["ui_implementation"],
+        related_workitem_kinds=["api_implementation"],
         instance_id="layout_b",
         dynamic=True,
         parallel_safe=True,
@@ -507,6 +709,7 @@ def test_project_task_claim_and_complete_protocol() -> None:
     assert heartbeat_task["heartbeat_age_seconds"] is not None
     assert heartbeat_task["lease_seconds"] == 120
     assert heartbeat_task["lease_expires_at"] != claimed_task["lease_expires_at"]
+    assert heartbeat.json()["snapshot"]["task_assignments"][0]["status"] == "claimed"
 
     claimed_list = client.get(f"/api/projects/{state.project.id}/tasks?status=claimed")
     assert claimed_list.status_code == 200
@@ -534,6 +737,8 @@ def test_project_task_claim_and_complete_protocol() -> None:
     assert completed_task["workitem"]["status"] == "done"
     assert completed_task["return_commands"] == {}
     assert completed_task["return_api_paths"] == {}
+    assert completed_payload["snapshot"]["task_center_summary"]["completed"] == 1
+    assert completed_payload["snapshot"]["task_assignments"][0]["status"] == "completed"
 
     completed_list = client.get(f"/api/projects/{state.project.id}/tasks?status=completed")
     assert completed_list.status_code == 200
@@ -664,10 +869,51 @@ def test_project_task_release_api_requeues_claimed_assignment() -> None:
     assert payload["task"]["assigned_agent_id"] == ""
     assert payload["task"]["claim_reason"] == "worker interrupted"
     assert payload["task"]["workitem"]["status"] == "pending"
+    assert payload["snapshot"]["task_center_summary"]["claimable"] == 1
 
     reloaded = board.engine.get_project(state.project.id)
     assert reloaded.task_assignments[0].status.value == "queued"
     assert reloaded.workitems[0].status.value == "pending"
+
+
+def test_project_task_fail_api_exposes_release_path_for_recovery() -> None:
+    client = TestClient(board.app)
+    state = board.engine.create_project(requirement="Build a recoverable failed task", project_root="")
+    assignment_id = state.task_assignments[0].id
+    claim = client.post(
+        f"/api/projects/{state.project.id}/tasks/{assignment_id}/claim",
+        json={"agent_id": "agent-api-worker"},
+    )
+    assert claim.status_code == 200
+    claim_token = claim.json()["task"]["claim_token"]
+
+    failed = client.post(
+        f"/api/projects/{state.project.id}/tasks/{assignment_id}/fail",
+        json={
+            "agent_id": "agent-api-worker",
+            "claim_token": claim_token,
+            "result_summary": "failed task",
+            "blocked_reason": "needs retry",
+        },
+    )
+
+    assert failed.status_code == 200
+    failed_payload = failed.json()
+    failed_task = failed_payload["task"]
+    assert failed_task["status"] == "failed"
+    assert failed_task["return_api_paths"] == {
+        "release": f"/api/projects/{state.project.id}/tasks/{assignment_id}/release",
+    }
+    assert failed_payload["snapshot"]["task_center_summary"]["failed"] == 1
+
+    release = client.post(
+        f"/api/projects/{state.project.id}/tasks/{assignment_id}/release",
+        json={"release_reason": "retry failed task"},
+    )
+    assert release.status_code == 200
+    release_payload = release.json()
+    assert release_payload["task"]["status"] == "queued"
+    assert release_payload["snapshot"]["task_center_summary"]["claimable"] == 1
 
 
 def test_project_tasks_api_can_filter_stale_claimed_assignments() -> None:
@@ -723,6 +969,7 @@ def test_project_tasks_api_can_release_stale_claimed_assignments() -> None:
     assert payload["summary"]["stale_claimed"] == 0
     assert payload["tasks"][0]["status"] == "queued"
     assert payload["tasks"][0]["claim_reason"] == "stale cleanup"
+    assert payload["snapshot"]["task_center_summary"]["claimable"] == 1
 
     reloaded = board.engine.get_project(state.project.id)
     assert reloaded.task_assignments[0].status.value == "queued"
@@ -762,6 +1009,7 @@ def test_project_tasks_api_can_release_expired_leases() -> None:
     assert payload["tasks"][0]["lease_seconds"] == 0
     assert payload["tasks"][0]["lease_expires_at"] == ""
     assert payload["tasks"][0]["lease_expired"] is False
+    assert payload["snapshot"]["task_center_summary"]["lease_expired"] == 0
 
     reloaded = board.engine.get_project(state.project.id)
     assert reloaded.task_assignments[0].status.value == "queued"
@@ -835,6 +1083,7 @@ def test_project_tasks_api_can_sweep_expired_and_stale_claims() -> None:
     assert [task["id"] for task in payload["stale_tasks"]] == ["assignment-api-sweep-stale"]
     assert payload["expired_lease_tasks"][0]["claim_reason"] == "api lease sweep"
     assert payload["stale_tasks"][0]["claim_reason"] == "api stale sweep"
+    assert payload["snapshot"]["task_center_summary"]["stale_claimed"] == 0
 
     reloaded = board.engine.get_project(state.project.id)
     assignments = {item.id: item for item in reloaded.task_assignments}
@@ -1028,6 +1277,9 @@ def test_project_task_claim_next_selects_available_role_task() -> None:
     assert task["assigned_agent_id"] == "agent-api-worker"
     assert task["claim_reason"] == "api worker"
     assert task["workitem"]["status"] == "running"
+    assert payload["snapshot"]["project_id"] == state.project.id
+    assert payload["snapshot"]["task_center_summary"]["claimed"] == 1
+    assert payload["snapshot"]["task_assignments"][0]["status"] == "claimed"
 
 
 def test_project_task_claim_batch_claims_role_limited_tasks() -> None:
@@ -1035,7 +1287,7 @@ def test_project_task_claim_batch_claims_role_limited_tasks() -> None:
     state = board.engine.create_project(requirement="Build a local reading list", project_root="")
     first = WorkItem(id="workitem-batch-a", description="Backend task A", stage="development", kind="api_implementation")
     second = WorkItem(id="workitem-batch-b", description="Backend task B", stage="development", kind="api_implementation")
-    third = WorkItem(id="workitem-batch-ui", description="Frontend task", stage="development", kind="ui_implementation")
+    third = WorkItem(id="workitem-batch-api", description="Backend task", stage="development", kind="api_implementation")
     state = replace(
         state,
         workitems=[*state.workitems, first, second, third],
@@ -1043,7 +1295,7 @@ def test_project_task_claim_batch_claims_role_limited_tasks() -> None:
             *state.task_assignments,
             TaskAssignment(id="assignment-batch-a", workitem_id=first.id, role="backend_engineer"),
             TaskAssignment(id="assignment-batch-b", workitem_id=second.id, role="backend_engineer"),
-            TaskAssignment(id="assignment-batch-ui", workitem_id=third.id, role="frontend_engineer"),
+            TaskAssignment(id="assignment-batch-api", workitem_id=third.id, role="backend_engineer"),
         ],
     )
     board.engine.state_store.save_state(state)
@@ -1068,6 +1320,7 @@ def test_project_task_claim_batch_claims_role_limited_tasks() -> None:
     assert all(task["assigned_agent_id"] == "agent-batch-worker" for task in payload["tasks"])
     assert all(task["lease_seconds"] == 60 for task in payload["tasks"])
     assert all(task["lease_expires_at"] for task in payload["tasks"])
+    assert payload["snapshot"]["task_center_summary"]["claimed"] >= 2
 
     rejected = client.post(
         f"/api/projects/{state.project.id}/tasks/claim-batch",

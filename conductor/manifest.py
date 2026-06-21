@@ -438,7 +438,7 @@ class RunManifestWriter:
         validation_workitem_ids = {
             item.id
             for item in state.workitems
-            if item.kind in {"acceptance_check", "automated_test", "api_validation", "ui_validation"}
+            if item.kind in {"acceptance_check", "automated_test", "api_validation"}
         }
         results: list[dict[str, object]] = []
         for execution in state.executions:
@@ -930,7 +930,55 @@ class RunManifestWriter:
                 continue
             records.append(self._agent_record(state, activation, cli_config))
             seen.add(activation.agent_id)
+        for activation in self._referenced_agent_activations(state):
+            if activation.agent_id in seen:
+                continue
+            records.append(self._agent_record(state, activation, cli_config))
+            seen.add(activation.agent_id)
         return records
+
+    def _referenced_agent_activations(self, state: SharedProjectState) -> list[AgentActivation]:
+        """Synthesize activation records for base Agents referenced by run evidence."""
+        workitems_by_agent: dict[str, list[object]] = {}
+        for item in state.workitems:
+            if item.owner_agent:
+                workitems_by_agent.setdefault(item.owner_agent, []).append(item)
+        for assignment in state.task_assignments:
+            if assignment.assigned_agent_id:
+                workitem = next((item for item in state.workitems if item.id == assignment.workitem_id), None)
+                if workitem is not None:
+                    workitems_by_agent.setdefault(assignment.assigned_agent_id, []).append(workitem)
+        for execution in state.executions:
+            if execution.agent_id:
+                workitem = next((item for item in state.workitems if item.id == execution.workitem_id), None)
+                if workitem is not None:
+                    workitems_by_agent.setdefault(execution.agent_id, []).append(workitem)
+        for artifact in state.artifacts:
+            if artifact.agent_id:
+                workitem = next((item for item in state.workitems if item.id == artifact.workitem_id), None)
+                if workitem is not None:
+                    workitems_by_agent.setdefault(artifact.agent_id, []).append(workitem)
+
+        activations: list[AgentActivation] = []
+        for agent_id, workitems in workitems_by_agent.items():
+            role, instance_id = self._infer_collaboration_agent_role(agent_id)
+            stages = self._dedupe([item.stage for item in workitems if getattr(item, "stage", "")])
+            kinds = self._dedupe([item.kind for item in workitems if getattr(item, "kind", "")])
+            activations.append(
+                AgentActivation(
+                    role=role,
+                    agent_id=agent_id,
+                    stage=stages[0] if stages else "",
+                    reason="referenced_in_run_evidence",
+                    related_workitem_kinds=kinds,
+                    execution_backend="run_evidence",
+                    preferred_backend="local",
+                    instance_id=instance_id,
+                    dynamic=bool(instance_id),
+                    parallel_safe=True,
+                )
+            )
+        return activations
 
     def _collaboration_only_agent_activations(self, state: SharedProjectState) -> list[AgentActivation]:
         """Synthesize AgentActivation records for reviewers that only appear in collaboration logs."""
@@ -981,7 +1029,6 @@ class RunManifestWriter:
             "agent-requirement-designer": "requirement_designer",
             "agent-designer": "designer",
             "agent-backend": "backend_engineer",
-            "agent-frontend": "frontend_engineer",
             "agent-tester": "tester",
         }
         if base_agent_id in role_by_agent_id:

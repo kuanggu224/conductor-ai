@@ -93,9 +93,18 @@ STOPWORDS = {
     "需要",
     "the",
     "and",
+    "for",
     "with",
     "that",
+    "this",
+    "from",
+    "into",
+    "only",
     "where",
+    "application",
+    "app",
+    "web",
+    "static",
     "small",
     "simple",
     "create",
@@ -110,7 +119,7 @@ SECTION_TERMS: dict[str, tuple[str, ...]] = {
     "acceptance": ("验收", "通过标准", "验收标准", "acceptance", "expected output", "given", "when", "then"),
     "risk": ("风险", "歧义", "假设", "待确认", "问题", "risk", "ambiguity", "assumption", "question"),
     "testability": ("测试", "验证", "可测", "test", "verify", "validation"),
-    "implementation": ("接口", "数据", "页面", "交互", "持久化", "api", "data", "ui", "interaction", "storage"),
+    "implementation": ("接口", "数据", "服务", "流程", "持久化", "api", "data", "service", "workflow", "storage"),
     "non_goal": ("非目标", "不做", "不包含", "out of scope", "non-goal", "non goal"),
     "open_question": ("待确认", "待澄清", "开放问题", "假设", "assumption", "open question", "to confirm"),
     "edge_case": ("边界", "异常", "错误", "空状态", "空列表", "edge", "boundary", "exception", "error", "empty state"),
@@ -119,7 +128,7 @@ SECTION_TERMS: dict[str, tuple[str, ...]] = {
 
 
 ASPECT_TERMS: dict[str, tuple[str, ...]] = {
-    "ui": ("ui", "页面", "界面", "交互", "表单", "列表"),
+    "api": ("api", "接口", "服务", "请求", "响应", "endpoint"),
     "data": ("data", "数据", "字段", "状态", "localstorage", "存储"),
     "export": ("export", "导出", "下载", "csv"),
     "persistence": ("persistence", "持久化", "保留数据", "刷新后保留", "localstorage", "存储"),
@@ -257,7 +266,9 @@ SCOPE_NEGATION_TERMS: tuple[str, ...] = (
     "non-goal",
     "non goal",
     "not required",
+    "must not",
     "do not",
+    "excluded",
     "no ",
     "\u975e\u76ee\u6807",
     "\u4e0d\u505a",
@@ -768,6 +779,13 @@ def _scope_topic_mentions(text: str, terms: tuple[str, ...]) -> list[int]:
 
 def _has_scope_negation_near(text: str, index: int) -> bool:
     """Return whether a topic mention sits inside a nearby non-goal phrase."""
+    line_start = text.rfind("\n", 0, index) + 1
+    line_end = text.find("\n", index)
+    if line_end < 0:
+        line_end = len(text)
+    line = text[line_start:line_end]
+    if any(term in line for term in SCOPE_NEGATION_TERMS):
+        return True
     window_start = max(0, index - 120)
     snippet = text[window_start:index]
     return any(term in snippet for term in SCOPE_NEGATION_TERMS)

@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from time import perf_counter
 from typing import Any
 
 from conductor.config.cli import CLISelectionConfig
 from conductor.config.execution import RunProfile, resolve_run_profile
+from conductor.config.system import SystemConfig
 from conductor.controller.engine import ConductorEngine
 from conductor.state.file_store import FileStateStore
 
@@ -61,6 +62,31 @@ class BenchmarkSuiteResult:
 
     output_dir: str
     results: list[BenchmarkRunResult]
+    summary: dict[str, int | float]
+    json_path: str
+    markdown_path: str
+
+
+@dataclass(slots=True)
+class QualityComparisonResult:
+    """Single-agent versus multi-agent quality comparison for one case/profile."""
+
+    case_id: str
+    case_name: str
+    run_profile: str
+    single_agent: BenchmarkRunResult
+    multi_agent: BenchmarkRunResult
+    score_delta: int
+    winner: str
+    passed: bool
+
+
+@dataclass(slots=True)
+class QualityComparisonSuiteResult:
+    """Persisted quality comparison suite."""
+
+    output_dir: str
+    results: list[QualityComparisonResult]
     summary: dict[str, int | float]
     json_path: str
     markdown_path: str
@@ -297,18 +323,28 @@ class BenchmarkRunner:
         *,
         use_codex: bool,
         max_steps: int,
+        collaboration_enabled: bool = True,
+        variant: str = "",
     ) -> BenchmarkRunResult:
         """Run one benchmark case/profile."""
         run_profile = resolve_run_profile(profile_name)
-        project_root = self.output_dir / f"{case.id}__{run_profile.profile.value}"
+        suffix = f"__{variant}" if variant else ""
+        project_root = self.output_dir / f"{case.id}__{run_profile.profile.value}{suffix}"
         project_root.mkdir(parents=True, exist_ok=True)
         cli_config = _build_cli_config(use_codex, run_profile)
+        system_config = SystemConfig.load()
+        if not collaboration_enabled:
+            system_config = replace(
+                system_config,
+                collaboration=replace(system_config.collaboration, enabled=False),
+            )
         started = perf_counter()
         engine = ConductorEngine(
             log_dir=project_root / ".conductor" / "logs",
             artifact_dir=project_root / ".conductor" / "artifacts",
             state_store=FileStateStore(project_root / ".conductor" / "state"),
             cli_selection_config=cli_config,
+            system_config=system_config,
             run_profile=run_profile.profile,
             require_real_design_outputs=run_profile.require_real_design_outputs,
             require_real_code_outputs=run_profile.require_real_code_outputs,
@@ -333,6 +369,68 @@ class BenchmarkRunner:
             report_path=str(report_path),
             duration_ms=duration_ms,
             evaluation=evaluation,
+        )
+
+    def run_quality_comparison(
+        self,
+        cases: list[BenchmarkCase] | None = None,
+        *,
+        profile_name: str = RunProfile.API_MOCK.value,
+        use_codex: bool = False,
+        max_steps: int = 80,
+    ) -> QualityComparisonSuiteResult:
+        """Run single-agent and multi-agent variants and compare delivered quality."""
+        selected_cases = cases or default_benchmark_cases()
+        results: list[QualityComparisonResult] = []
+        for case in selected_cases:
+            single = self.run_case(
+                case=case,
+                profile_name=profile_name,
+                use_codex=use_codex,
+                max_steps=max_steps,
+                collaboration_enabled=False,
+                variant="single_agent",
+            )
+            multi = self.run_case(
+                case=case,
+                profile_name=profile_name,
+                use_codex=use_codex,
+                max_steps=max_steps,
+                collaboration_enabled=True,
+                variant="multi_agent",
+            )
+            delta = multi.evaluation.score - single.evaluation.score
+            winner = "multi_agent" if delta > 0 else "single_agent" if delta < 0 else "tie"
+            results.append(
+                QualityComparisonResult(
+                    case_id=case.id,
+                    case_name=case.name,
+                    run_profile=profile_name,
+                    single_agent=single,
+                    multi_agent=multi,
+                    score_delta=delta,
+                    winner=winner,
+                    passed=multi.evaluation.passed and multi.evaluation.score >= single.evaluation.score,
+                )
+            )
+        summary = self._quality_summary(results)
+        json_path = self.output_dir / "quality-comparison-results.json"
+        markdown_path = self.output_dir / "quality-comparison-results.md"
+        json_path.write_text(
+            json.dumps(
+                {"summary": summary, "results": [asdict(result) for result in results]},
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        markdown_path.write_text(self._render_quality_markdown(results, summary), encoding="utf-8")
+        return QualityComparisonSuiteResult(
+            output_dir=str(self.output_dir),
+            results=results,
+            summary=summary,
+            json_path=str(json_path),
+            markdown_path=str(markdown_path),
         )
 
     def _summary(self, results: list[BenchmarkRunResult]) -> dict[str, int | float]:
@@ -370,9 +468,46 @@ class BenchmarkRunner:
         lines.append("")
         return "\n".join(lines)
 
+    def _quality_summary(self, results: list[QualityComparisonResult]) -> dict[str, int | float]:
+        if not results:
+            return {"total": 0, "passed": 0, "multi_agent_wins": 0, "average_delta": 0.0}
+        return {
+            "total": len(results),
+            "passed": sum(1 for result in results if result.passed),
+            "multi_agent_wins": sum(1 for result in results if result.winner == "multi_agent"),
+            "average_delta": round(sum(result.score_delta for result in results) / len(results), 2),
+        }
+
+    def _render_quality_markdown(
+        self,
+        results: list[QualityComparisonResult],
+        summary: dict[str, int | float],
+    ) -> str:
+        lines = [
+            "# Conductor Quality Comparison",
+            "",
+            f"- Total: {summary['total']}",
+            f"- Passed: {summary['passed']}",
+            f"- Multi-Agent Wins: {summary['multi_agent_wins']}",
+            f"- Average Delta: {summary['average_delta']}",
+            "",
+            "| Case | Profile | Single Score | Multi Score | Delta | Winner | Passed | Single Manifest | Multi Manifest |",
+            "|---|---|---:|---:|---:|---|---|---|---|",
+        ]
+        for result in results:
+            lines.append(
+                "| "
+                f"{result.case_id} | {result.run_profile} | "
+                f"{result.single_agent.evaluation.score} | {result.multi_agent.evaluation.score} | "
+                f"{result.score_delta} | {result.winner} | {'yes' if result.passed else 'no'} | "
+                f"{result.single_agent.manifest_path} | {result.multi_agent.manifest_path} |"
+            )
+        lines.append("")
+        return "\n".join(lines)
+
 
 def _build_cli_config(use_codex: bool, run_profile) -> CLISelectionConfig:
-    roles = ["designer", "backend_engineer", "frontend_engineer", "tester"]
+    roles = ["designer", "backend_engineer", "tester"]
     selected_cli_names = ["codex"] if use_codex and run_profile.cli_roles else []
     return CLISelectionConfig(
         selected_cli_names=selected_cli_names,
@@ -413,6 +548,8 @@ __all__ = [
     "BenchmarkRunResult",
     "BenchmarkRunner",
     "BenchmarkSuiteResult",
+    "QualityComparisonResult",
+    "QualityComparisonSuiteResult",
     "RunEvaluation",
     "default_benchmark_cases",
     "evaluate_run_manifest",

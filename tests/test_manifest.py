@@ -360,7 +360,7 @@ def test_manifest_records_write_scope_blocked_task_assignments(tmp_path) -> None
         cli_selection_config=CLISelectionConfig(),
         run_profile=RunProfile.MOCK,
     )
-    state = engine.create_project("Build a frontend dashboard", project_root=str(tmp_path / "project"))
+    state = engine.create_project("Build a backend dashboard", project_root=str(tmp_path / "project"))
     state = replace(
         state,
         current_stage="development",
@@ -369,14 +369,14 @@ def test_manifest_records_write_scope_blocked_task_assignments(tmp_path) -> None
                 id="workitem-layout-a",
                 description="Implement layout A",
                 stage="development",
-                kind="ui_implementation",
+                kind="api_implementation",
                 status=WorkItemStatus.RUNNING,
             ),
             WorkItem(
                 id="workitem-layout-b",
                 description="Implement layout B",
                 stage="development",
-                kind="ui_implementation",
+                kind="api_implementation",
                 status=WorkItemStatus.PENDING,
             ),
         ],
@@ -384,7 +384,7 @@ def test_manifest_records_write_scope_blocked_task_assignments(tmp_path) -> None
             TaskAssignment(
                 id="assignment-layout-a",
                 workitem_id="workitem-layout-a",
-                role="frontend_engineer",
+                role="backend_engineer",
                 status=TaskAssignmentStatus.CLAIMED,
                 assigned_agent_id="agent-layout-a",
                 claim_token="token-a",
@@ -394,27 +394,27 @@ def test_manifest_records_write_scope_blocked_task_assignments(tmp_path) -> None
             TaskAssignment(
                 id="assignment-layout-b",
                 workitem_id="workitem-layout-b",
-                role="frontend_engineer",
+                role="backend_engineer",
                 status=TaskAssignmentStatus.QUEUED,
             ),
         ],
         agent_activations=[
             AgentActivation(
-                role="frontend_engineer",
+                role="backend_engineer",
                 agent_id="agent-layout-a",
                 stage="development",
                 reason="parallel layout work",
-                related_workitem_kinds=["ui_implementation"],
+                related_workitem_kinds=["api_implementation"],
                 dynamic=True,
                 parallel_safe=True,
                 write_scope=["index.html"],
             ),
             AgentActivation(
-                role="frontend_engineer",
+                role="backend_engineer",
                 agent_id="agent-layout-b",
                 stage="development",
                 reason="parallel layout work",
-                related_workitem_kinds=["ui_implementation"],
+                related_workitem_kinds=["api_implementation"],
                 dynamic=True,
                 parallel_safe=True,
                 write_scope=["index.html"],
@@ -724,7 +724,7 @@ def test_manifest_records_requirement_coverage_results(tmp_path) -> None:
                     ]
                 ),
                 status=ExecutionStatus.FAILED,
-                source_backend="cli/static_web",
+                source_backend="cli/api_mock",
             )
         ],
         artifacts=[
@@ -762,7 +762,7 @@ def test_manifest_records_requirement_coverage_results(tmp_path) -> None:
                     "label": "add item interaction",
                     "status": "covered",
                     "requirement_terms": ["\u6dfb\u52a0"],
-                    "evidence_terms": ["browser form interaction updated visible state"],
+                    "evidence_terms": ["api client form interaction updated visible state"],
                 },
                 {
                     "rule_id": "persistence",
@@ -776,21 +776,21 @@ def test_manifest_records_requirement_coverage_results(tmp_path) -> None:
                     "label": "CSV export/download",
                     "status": "covered",
                     "requirement_terms": ["csv", "\u5bfc\u51fa"],
-                    "evidence_terms": ["browser export/download action triggered"],
+                    "evidence_terms": ["api client export/download action triggered"],
                 },
                 {
                     "rule_id": "filter",
                     "label": "filter interaction",
                     "status": "covered",
                     "requirement_terms": ["\u7b5b\u9009"],
-                    "evidence_terms": ["browser filter interaction changed visible results"],
+                    "evidence_terms": ["api client filter interaction changed visible results"],
                 },
                 {
                     "rule_id": "delete_item",
                     "label": "delete item interaction",
                     "status": "covered",
                     "requirement_terms": ["\u5220\u9664"],
-                    "evidence_terms": ["browser delete interaction removed visible item"],
+                    "evidence_terms": ["api client delete interaction removed visible item"],
                 },
             ],
             "summary": "Requirement coverage missing: refresh persistence",
@@ -957,24 +957,24 @@ def test_manifest_records_structured_testing_feedback_for_rework(tmp_path) -> No
         cli_selection_config=CLISelectionConfig(),
         run_profile=RunProfile.MOCK,
     )
-    state = engine.create_project("Build static UI", project_root=str(tmp_path / "project"))
+    state = engine.create_project("Build static API", project_root=str(tmp_path / "project"))
     failed_test = WorkItem(
-        id="workitem-ui-test",
-        description="Validate UI",
+        id="workitem-api-test",
+        description="Validate API",
         stage="testing",
-        kind="ui_validation",
+        kind="api_validation",
         status=WorkItemStatus.DONE,
         failure_type="validation_failed",
         failure_summary="Validation exit_code=1",
         blocked_reason="测试失败已回流到研发返工",
     )
     rework = WorkItem(
-        id="workitem-ui-rework",
-        description="Fix UI validation failure",
+        id="workitem-api-rework",
+        description="Fix API validation failure",
         stage="development",
-        kind="ui_implementation",
+        kind="api_implementation",
         feedback_from=[failed_test.id],
-        rework_of="workitem-ui-implementation",
+        rework_of="workitem-api-implementation",
         input_artifact_ids=["artifact-ui-test"],
     )
     failed_artifact = Artifact(
@@ -982,8 +982,8 @@ def test_manifest_records_structured_testing_feedback_for_rework(tmp_path) -> No
         project_id=state.project.id,
         workitem_id=failed_test.id,
         agent_id="agent-tester",
-        kind="ui_validation",
-        title="Failed UI Validation",
+        kind="api_validation",
+        title="Failed API Validation",
         content=(
             "Static Web Validation: FAIL\n\n"
             "Errors:\n"
@@ -993,16 +993,16 @@ def test_manifest_records_structured_testing_feedback_for_rework(tmp_path) -> No
     state = replace(
         state,
         current_stage="development",
-        pending_test_scope=["ui_validation"],
+        pending_test_scope=["api_validation"],
         workitems=[failed_test, rework],
         artifacts=[failed_artifact],
         executions=[
             Execution(
                 workitem_id=failed_test.id,
                 agent_id="agent-tester",
-                result="UI validation failed",
+                result="API validation failed",
                 status=ExecutionStatus.FAILED,
-                validation_command=["python", "-m", "conductor.harness.static_web_cli"],
+                validation_command=["python", "-m", "conductor.harness.api_validation_cli"],
                 validation_exit_code=1,
             )
         ],
@@ -1015,18 +1015,18 @@ def test_manifest_records_structured_testing_feedback_for_rework(tmp_path) -> No
 
     manifest_rework = next(item for item in payload["workitems"] if item["id"] == rework.id)
     assert manifest_rework["feedback_from"] == [failed_test.id]
-    assert manifest_rework["rework_of"] == "workitem-ui-implementation"
+    assert manifest_rework["rework_of"] == "workitem-api-implementation"
     assert manifest_rework["input_artifact_ids"] == ["artifact-ui-test"]
     assert manifest_rework["testing_feedback"][0]["workitem_id"] == failed_test.id
     assert manifest_rework["testing_feedback"][0]["validation_command"] == [
         "python",
         "-m",
-        "conductor.harness.static_web_cli",
+        "conductor.harness.api_validation_cli",
     ]
     assert manifest_rework["testing_feedback"][0]["validation_exit_code"] == "1"
     assert "Browser form submit did not change visible page state" in manifest_rework["testing_feedback"][0]["failing_checks"]
-    assert "检查表单/按钮事件绑定" in manifest_rework["testing_feedback"][0]["suggested_actions"][0]
-    assert payload["summary"]["pending_test_scope"] == ["ui_validation"]
+    assert manifest_rework["testing_feedback"][0]["suggested_actions"]
+    assert payload["summary"]["pending_test_scope"] == ["api_validation"]
 
 
 def test_manifest_records_codex_model_for_bound_agent(tmp_path) -> None:

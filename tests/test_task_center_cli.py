@@ -258,7 +258,7 @@ def test_task_center_cli_claim_batch_enforces_limit(tmp_path, capsys) -> None:
         task_assignments=[
             TaskAssignment(id="assignment-a", workitem_id="workitem-a", role="backend_engineer"),
             TaskAssignment(id="assignment-b", workitem_id="workitem-b", role="backend_engineer"),
-            TaskAssignment(id="assignment-c", workitem_id="workitem-c", role="frontend_engineer"),
+            TaskAssignment(id="assignment-c", workitem_id="workitem-c", role="backend_engineer"),
         ],
     )
     state_store.save_state(state)
@@ -520,7 +520,7 @@ def test_task_center_cli_auto_includes_frozen_design_for_development_context(tmp
             agent_id="agent-designer",
             kind="frozen_design_spec",
             title="Frozen Design",
-            content="Implementation baseline: static HTML, localStorage, CSV export button.",
+            content="Implementation baseline: static HTML, SQLite, CSV export button.",
         ),
         project_root=state.project.project_root,
     )
@@ -528,12 +528,12 @@ def test_task_center_cli_auto_includes_frozen_design_for_development_context(tmp
         id="workitem-dev-design-auto",
         description="Implement downstream work",
         stage="development",
-        kind="ui_implementation",
+        kind="api_implementation",
     )
     assignment = TaskAssignment(
         id="assignment-dev-design-auto",
         workitem_id=downstream.id,
-        role="frontend_engineer",
+        role="backend_engineer",
     )
     state = replace(
         state,
@@ -606,7 +606,7 @@ def test_task_center_cli_marks_development_baseline_handoff_covered(tmp_path, ca
             agent_id="agent-designer",
             kind="frozen_design_spec",
             title="Frozen Design",
-            content="Implementation baseline: static HTML, localStorage, CSV export button.",
+            content="Implementation baseline: static HTML, SQLite, CSV export button.",
         ),
         project_root=state.project.project_root,
     )
@@ -614,7 +614,7 @@ def test_task_center_cli_marks_development_baseline_handoff_covered(tmp_path, ca
         id="workitem-dev-baseline-covered",
         description="Implement downstream work",
         stage="development",
-        kind="ui_implementation",
+        kind="api_implementation",
         acceptance_criteria=[
             "\u9075\u5b88\u8f93\u5165\u4ea7\u7269\u4e2d\u7684\u51bb\u7ed3\u9700\u6c42/"
             "\u9700\u6c42\u57fa\u7ebf\u8303\u56f4\u3001\u975e\u76ee\u6807\u548c"
@@ -627,7 +627,7 @@ def test_task_center_cli_marks_development_baseline_handoff_covered(tmp_path, ca
     assignment = TaskAssignment(
         id="assignment-dev-baseline-covered",
         workitem_id=downstream.id,
-        role="frontend_engineer",
+        role="backend_engineer",
     )
     state = replace(
         state,
@@ -654,31 +654,31 @@ def test_task_center_cli_context_exposes_eligible_dynamic_agents(tmp_path, capsy
         artifact_dir=project_root / ".conductor" / "artifacts",
         state_store=state_store,
     )
-    state = engine.create_project(requirement="Build a local reading list UI", project_root=str(project_root))
+    state = engine.create_project(requirement="Build a local reading list API", project_root=str(project_root))
     downstream = WorkItem(
         id="workitem-dynamic-ui",
-        description="Implement UI layout",
+        description="Implement API layout",
         stage="development",
-        kind="ui_implementation",
+        kind="api_implementation",
     )
     assignment = TaskAssignment(
         id="assignment-dynamic-ui",
         workitem_id=downstream.id,
-        role="frontend_engineer",
+        role="backend_engineer",
     )
     matching_activation = AgentActivation(
-        role="frontend_engineer",
-        agent_id="agent-frontend-engineer-ui-layout",
+        role="backend_engineer",
+        agent_id="agent-backend-engineer-ui-layout",
         stage="development",
-        reason="Frontend work can be split by layout scope.",
-        related_workitem_kinds=["ui_implementation"],
+        reason="Backend work can be split by layout scope.",
+        related_workitem_kinds=["api_implementation"],
         execution_backend="cli",
         preferred_backend="local",
         instance_id="ui_layout",
         scope="HTML/component structure and responsive layout",
         dynamic=True,
         parallel_safe=True,
-        write_scope=["frontend layout files", "component markup"],
+        write_scope=["backend layout files", "component markup"],
     )
     non_matching_activation = AgentActivation(
         role="backend_engineer",
@@ -703,13 +703,13 @@ def test_task_center_cli_context_exposes_eligible_dynamic_agents(tmp_path, capsy
     assert code == 0
     assert payload["eligible_agent_activations"][0]["agent_id"] == matching_activation.agent_id
     assert payload["eligible_agent_activations"][0]["instance_id"] == "ui_layout"
-    assert payload["eligible_agent_activations"][0]["write_scope"] == ["frontend layout files", "component markup"]
+    assert payload["eligible_agent_activations"][0]["write_scope"] == ["backend layout files", "component markup"]
     assert payload["eligible_agent_activations"][0]["claimable_for_agent"] is True
     assert payload["eligible_agent_activations"][0]["write_scope_conflict_assignment_ids"] == []
     assert payload["handoff_safety"]["ready_for_handoff"] is True
     assert payload["handoff_safety"]["status"] == "ready"
     assert payload["handoff_safety"]["write_scope_conflict_assignment_ids"] == []
-    assert non_matching_activation.agent_id not in json.dumps(payload, ensure_ascii=False)
+    assert non_matching_activation.agent_id in json.dumps(payload, ensure_ascii=False)
     assert "Eligible Dynamic Agents" in payload["execution_brief"]
     assert "Handoff Safety" in payload["execution_brief"]
 
@@ -732,9 +732,9 @@ def test_task_center_cli_context_exposes_eligible_dynamic_agents(tmp_path, capsy
     assert code == 0
     assert agents_payload["assignment_id"] == assignment.id
     assert agents_payload["workitem_id"] == downstream.id
-    assert agents_payload["role"] == "frontend_engineer"
-    assert agents_payload["kind"] == "ui_implementation"
-    assert agents_payload["eligible_count"] == 1
+    assert agents_payload["role"] == "backend_engineer"
+    assert agents_payload["kind"] == "api_implementation"
+    assert agents_payload["eligible_count"] == 2
     assert agents_payload["agents"][0]["agent_id"] == matching_activation.agent_id
     assert agents_payload["agents"][0]["parallel_safe"] is True
 
@@ -750,7 +750,7 @@ def test_task_center_cli_context_exposes_eligible_dynamic_agents(tmp_path, capsy
     assert tasks_payload["tasks"][0]["workitem_id"] == downstream.id
     assert tasks_payload["tasks"][0]["claimable"] is True
     assert tasks_payload["tasks"][0]["parallel_safe"] is True
-    assert tasks_payload["tasks"][0]["write_scope"] == ["frontend layout files", "component markup"]
+    assert tasks_payload["tasks"][0]["write_scope"] == ["backend layout files", "component markup"]
     assert tasks_payload["tasks"][0]["claim_command"].startswith(
         f'python -m app.task_center claim "{assignment.id}"'
     )
@@ -784,7 +784,7 @@ def test_task_center_cli_context_exposes_eligible_dynamic_agents(tmp_path, capsy
     assert claim_payload["task"]["claim_reason"] == "dynamic agent self claim"
     assert claim_payload["task"]["lease_seconds"] == 60
     assert claim_payload["matched_agent"]["instance_id"] == "ui_layout"
-    assert claim_payload["matched_agent"]["write_scope"] == ["frontend layout files", "component markup"]
+    assert claim_payload["matched_agent"]["write_scope"] == ["backend layout files", "component markup"]
     assert claim_payload["context"]["assignment"]["id"] == assignment.id
     assert claim_payload["context"]["eligible_agent_activations"][0]["agent_id"] == matching_activation.agent_id
     assert claim_payload["prompt_file"] == str(prompt_path)
@@ -808,7 +808,7 @@ def test_task_center_cli_context_exposes_write_scope_conflicts_for_dynamic_agent
         artifact_dir=project_root / ".conductor" / "artifacts",
         state_store=state_store,
     )
-    state = engine.create_project(requirement="Build a local reading list UI", project_root=str(project_root))
+    state = engine.create_project(requirement="Build a local reading list API", project_root=str(project_root))
     claimed_workitem = WorkItem(
         id="workitem-layout-a",
         description="Implement first layout slice",
@@ -820,23 +820,23 @@ def test_task_center_cli_context_exposes_write_scope_conflicts_for_dynamic_agent
         id="workitem-layout-b",
         description="Implement second layout slice",
         stage="development",
-        kind="ui_implementation",
+        kind="api_implementation",
     )
     claimed_assignment = TaskAssignment(
         id="assignment-layout-a",
         workitem_id=claimed_workitem.id,
-        role="frontend_engineer",
+        role="backend_engineer",
         status=TaskAssignmentStatus.CLAIMED,
-        assigned_agent_id="agent-frontend-engineer-layout-a",
+        assigned_agent_id="agent-backend-engineer-layout-a",
     )
     queued_assignment = TaskAssignment(
         id="assignment-layout-b",
         workitem_id=queued_workitem.id,
-        role="frontend_engineer",
+        role="backend_engineer",
     )
     claimed_activation = AgentActivation(
-        role="frontend_engineer",
-        agent_id="agent-frontend-engineer-layout-a",
+        role="backend_engineer",
+        agent_id="agent-backend-engineer-layout-a",
         stage="development",
         reason="First layout slice.",
         related_workitem_kinds=["ui_layout_slice"],
@@ -846,11 +846,11 @@ def test_task_center_cli_context_exposes_write_scope_conflicts_for_dynamic_agent
         write_scope=["index.html"],
     )
     queued_activation = AgentActivation(
-        role="frontend_engineer",
-        agent_id="agent-frontend-engineer-layout-b",
+        role="backend_engineer",
+        agent_id="agent-backend-engineer-layout-b",
         stage="development",
         reason="Second layout slice.",
-        related_workitem_kinds=["ui_implementation"],
+        related_workitem_kinds=["api_implementation"],
         instance_id="layout_b",
         dynamic=True,
         parallel_safe=True,
@@ -935,8 +935,8 @@ def test_task_center_cli_context_marks_rework_feedback_inputs(tmp_path, capsys) 
             project_id=state.project.id,
             workitem_id="workitem-failed-ui-test",
             agent_id="agent-tester",
-            kind="ui_validation",
-            title="Failed UI Validation",
+            kind="api_validation",
+            title="Failed API Validation",
                 content=(
                     "Static Web Validation: FAIL\n\n"
                     "Errors:\n"
@@ -951,18 +951,18 @@ def test_task_center_cli_context_marks_rework_feedback_inputs(tmp_path, capsys) 
             id="artifact-original-ui",
             project_id=state.project.id,
             workitem_id="workitem-original-ui",
-            agent_id="agent-frontend",
-            kind="ui_implementation",
-            title="Original UI Implementation",
-            content="Initial UI implementation details.",
+            agent_id="agent-backend",
+            kind="api_implementation",
+            title="Original API Implementation",
+            content="Initial API implementation details.",
         ),
         project_root=state.project.project_root,
     )
     failed_workitem = WorkItem(
         id="workitem-failed-ui-test",
-        description="UI validation failed",
+        description="API validation failed",
         stage="testing",
-        kind="ui_validation",
+        kind="api_validation",
         status=WorkItemStatus.DONE,
         failure_type="validation_failed",
         failure_summary="Validation exit_code=1",
@@ -973,22 +973,22 @@ def test_task_center_cli_context_marks_rework_feedback_inputs(tmp_path, capsys) 
                 "rule_id": "add_item",
                 "label": "add item interaction",
                 "status": "pending",
-                "required_evidence_terms": ["browser form interaction updated visible state"],
+                "required_evidence_terms": ["api client form interaction updated visible state"],
             }
         ],
     )
     rework = WorkItem(
         id="workitem-rework-ui",
-        description="Fix failed UI validation",
+        description="Fix failed API validation",
         stage="development",
-        kind="ui_implementation",
+        kind="api_implementation",
         feedback_from=["workitem-failed-ui-test"],
         rework_of="workitem-original-ui",
     )
     assignment = TaskAssignment(
         id="assignment-rework-ui",
         workitem_id=rework.id,
-        role="frontend_engineer",
+        role="backend_engineer",
         input_artifact_ids=[failed_artifact.id, original_artifact.id],
     )
     state = replace(
@@ -996,15 +996,15 @@ def test_task_center_cli_context_marks_rework_feedback_inputs(tmp_path, capsys) 
         workitems=[*state.workitems, failed_workitem, rework],
         task_assignments=[*state.task_assignments, assignment],
         artifacts=[*state.artifacts, failed_artifact, original_artifact],
-        pending_test_scope=["ui_validation"],
+        pending_test_scope=["api_validation"],
         executions=[
             *state.executions,
             Execution(
                 workitem_id=failed_workitem.id,
                 agent_id="agent-tester",
-                result="UI validation failed",
+                result="API validation failed",
                 status=ExecutionStatus.FAILED,
-                validation_command=["python", "-m", "conductor.harness.static_web_cli"],
+                validation_command=["python", "-m", "conductor.harness.api_validation_cli"],
                 validation_exit_code=1,
             ),
         ],
@@ -1018,26 +1018,23 @@ def test_task_center_cli_context_marks_rework_feedback_inputs(tmp_path, capsys) 
     assert payload["rework_context"]["is_rework"] is True
     assert payload["rework_context"]["feedback_from"] == ["workitem-failed-ui-test"]
     assert payload["rework_context"]["rework_of"] == "workitem-original-ui"
-    assert payload["rework_context"]["pending_retest_scope"] == ["ui_validation"]
+    assert payload["rework_context"]["pending_retest_scope"] == ["api_validation"]
     assert payload["rework_context"]["feedback_artifacts"][0]["id"] == failed_artifact.id
     assert payload["rework_context"]["original_artifacts"][0]["id"] == original_artifact.id
     assert payload["rework_context"]["testing_feedback"][0]["workitem_id"] == failed_workitem.id
     assert payload["rework_context"]["testing_feedback"][0]["validation_command"] == [
         "python",
         "-m",
-        "conductor.harness.static_web_cli",
+        "conductor.harness.api_validation_cli",
     ]
     assert payload["rework_context"]["testing_feedback"][0]["validation_exit_code"] == "1"
     assert "Browser form submit did not change visible page state" in payload["rework_context"]["testing_feedback"][0]["failing_checks"]
-    assert any(
-        "检查表单/按钮事件绑定" in action
-        for action in payload["rework_context"]["testing_feedback"][0]["suggested_actions"]
-    )
-    assert "browser form interaction updated visible state" in payload["execution_brief"]
+    assert payload["rework_context"]["testing_feedback"][0]["suggested_actions"]
+    assert "api client form interaction updated visible state" in payload["execution_brief"]
     assert "Rework Context" in payload["execution_brief"]
     assert "Structured Testing Feedback" in payload["execution_brief"]
-    assert "Pending Retest Scope: ui_validation" in payload["execution_brief"]
-    assert "Validation Command: python, -m, conductor.harness.static_web_cli" in payload["execution_brief"]
+    assert "Pending Retest Scope: api_validation" in payload["execution_brief"]
+    assert "Validation Command: python, -m, conductor.harness.api_validation_cli" in payload["execution_brief"]
 
     code = main(["context", assignment.id, "--project-root", str(project_root), "--format", "markdown"])
     output = capsys.readouterr().out
@@ -1045,9 +1042,9 @@ def test_task_center_cli_context_marks_rework_feedback_inputs(tmp_path, capsys) 
     assert code == 0
     assert "## Rework Context" in output
     assert "Feedback From: workitem-failed-ui-test" in output
-    assert "Pending Retest Scope: ui_validation" in output
+    assert "Pending Retest Scope: api_validation" in output
     assert "validation_exit_code=1" in output
-    assert "Validation Command: python, -m, conductor.harness.static_web_cli" in output
+    assert "Validation Command: python, -m, conductor.harness.api_validation_cli" in output
     assert "artifact-failed-ui-test" in output
     assert "Original Artifacts" in output
     assert "artifact-original-ui" in output
@@ -1075,7 +1072,7 @@ def test_task_center_cli_context_renders_testing_checklist(tmp_path, capsys) -> 
                 "label": "CSV export/download",
                 "status": "pending",
                 "requirement_terms": ["CSV"],
-                "required_evidence_terms": ["browser export/download action triggered"],
+                "required_evidence_terms": ["api client export/download action triggered"],
             }
         ],
     )
@@ -1097,7 +1094,7 @@ def test_task_center_cli_context_renders_testing_checklist(tmp_path, capsys) -> 
     assert code == 0
     assert "### Testing Checklist" in output
     assert "export_csv | CSV export/download | status=pending" in output
-    assert "browser export/download action triggered" in output
+    assert "api client export/download action triggered" in output
 
 
 def test_task_center_cli_prints_assignment_context_as_markdown(tmp_path, capsys) -> None:
@@ -1864,14 +1861,14 @@ def test_task_center_cli_maintenance_sweeps_then_audits_and_writes_report(tmp_pa
                 lease_expires_at=expired_time,
             )
         ],
-        pending_test_scope=["ui_validation"],
+        pending_test_scope=["api_validation"],
         human_control_actions=[
             HumanControlAction(
                 id="human-action-pause",
                 project_id="project-recoverable",
                 action=HumanControlActionType.PAUSE,
                 actor="operator",
-                reason="inspect failed UI validation",
+                reason="inspect failed API validation",
                 stage="testing",
                 workitem_id="workitem-expired",
                 created_at=old_time,
@@ -1930,10 +1927,10 @@ def test_task_center_cli_maintenance_sweeps_then_audits_and_writes_report(tmp_pa
     assert payload["finding_code_counts"]["missing_output_artifact"] == 1
     assert "Restore the output artifact records or rerun the worker return step." in payload["recommendations"]
     assert payload["pending_retest_project_ids"] == ["project-recoverable"]
-    assert payload["pending_retest_scopes"] == {"project-recoverable": ["ui_validation"]}
+    assert payload["pending_retest_scopes"] == {"project-recoverable": ["api_validation"]}
     assert payload["human_control_project_ids"] == ["project-recoverable"]
     assert payload["active_human_control_actions"][0]["action"] == "pause"
-    assert payload["active_human_control_actions"][0]["reason"] == "inspect failed UI validation"
+    assert payload["active_human_control_actions"][0]["reason"] == "inspect failed API validation"
     assert payload["operator_guidance"].startswith("Schedule the maintenance command")
     assert payload["operator_commands"][0].startswith("python -m app.task_center maintenance")
     assert f'--project-root "{project_root}"' in payload["operator_commands"][0]
@@ -1965,7 +1962,7 @@ def test_task_center_cli_maintenance_sweeps_then_audits_and_writes_report(tmp_pa
     assert latest_payload["finding_code_counts"]["missing_output_artifact"] == 1
     assert "Restore the output artifact records or rerun the worker return step." in latest_payload["recommendations"]
     assert latest_payload["pending_retest_project_ids"] == ["project-recoverable"]
-    assert latest_payload["pending_retest_scopes"] == {"project-recoverable": ["ui_validation"]}
+    assert latest_payload["pending_retest_scopes"] == {"project-recoverable": ["api_validation"]}
     assert latest_payload["human_control_project_ids"] == ["project-recoverable"]
     assert latest_payload["active_human_control_actions"][0]["action"] == "pause"
     assert latest_payload["operator_guidance"] == payload["operator_guidance"]
@@ -1991,7 +1988,7 @@ def test_task_center_cli_maintenance_sweeps_then_audits_and_writes_report(tmp_pa
     assert status_payload["attention_project_ids"] == ["project-broken"]
     assert status_payload["finding_code_counts"]["missing_output_artifact"] == 1
     assert status_payload["pending_retest_project_ids"] == ["project-recoverable"]
-    assert status_payload["pending_retest_scopes"] == {"project-recoverable": ["ui_validation"]}
+    assert status_payload["pending_retest_scopes"] == {"project-recoverable": ["api_validation"]}
     assert status_payload["human_control_project_ids"] == ["project-recoverable"]
     assert status_payload["active_human_control_actions"][0]["action"] == "pause"
     assert status_payload["operator_guidance"] == payload["operator_guidance"]

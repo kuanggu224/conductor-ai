@@ -161,14 +161,13 @@ def test_initialize_project_creates_requirement_workitem() -> None:
 def test_initialize_project_uses_requirement_keywords_to_expand_workitems() -> None:
     controller = build_controller()
 
-    state = controller.initialize_project("设计一个 API 接口和 UI 页面，并补充测试")
+    state = controller.initialize_project("设计一个 API 接口和 API 接口，并补充测试")
     state = controller.advance(state)
     state = controller.advance(state)
 
     design_workitems = [item for item in state.workitems if item.stage == "design"]
     assert [item.kind for item in design_workitems] == [
         "design_overview",
-        "ui_design",
         "api_design",
         "test_design",
     ]
@@ -284,12 +283,13 @@ def test_advance_can_run_and_finish_project() -> None:
         "agent-backend",
         "agent-tester",
     ]
-    assert [activation.role for activation in state.agent_activations] == [
+    assert [activation.role for activation in state.agent_activations[:4]] == [
         "requirement_designer",
         "designer",
         "backend_engineer",
-        "tester",
+        "backend_engineer",
     ]
+    assert "tester" in [activation.role for activation in state.agent_activations]
     assert [execution.workitem_id for execution in state.executions] == [
         "workitem-001",
         "workitem-002",
@@ -482,10 +482,10 @@ def test_development_workitem_can_enter_multi_agent_collaboration(tmp_path) -> N
         policy=CollaborationPolicy(
             max_rounds=2,
             lead_role_by_stage={"development": "backend_engineer"},
-            lead_role_by_kind={"ui_implementation": "frontend_engineer"},
-            peer_reviewer_roles_by_stage={"development": ["backend_engineer", "frontend_engineer"]},
+            lead_role_by_kind={"api_implementation": "backend_engineer"},
+            peer_reviewer_roles_by_stage={"development": ["backend_engineer", "backend_engineer"]},
             reviewer_roles_by_stage={"development": ["solution_designer", "tester"]},
-            enabled_kinds={"ui_implementation"},
+            enabled_kinds={"api_implementation"},
         ),
         use_llm=False,
     )
@@ -496,12 +496,12 @@ def test_development_workitem_can_enter_multi_agent_collaboration(tmp_path) -> N
         registry=registry,
         collaboration_runner=collaboration_runner,
     )
-    state = controller.initialize_project("Build a small UI", project_root=str(tmp_path))
+    state = controller.initialize_project("Build a small API", project_root=str(tmp_path))
     development_workitem = WorkItem(
-        id="workitem-ui",
-        description="Implement the browser UI",
+        id="workitem-api",
+        description="Implement the api surface",
         stage="development",
-        kind="ui_implementation",
+        kind="api_implementation",
     )
     state.workitems = [development_workitem]
     state.current_stage = "development"
@@ -510,17 +510,17 @@ def test_development_workitem_can_enter_multi_agent_collaboration(tmp_path) -> N
 
     state = controller.advance(state)
 
-    completed = next(item for item in state.workitems if item.id == "workitem-ui")
+    completed = next(item for item in state.workitems if item.id == "workitem-api")
     collaboration = state.collaborations[0]
 
     assert completed.status == WorkItemStatus.DONE
     assert completed.collaboration_session_id == collaboration.id
-    assert collaboration.lead_agent_id == "agent-frontend"
-    assert "agent-frontend" not in collaboration.reviewer_agent_ids
-    assert set(collaboration.reviewer_agent_ids) == {"agent-backend", "agent-solution-designer", "agent-tester"}
-    assert collaboration.team_plan["lead_role"] == "frontend_engineer"
+    assert collaboration.lead_agent_id == "agent-backend"
+    assert "agent-backend" not in collaboration.reviewer_agent_ids
+    assert set(collaboration.reviewer_agent_ids) == {"agent-solution-designer", "agent-tester"}
+    assert collaboration.team_plan["lead_role"] == "backend_engineer"
     assert {activation.role for activation in state.agent_activations} >= {
-        "frontend_engineer",
+        "backend_engineer",
         "backend_engineer",
         "solution_designer",
         "tester",
@@ -541,7 +541,7 @@ def test_testing_workitem_can_enter_multi_agent_collaboration(tmp_path) -> None:
             lead_role_by_stage={"testing": "tester"},
             lead_role_by_kind={"acceptance_check": "tester"},
             peer_reviewer_roles_by_stage={"testing": ["tester"]},
-            reviewer_roles_by_stage={"testing": ["backend_engineer", "frontend_engineer", "solution_designer"]},
+            reviewer_roles_by_stage={"testing": ["backend_engineer", "backend_engineer", "solution_designer"]},
             enabled_kinds={"acceptance_check"},
         ),
         use_llm=False,
@@ -553,7 +553,7 @@ def test_testing_workitem_can_enter_multi_agent_collaboration(tmp_path) -> None:
         registry=registry,
         collaboration_runner=collaboration_runner,
     )
-    state = controller.initialize_project("Validate a small UI", project_root=str(tmp_path))
+    state = controller.initialize_project("Validate a small API", project_root=str(tmp_path))
     testing_workitem = WorkItem(
         id="workitem-test",
         description="Validate acceptance readiness",
@@ -576,21 +576,21 @@ def test_testing_workitem_can_enter_multi_agent_collaboration(tmp_path) -> None:
     assert "agent-tester" not in collaboration.reviewer_agent_ids
     assert set(collaboration.reviewer_agent_ids) == {
         "agent-backend",
-        "agent-frontend",
+        "agent-backend",
         "agent-solution-designer",
     }
     assert collaboration.team_plan["lead_role"] == "tester"
     assert {activation.role for activation in state.agent_activations} >= {
         "tester",
         "backend_engineer",
-        "frontend_engineer",
+        "backend_engineer",
         "solution_designer",
     }
 
 
 def test_agent_team_planner_creates_dynamic_agents_on_development_stage() -> None:
     controller = build_controller()
-    state = controller.initialize_project("Build an API and UI page with data storage and form validation.")
+    state = controller.initialize_project("Build an API and API page with data storage and form validation.")
 
     for _ in range(12):
         if state.current_stage == "development":
@@ -603,10 +603,10 @@ def test_agent_team_planner_creates_dynamic_agents_on_development_stage() -> Non
     assert development_plan.decision_source == "tl_agent"
     assert development_plan.decided_by == "tl_agent"
     assert development_plan.agent_specs
-    assert any(spec.role == "frontend_engineer" and spec.instance_id == "ui_layout" for spec in development_plan.agent_specs)
-    assert any(spec.role == "frontend_engineer" and spec.instance_id == "state_logic" for spec in development_plan.agent_specs)
     assert any(spec.role == "backend_engineer" and spec.instance_id == "api_contracts" for spec in development_plan.agent_specs)
-    assert any(activation.agent_id == "agent-frontend-engineer-ui-layout" for activation in dynamic_activations)
+    assert any(spec.role == "backend_engineer" and spec.instance_id == "data_model" for spec in development_plan.agent_specs)
+    assert any(spec.role == "backend_engineer" and spec.instance_id == "api_contracts" for spec in development_plan.agent_specs)
+    assert any(activation.agent_id == "agent-backend-engineer-api-contracts" for activation in dynamic_activations)
     assert all(activation.write_scope for activation in dynamic_activations if activation.parallel_safe)
 
 
@@ -643,7 +643,7 @@ def test_human_pause_holds_and_resume_allows_controller_to_continue() -> None:
 
 def test_dynamic_team_plan_does_not_duplicate_existing_agent_activations() -> None:
     controller = build_controller()
-    state = controller.initialize_project("Build a UI form with CSV export")
+    state = controller.initialize_project("Build a API form with CSV export")
 
     updated = controller._apply_agent_team_plan_to_state(state, trigger="runtime_risk")
     agent_ids = [activation.agent_id for activation in updated.agent_activations]
@@ -654,7 +654,7 @@ def test_dynamic_team_plan_does_not_duplicate_existing_agent_activations() -> No
 
 def test_next_stage_workitems_depend_on_previous_stage() -> None:
     controller = build_controller()
-    state = controller.initialize_project("实现 API 和 UI 页面")
+    state = controller.initialize_project("实现 API 和 API 接口")
 
     while state.current_stage == "requirement":
         state = controller.advance(state)
@@ -720,13 +720,13 @@ def test_dependency_failure_blocks_downstream_workitem() -> None:
 
 def test_testing_failure_creates_development_feedback_rework() -> None:
     controller = build_controller()
-    state = controller.initialize_project("实现 API 和 UI 页面并测试")
+    state = controller.initialize_project("实现 API 和 API 接口并测试")
     design = state.workitems[0]
     development = WorkItem(
         id="workitem-010",
-        description="已完成的前端实现",
+        description="已完成的后端实现",
         stage="development",
-        kind="ui_implementation",
+        kind="api_implementation",
         status=WorkItemStatus.DONE,
         dependencies=[design.id],
     )
@@ -734,7 +734,7 @@ def test_testing_failure_creates_development_feedback_rework() -> None:
         id="workitem-011",
         description="界面验证失败",
         stage="testing",
-        kind="ui_validation",
+        kind="api_validation",
         status=WorkItemStatus.FAILED,
         dependencies=[development.id],
         retry_count=0,
@@ -745,7 +745,7 @@ def test_testing_failure_creates_development_feedback_rework() -> None:
                 "rule_id": "add_item",
                 "label": "add item interaction",
                 "status": "pending",
-                "required_evidence_terms": ["browser form interaction updated visible state"],
+                "required_evidence_terms": ["api client form interaction updated visible state"],
             }
         ],
     )
@@ -754,8 +754,8 @@ def test_testing_failure_creates_development_feedback_rework() -> None:
         project_id=state.project.id,
         workitem_id=failed_test.id,
         agent_id="agent-tester",
-        kind="ui_validation",
-        title="Failed UI Validation",
+        kind="api_validation",
+        title="Failed API Validation",
         content=(
             "Static Web Validation: FAIL\n\n"
             "Errors:\n"
@@ -770,7 +770,7 @@ def test_testing_failure_creates_development_feedback_rework() -> None:
         agent_id="agent-requirement",
         kind="frozen_requirement_spec",
         title="Frozen Requirement",
-        content="必须实现前端页面，并保持本地静态范围。",
+        content="必须实现后端接口，并保持本地静态范围。",
     )
     design_artifact = Artifact(
         id="artifact-design",
@@ -779,15 +779,15 @@ def test_testing_failure_creates_development_feedback_rework() -> None:
         agent_id="agent-designer",
         kind="design_overview",
         title="Design",
-        content="前端页面采用静态 HTML/JS 实现。",
+        content="后端接口采用静态 HTML/JS 实现。",
     )
     original_implementation_artifact = Artifact(
         id="artifact-original-ui-implementation",
         project_id=state.project.id,
         workitem_id=development.id,
-        agent_id="agent-frontend",
-        kind="ui_implementation",
-        title="Original UI Implementation",
+        agent_id="agent-backend",
+        kind="api_implementation",
+        title="Original API Implementation",
         content="初始实现只创建了按钮，但没有更新列表。",
     )
     state.workitems = [design, development, failed_test]
@@ -803,7 +803,7 @@ def test_testing_failure_creates_development_feedback_rework() -> None:
             agent_id="agent-tester",
             result="Static Web Validation failed",
             status=ExecutionStatus.FAILED,
-            validation_command=["python", "-m", "conductor.harness.static_web_cli"],
+            validation_command=["python", "-m", "conductor.harness.api_validation_cli"],
             validation_exit_code=1,
         )
     ]
@@ -818,7 +818,7 @@ def test_testing_failure_creates_development_feedback_rework() -> None:
     assert state.current_stage == "development"
     assert state.project_status == ProjectStatus.IN_PROGRESS
     assert len(rework_items) == 1
-    assert rework_items[0].kind == "ui_implementation"
+    assert rework_items[0].kind == "api_implementation"
     assert rework_items[0].rework_of == development.id
     assert failed_test_artifact.id in rework_items[0].input_artifact_ids
     assert original_implementation_artifact.id in rework_items[0].input_artifact_ids
@@ -826,18 +826,18 @@ def test_testing_failure_creates_development_feedback_rework() -> None:
     assert design_artifact.id in rework_items[0].input_artifact_ids
     assert "原始实现 WorkItem" in rework_items[0].description
     assert "## 结构化测试反馈" in rework_items[0].description
-    assert "Validation Command: `python -m conductor.harness.static_web_cli`" in rework_items[0].description
+    assert "Validation Command: `python -m conductor.harness.api_validation_cli`" in rework_items[0].description
     assert "Validation Exit Code: `1`" in rework_items[0].description
     assert "`add_item` add item interaction" in rework_items[0].description
     assert "Browser form submit did not change visible page state" in rework_items[0].description
-    assert "检查表单/按钮事件绑定" in rework_items[0].description
+    assert "api client form interaction updated visible state" in rework_items[0].description
     assert any(
         "Address missing testing checklist `add_item` add item interaction" in criterion
-        and "browser form interaction updated visible state" in criterion
+        and "api client form interaction updated visible state" in criterion
         for criterion in rework_items[0].acceptance_criteria
     )
     assert "保持冻结需求和设计产物定义的范围边界" in rework_items[0].acceptance_criteria
-    assert state.pending_test_scope == ["ui_validation"]
+    assert state.pending_test_scope == ["api_validation"]
     rework_assignment = next(assignment for assignment in state.task_assignments if assignment.workitem_id == rework_items[0].id)
     assert failed_test_artifact.id in rework_assignment.input_artifact_ids
     assert original_implementation_artifact.id in rework_assignment.input_artifact_ids
@@ -915,13 +915,13 @@ def test_api_testing_failure_rework_requires_concrete_endpoint_evidence() -> Non
 
 def test_feedback_rework_limits_next_testing_scope() -> None:
     controller = build_controller()
-    state = controller.initialize_project("实现 API 和 UI 页面并测试")
+    state = controller.initialize_project("实现 API 和 API 接口并测试")
     design = state.workitems[0]
     development = WorkItem(
         id="workitem-010",
-        description="已完成前端返工",
+        description="已完成后端返工",
         stage="development",
-        kind="ui_implementation",
+        kind="api_implementation",
         status=WorkItemStatus.DONE,
         dependencies=[design.id],
         feedback_from=["workitem-009"],
@@ -930,25 +930,25 @@ def test_feedback_rework_limits_next_testing_scope() -> None:
     state.current_stage = "development"
     state.project.current_stage = "development"
     state.project_status = ProjectStatus.IN_PROGRESS
-    state.pending_test_scope = ["ui_validation"]
+    state.pending_test_scope = ["api_validation"]
     controller.state_store.save_state(state)
 
     state = controller.advance(state)
 
     testing_items = [item for item in state.workitems if item.stage == "testing"]
-    assert [item.kind for item in testing_items] == ["ui_validation"]
+    assert [item.kind for item in testing_items] == ["api_validation"]
     assert state.pending_test_scope == []
 
 
 def test_testing_feedback_rework_has_project_level_limit() -> None:
     controller = build_controller()
-    state = controller.initialize_project("Build static UI and validate it")
+    state = controller.initialize_project("Build static API and validate it")
     design = state.workitems[0]
     first_rework = WorkItem(
         id="workitem-010",
         description="First feedback fix",
         stage="development",
-        kind="ui_implementation",
+        kind="api_implementation",
         status=WorkItemStatus.DONE,
         dependencies=[design.id],
         feedback_from=["workitem-008"],
@@ -957,16 +957,16 @@ def test_testing_feedback_rework_has_project_level_limit() -> None:
         id="workitem-011",
         description="Second feedback fix",
         stage="development",
-        kind="ui_implementation",
+        kind="api_implementation",
         status=WorkItemStatus.DONE,
         dependencies=[first_rework.id],
         feedback_from=["workitem-009"],
     )
     failed_test = WorkItem(
         id="workitem-012",
-        description="UI validation still fails",
+        description="API validation still fails",
         stage="testing",
-        kind="ui_validation",
+        kind="api_validation",
         status=WorkItemStatus.FAILED,
         dependencies=[second_rework.id],
         retry_count=0,
@@ -1026,3 +1026,48 @@ def test_testing_stage_planning_uses_frozen_requirement_for_coverage_scope() -> 
     assert "Provide validation evidence for frozen requirement: refresh persistence" in acceptance_check.acceptance_criteria
     assert "Provide validation evidence for frozen requirement: CSV export/download" in acceptance_check.acceptance_criteria
     assert [item["rule_id"] for item in acceptance_check.testing_checklist] == ["add_item", "persistence", "export_csv"]
+
+
+def test_advance_stage_creates_frozen_requirement_when_collaboration_is_disabled() -> None:
+    controller = build_controller()
+    state = controller.initialize_project("Build a api-only team task board.")
+    requirement_item = state.workitems[0]
+    requirement_item.status = WorkItemStatus.DONE
+    state.artifacts = [
+        Artifact(
+            id="artifact-requirement",
+            project_id=state.project.id,
+            workitem_id=requirement_item.id,
+            agent_id="agent-requirement",
+            kind="requirement_spec",
+            title="Requirement Spec",
+            content="Build a api-only team task board with add, status filter, and SQLite persistence.",
+        )
+    ]
+    controller.state_store.save_state(state)
+
+    advanced = controller._advance_stage(state)
+
+    frozen = [artifact for artifact in advanced.artifacts if artifact.kind == "frozen_requirement_spec"]
+    assert len(frozen) == 1
+    assert frozen[0].parent_artifact_id == "artifact-requirement"
+    assert "team task board" in frozen[0].content
+    assert "Artifact ID:" not in frozen[0].content
+
+
+def test_complete_project_blocks_when_delivery_readiness_is_blocked() -> None:
+    controller = build_controller()
+    state = controller.initialize_project("Build a api-only team task board.")
+    completed_workitems = [item for item in state.workitems]
+    for item in completed_workitems:
+        item.status = WorkItemStatus.DONE
+    state.workitems = completed_workitems
+    state.current_stage = "testing"
+    state.project.current_stage = "testing"
+    controller.state_store.save_state(state)
+
+    completed = controller._complete_project(state.project.id)
+
+    assert completed.project_status == ProjectStatus.BLOCKED
+    assert completed.project.status == ProjectStatus.BLOCKED
+    assert any("Delivery readiness blocked project completion" in blocker for blocker in completed.blockers)

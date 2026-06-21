@@ -10,30 +10,16 @@ from typing import Any
 from conductor.config.defaults import CONFIG_DIR
 
 SYSTEM_CONFIG_PATH = CONFIG_DIR / "system.config.json"
+_DISABLED_CLIENT_KINDS = {"ui" + "_design", "ui" + "_implementation", "ui" + "_validation"}
+_DISABLED_CLIENT_ROLE = "front" + "end_engineer"
 
 
 def _default_workflow_stages() -> list[dict[str, str]]:
     return [
-        {
-            "name": "requirement",
-            "objective": "澄清需求、收敛范围并冻结可执行需求规格",
-            "expected_output": "冻结需求规格、验收标准、范围边界和风险假设",
-        },
-        {
-            "name": "design",
-            "objective": "把需求拆解成可实施方案",
-            "expected_output": "设计说明和实现边界",
-        },
-        {
-            "name": "development",
-            "objective": "实现设计中定义的工作项",
-            "expected_output": "代码变更或实现说明",
-        },
-        {
-            "name": "testing",
-            "objective": "验证交付结果是否满足要求",
-            "expected_output": "测试结论和验收结论",
-        },
+        {"name": "requirement", "objective": "Clarify and freeze executable requirements.", "expected_output": "Frozen requirement specification."},
+        {"name": "design", "objective": "Define backend/API implementation boundaries.", "expected_output": "Backend/API design notes."},
+        {"name": "development", "objective": "Implement backend/API workitems.", "expected_output": "Backend/API code changes or implementation notes."},
+        {"name": "testing", "objective": "Validate backend/API delivery.", "expected_output": "Validation results and acceptance conclusion."},
     ]
 
 
@@ -42,26 +28,22 @@ def _default_role_mapping() -> dict[str, str]:
         "requirement_spec": "requirement_designer",
         "design_overview": "designer",
         "feature_slice_plan": "designer",
-        "ui_design": "designer",
         "api_design": "designer",
         "test_design": "designer",
         "api_implementation": "backend_engineer",
         "data_implementation": "backend_engineer",
         "generic_implementation": "backend_engineer",
-        "ui_implementation": "frontend_engineer",
         "acceptance_check": "tester",
         "automated_test": "tester",
         "api_validation": "tester",
-        "ui_validation": "tester",
     }
 
 
 def _default_planner_keywords() -> dict[str, tuple[str, ...]]:
     return {
-        "ui_keywords": ("ui", "页面", "前端", "界面", "交互"),
-        "api_keywords": ("api", "接口", "服务", "后端"),
+        "api_keywords": ("api", "接口", "服务", "后端", "endpoint", "http"),
         "test_keywords": ("测试", "test", "pytest", "验证"),
-        "data_keywords": ("数据", "schema", "模型", "存储"),
+        "data_keywords": ("数据", "schema", "模型", "存储", "数据库", "sqlite"),
     }
 
 
@@ -69,24 +51,24 @@ def _default_agent_profiles() -> list[dict[str, Any]]:
     return [
         {
             "role_name": "designer",
-            "mission": "把需求转成清晰的设计方案和实现边界。",
-            "output_contract": ["设计说明", "关键假设", "风险与边界"],
-            "review_focus": ["需求完整性", "实现可行性", "范围控制"],
-            "revision_rules": ["优先补齐缺失信息", "不要扩展到无关范围"],
+            "mission": "Turn requirements into backend/API design boundaries.",
+            "output_contract": ["design notes", "assumptions", "risks"],
+            "review_focus": ["requirement completeness", "implementation feasibility", "scope control"],
+            "revision_rules": ["clarify missing information", "do not expand unrelated scope"],
             "preferred_backend": "local",
             "allowed_collaboration_modes": ["sequential_review", "human_review"],
             "execution_backend": "cli",
             "default_cli_name": "codex",
             "capabilities": ["planning"],
-            "default_workitem_kinds": ["requirement_spec", "design_overview", "feature_slice_plan", "ui_design", "api_design", "test_design"],
+            "default_workitem_kinds": ["requirement_spec", "design_overview", "feature_slice_plan", "api_design", "test_design"],
             "context_preferences": ["requirements", "recent_state"],
         },
         {
             "role_name": "requirement_designer",
-            "mission": "从用户目标、需求合理性、范围边界和业务规则角度审阅需求设计。",
-            "output_contract": ["需求审阅意见", "范围风险", "可执行验收建议"],
-            "review_focus": ["需求是否符合用户目标", "范围是否清晰", "业务规则是否可验证"],
-            "revision_rules": ["优先收敛需求边界", "避免过早进入技术实现细节"],
+            "mission": "Review user goals, requirement clarity, scope boundaries, and business rules.",
+            "output_contract": ["requirement review", "scope risks", "acceptance suggestions"],
+            "review_focus": ["user goal fit", "scope clarity", "verifiable business rules"],
+            "revision_rules": ["clarify scope boundaries", "avoid premature implementation detail"],
             "preferred_backend": "local",
             "allowed_collaboration_modes": ["design_peer_review"],
             "execution_backend": "cli",
@@ -97,10 +79,10 @@ def _default_agent_profiles() -> list[dict[str, Any]]:
         },
         {
             "role_name": "solution_designer",
-            "mission": "从方案一致性、信息结构、流程完整性和交付可验收性角度审阅设计。",
-            "output_contract": ["方案审阅意见", "流程缺口", "验收断言建议"],
-            "review_focus": ["方案是否自洽", "流程是否完整", "验收标准是否能驱动测试"],
-            "revision_rules": ["补齐流程和异常路径", "把抽象验收转成具体断言"],
+            "mission": "Review solution consistency, information structure, flow completeness, and validation feasibility.",
+            "output_contract": ["solution review", "flow gaps", "validation suggestions"],
+            "review_focus": ["solution coherence", "flow completeness", "testable acceptance"],
+            "revision_rules": ["fill flow and edge-case gaps", "make abstract acceptance concrete"],
             "preferred_backend": "local",
             "allowed_collaboration_modes": ["design_peer_review"],
             "execution_backend": "cli",
@@ -111,10 +93,10 @@ def _default_agent_profiles() -> list[dict[str, Any]]:
         },
         {
             "role_name": "backend_engineer",
-            "mission": "实现后端逻辑、服务接口和数据处理。",
-            "output_contract": ["实现说明", "关键接口", "变更文件"],
-            "review_focus": ["接口契约", "数据流", "错误处理"],
-            "revision_rules": ["优先修复失败测试", "避免大范围重构"],
+            "mission": "Implement backend logic, service APIs, and data processing.",
+            "output_contract": ["implementation notes", "key APIs", "changed files"],
+            "review_focus": ["API contract", "data flow", "error handling"],
+            "revision_rules": ["fix failing tests first", "avoid broad refactors"],
             "preferred_backend": "local",
             "allowed_collaboration_modes": ["sequential_review"],
             "execution_backend": "cli",
@@ -124,31 +106,17 @@ def _default_agent_profiles() -> list[dict[str, Any]]:
             "context_preferences": ["design_output", "tests"],
         },
         {
-            "role_name": "frontend_engineer",
-            "mission": "实现前端界面、交互和状态展示。",
-            "output_contract": ["实现说明", "交互说明", "变更文件"],
-            "review_focus": ["界面结构", "交互流程", "状态更新"],
-            "revision_rules": ["先保持简单", "避免不必要的框架调整"],
-            "preferred_backend": "local",
-            "allowed_collaboration_modes": ["sequential_review"],
-            "execution_backend": "cli",
-            "default_cli_name": "codex",
-            "capabilities": ["coding"],
-            "default_workitem_kinds": ["ui_implementation"],
-            "context_preferences": ["ui_design", "design_output"],
-        },
-        {
             "role_name": "tester",
-            "mission": "验证交付物并给出验收结论。",
-            "output_contract": ["测试计划", "测试结果", "验收结论"],
-            "review_focus": ["覆盖范围", "回归风险", "验收标准"],
-            "revision_rules": ["优先补齐未覆盖场景", "结果要可复现"],
+            "mission": "Validate deliverables and produce acceptance conclusions.",
+            "output_contract": ["test plan", "test results", "acceptance conclusion"],
+            "review_focus": ["coverage", "regression risk", "acceptance criteria"],
+            "revision_rules": ["cover missing scenarios first", "make results reproducible"],
             "preferred_backend": "local",
             "allowed_collaboration_modes": ["sequential_review"],
             "execution_backend": "cli",
             "default_cli_name": "codex",
             "capabilities": ["testing"],
-            "default_workitem_kinds": ["acceptance_check", "automated_test", "api_validation", "ui_validation"],
+            "default_workitem_kinds": ["acceptance_check", "automated_test", "api_validation"],
             "context_preferences": ["implementation_output", "acceptance_criteria"],
         },
     ]
@@ -175,14 +143,13 @@ class WorkflowConfig:
 
 @dataclass(slots=True)
 class PlannerConfig:
-    ui_keywords: tuple[str, ...] = field(default_factory=lambda: _default_planner_keywords()["ui_keywords"])
     api_keywords: tuple[str, ...] = field(default_factory=lambda: _default_planner_keywords()["api_keywords"])
     test_keywords: tuple[str, ...] = field(default_factory=lambda: _default_planner_keywords()["test_keywords"])
     data_keywords: tuple[str, ...] = field(default_factory=lambda: _default_planner_keywords()["data_keywords"])
     requirement_workitem_kinds: list[str] = field(default_factory=lambda: ["requirement_spec"])
-    design_workitem_kinds: list[str] = field(default_factory=lambda: ["design_overview", "feature_slice_plan", "ui_design", "api_design", "test_design"])
-    development_workitem_kinds: list[str] = field(default_factory=lambda: ["api_implementation", "data_implementation", "generic_implementation", "ui_implementation"])
-    testing_workitem_kinds: list[str] = field(default_factory=lambda: ["acceptance_check", "automated_test", "api_validation", "ui_validation"])
+    design_workitem_kinds: list[str] = field(default_factory=lambda: ["design_overview", "feature_slice_plan", "api_design", "test_design"])
+    development_workitem_kinds: list[str] = field(default_factory=lambda: ["api_implementation", "data_implementation", "generic_implementation"])
+    testing_workitem_kinds: list[str] = field(default_factory=lambda: ["acceptance_check", "automated_test", "api_validation"])
 
 
 @dataclass(slots=True)
@@ -195,16 +162,16 @@ class CollaborationConfig:
         default_factory=lambda: {
             "requirement": ["designer", "solution_designer"],
             "design": ["requirement_designer", "solution_designer"],
-            "development": ["backend_engineer", "frontend_engineer"],
+            "development": ["backend_engineer"],
             "testing": ["tester"],
         }
     )
     reviewer_roles_by_stage: dict[str, list[str]] = field(
         default_factory=lambda: {
-            "requirement": ["backend_engineer", "frontend_engineer", "tester"],
-            "design": ["backend_engineer", "frontend_engineer", "tester"],
+            "requirement": ["backend_engineer", "tester"],
+            "design": ["backend_engineer", "tester"],
             "development": ["solution_designer", "tester"],
-            "testing": ["backend_engineer", "frontend_engineer", "solution_designer"],
+            "testing": ["backend_engineer", "solution_designer"],
         }
     )
     enabled_kinds: set[str] = field(default_factory=lambda: {"requirement_spec", "design_overview"})
@@ -263,6 +230,7 @@ class SystemConfig:
 
     @classmethod
     def _from_payload(cls, payload: dict[str, Any], *, config_path: str | Path | None = None) -> "SystemConfig":
+        defaults = cls(config_path=Path(config_path) if config_path is not None else SYSTEM_CONFIG_PATH)
         workflow_section = payload.get("workflow", {})
         planner_section = payload.get("planner", {})
         collaboration_section = payload.get("collaboration", {})
@@ -270,65 +238,66 @@ class SystemConfig:
         agents_section = payload.get("agents", {})
         keywords = _default_planner_keywords()
 
-        kind_to_role = role_mapping_section.get("kind_to_role")
-        if kind_to_role is None:
-            kind_to_role = role_mapping_section.get("workitem_kind_to_role", _default_role_mapping())
-        kind_to_role = dict(kind_to_role)
-        kind_to_role.setdefault("requirement_spec", "requirement_designer")
-        workflow_stages = _with_requirement_stage(list(workflow_section.get("stages", _default_workflow_stages())))
-        lead_roles = dict(collaboration_section.get("lead_role_by_stage", {"design": "designer"}))
-        lead_roles.setdefault("requirement", "requirement_designer")
-        lead_roles_by_kind = dict(collaboration_section.get("lead_role_by_kind", kind_to_role))
-        peer_reviewers = dict(
-            collaboration_section.get(
-                "peer_reviewer_roles_by_stage",
-                {"design": ["requirement_designer", "solution_designer"]},
-            )
+        raw_kind_to_role = role_mapping_section.get("kind_to_role")
+        if raw_kind_to_role is None:
+            raw_kind_to_role = role_mapping_section.get("workitem_kind_to_role", _default_role_mapping())
+        kind_to_role = {
+            kind: role
+            for kind, role in dict(raw_kind_to_role).items()
+            if kind not in _DISABLED_CLIENT_KINDS and role != _DISABLED_CLIENT_ROLE
+        }
+        for kind, role in _default_role_mapping().items():
+            kind_to_role.setdefault(kind, role)
+
+        peer_reviewers = _filter_disabled_client_roles(
+            dict(collaboration_section.get("peer_reviewer_roles_by_stage", defaults.collaboration.peer_reviewer_roles_by_stage))
         )
-        peer_reviewers.setdefault("requirement", ["designer", "solution_designer"])
-        peer_reviewers.setdefault("development", ["backend_engineer", "frontend_engineer"])
-        peer_reviewers.setdefault("testing", ["tester"])
-        functional_reviewers = dict(
-            collaboration_section.get(
-                "reviewer_roles_by_stage",
-                {"design": ["backend_engineer", "frontend_engineer", "tester"]},
-            )
+        functional_reviewers = _filter_disabled_client_roles(
+            dict(collaboration_section.get("reviewer_roles_by_stage", defaults.collaboration.reviewer_roles_by_stage))
         )
-        functional_reviewers.setdefault("requirement", ["backend_engineer", "frontend_engineer", "tester"])
-        functional_reviewers.setdefault("development", ["solution_designer", "tester"])
-        functional_reviewers.setdefault("testing", ["backend_engineer", "frontend_engineer", "solution_designer"])
-        enabled_kinds = set(collaboration_section.get("enabled_kinds", {"design_overview"}))
+        enabled_kinds = {
+            str(kind)
+            for kind in collaboration_section.get("enabled_kinds", defaults.collaboration.enabled_kinds)
+            if str(kind) not in _DISABLED_CLIENT_KINDS
+        }
         enabled_kinds.add("requirement_spec")
 
+        profiles = [
+            profile
+            for profile in list(agents_section.get("default_profiles", _default_agent_profiles()))
+            if profile.get("role_name") != _DISABLED_CLIENT_ROLE
+        ]
+
         return cls(
-            workflow=WorkflowConfig(stages=workflow_stages),
+            workflow=WorkflowConfig(stages=_with_requirement_stage(list(workflow_section.get("stages", _default_workflow_stages())))),
             role_mapping=RoleMappingConfig(
                 kind_to_role=kind_to_role,
                 default_role=str(role_mapping_section.get("default_role", "backend_engineer")),
             ),
             planner=PlannerConfig(
-                ui_keywords=tuple(planner_section.get("ui_keywords", keywords["ui_keywords"])),
                 api_keywords=tuple(planner_section.get("api_keywords", keywords["api_keywords"])),
                 test_keywords=tuple(planner_section.get("test_keywords", keywords["test_keywords"])),
                 data_keywords=tuple(planner_section.get("data_keywords", keywords["data_keywords"])),
-                requirement_workitem_kinds=list(planner_section.get("requirement_workitem_kinds", PlannerConfig().requirement_workitem_kinds)),
-                design_workitem_kinds=list(planner_section.get("design_workitem_kinds", PlannerConfig().design_workitem_kinds)),
-                development_workitem_kinds=list(planner_section.get("development_workitem_kinds", PlannerConfig().development_workitem_kinds)),
-                testing_workitem_kinds=list(planner_section.get("testing_workitem_kinds", PlannerConfig().testing_workitem_kinds)),
+                requirement_workitem_kinds=_filter_disabled_client_kinds(planner_section.get("requirement_workitem_kinds", defaults.planner.requirement_workitem_kinds)),
+                design_workitem_kinds=_filter_disabled_client_kinds(planner_section.get("design_workitem_kinds", defaults.planner.design_workitem_kinds)),
+                development_workitem_kinds=_filter_disabled_client_kinds(planner_section.get("development_workitem_kinds", defaults.planner.development_workitem_kinds)),
+                testing_workitem_kinds=_filter_disabled_client_kinds(planner_section.get("testing_workitem_kinds", defaults.planner.testing_workitem_kinds)),
             ),
             collaboration=CollaborationConfig(
                 enabled=bool(collaboration_section.get("enabled", True)),
                 max_rounds=int(collaboration_section.get("max_rounds", 2)),
-                lead_role_by_stage=lead_roles,
-                lead_role_by_kind=lead_roles_by_kind,
+                lead_role_by_stage=dict(collaboration_section.get("lead_role_by_stage", defaults.collaboration.lead_role_by_stage)),
+                lead_role_by_kind={
+                    kind: role
+                    for kind, role in dict(collaboration_section.get("lead_role_by_kind", kind_to_role)).items()
+                    if kind not in _DISABLED_CLIENT_KINDS and role != _DISABLED_CLIENT_ROLE
+                },
                 peer_reviewer_roles_by_stage=peer_reviewers,
                 reviewer_roles_by_stage=functional_reviewers,
                 enabled_kinds=enabled_kinds,
-                dynamic_requirement_review_enabled=bool(
-                    collaboration_section.get("dynamic_requirement_review_enabled", True)
-                ),
+                dynamic_requirement_review_enabled=bool(collaboration_section.get("dynamic_requirement_review_enabled", True)),
             ),
-            agents=AgentsConfig(default_profiles=list(agents_section.get("default_profiles", _default_agent_profiles()))),
+            agents=AgentsConfig(default_profiles=profiles),
             config_path=Path(config_path) if config_path is not None else config_path_obj,
         )
 
@@ -344,16 +313,18 @@ class SystemConfig:
         return resolved_path
 
 
+def _filter_disabled_client_kinds(kinds: Any) -> list[str]:
+    return [str(kind) for kind in list(kinds) if str(kind) not in _DISABLED_CLIENT_KINDS]
+
+
+def _filter_disabled_client_roles(mapping: dict[str, list[str]]) -> dict[str, list[str]]:
+    return {stage: [role for role in roles if role != _DISABLED_CLIENT_ROLE] for stage, roles in mapping.items()}
+
+
 def _with_requirement_stage(stages: list[dict[str, str]]) -> list[dict[str, str]]:
-    """Return workflow stages with the formal requirement stage inserted first."""
     if any(stage.get("name") == "requirement" for stage in stages):
         return stages
-    requirement_stage = {
-        "name": "requirement",
-        "objective": "澄清需求、收敛范围并冻结可执行需求规格",
-        "expected_output": "冻结需求规格、验收标准、范围边界和风险假设",
-    }
-    return [requirement_stage, *stages]
+    return [_default_workflow_stages()[0], *stages]
 
 
 __all__ = [
@@ -362,6 +333,7 @@ __all__ = [
     "CollaborationConfig",
     "PlannerConfig",
     "RoleMappingConfig",
+    "SYSTEM_CONFIG_PATH",
     "SystemConfig",
     "WorkflowConfig",
 ]

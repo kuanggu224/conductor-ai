@@ -18,8 +18,8 @@ class DesignQualityResult:
 SECTION_TERMS: tuple[str, ...] = ("目标", "需求理解", "范围", "方案", "验收")
 REQUIREMENT_TRACE_TERMS: tuple[str, ...] = ("需求", "验收", "用户", "目标")
 IMPLEMENTATION_BOUNDARY_TERMS: tuple[str, ...] = ("范围", "非目标", "边界", "不做", "约束")
-ARCHITECTURE_TERMS: tuple[str, ...] = ("架构", "模块", "组件", "流程", "页面", "接口")
-DATA_STATE_TERMS: tuple[str, ...] = ("数据", "字段", "状态", "存储", "localStorage", "API", "接口")
+ARCHITECTURE_TERMS: tuple[str, ...] = ("架构", "模块", "组件", "流程", "接口", "服务")
+DATA_STATE_TERMS: tuple[str, ...] = ("数据", "字段", "状态", "存储", "API", "接口", "数据库")
 VALIDATION_TERMS: tuple[str, ...] = ("测试", "验收", "验证", "异常", "错误", "边界")
 RISK_TERMS: tuple[str, ...] = ("风险", "假设", "待确认", "限制", "依赖")
 SECTION_TERMS = (
@@ -53,6 +53,10 @@ ARCHITECTURE_TERMS = (
     "flow",
     "page",
     "interface",
+    "api",
+    "service",
+    "route",
+    "endpoint",
 )
 DATA_STATE_TERMS = (
     *DATA_STATE_TERMS,
@@ -60,6 +64,8 @@ DATA_STATE_TERMS = (
     "field",
     "state",
     "storage",
+    "payload",
+    "schema",
 )
 VALIDATION_TERMS = (
     *VALIDATION_TERMS,

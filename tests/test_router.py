@@ -25,7 +25,6 @@ def test_registry_exposes_default_roles() -> None:
         "requirement_designer",
         "solution_designer",
         "backend_engineer",
-        "frontend_engineer",
         "tester",
     ]
     assert all(agent.llm_backend is None for agent in registry.agents)

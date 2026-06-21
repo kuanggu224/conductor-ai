@@ -1,4 +1,4 @@
-"""Board Web 入口。"""
+"""Board API entrypoint."""
 
 from __future__ import annotations
 
@@ -9,16 +9,14 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from threading import Lock, Thread
 from typing import Annotated, Callable
-from urllib.parse import parse_qs
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field, StrictBool, StringConstraints
 
 from conductor.agents.llm import LLMHTTPConfig
@@ -32,7 +30,9 @@ from conductor.config.cli import (
 )
 from conductor.config.execution import (
     ExecutionScopeConfig,
+    RunProfile,
     load_execution_scope_config,
+    resolve_run_profile,
     save_execution_scope_config,
 )
 from conductor.config.llm import (
@@ -47,7 +47,7 @@ from conductor.config.llm import (
 from conductor.control.human import HumanControlService
 from conductor.controller.engine import ConductorEngine
 from conductor.diagnostics import build_platform_diagnostics, build_requirement_llm_preflight_probe
-from conductor.domain.models import SharedProjectState, TaskAssignment, TaskAssignmentStatus
+from conductor.domain.models import ProjectStatus, SharedProjectState, TaskAssignment, TaskAssignmentStatus
 from conductor.io.encoding import configure_utf8_stdio
 from conductor.io.requirements import RequirementInputError, load_requirement_text
 from conductor.requirement_benchmark import run_requirement_llm_preflight
@@ -74,10 +74,30 @@ TodoContent = Annotated[str, StringConstraints(strict=True, strip_whitespace=Tru
 OptionalTodoTitle = TodoTitle | None
 OptionalTodoContent = TodoContent | None
 
+FOLDER_PICKER_EXCLUDED_DIRS = {
+    ".conductor",
+    ".conductor_logs",
+    ".git",
+    ".hg",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".pytest_tmp",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    "__pycache__",
+    "build",
+    "dist",
+    "env",
+    "node_modules",
+    "venv",
+}
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Create a fresh in-memory todo store for the app lifecycle."""
+    """Internal helper."""
     reset_todo_registry(app.state)
     ensure_todo_registry(app.state)["default"] = create_todo_service()
     yield
@@ -102,13 +122,18 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-templates = Jinja2Templates(directory=str(ROOT_DIR / "templates"))
+
+LLM_DISABLED_RUN_PROFILES = {
+    RunProfile.MOCK.value,
+    RunProfile.API_MOCK.value,
+    RunProfile.API_SQLITE.value,
+}
 board_service = BoardService()
-engine = ConductorEngine()
+engine = ConductorEngine(run_profile=load_execution_scope_config().run_profile)
 
 
 class TodoCreateRequest(BaseModel):
-    """Payload for creating a to-do item."""
+    """Internal helper."""
 
     title: TodoTitle
     content: TodoContent = ""
@@ -116,7 +141,7 @@ class TodoCreateRequest(BaseModel):
 
 
 class TodoUpdateRequest(BaseModel):
-    """Payload for updating a to-do item."""
+    """Internal helper."""
 
     title: OptionalTodoTitle = None
     completed: StrictBool | None = None
@@ -124,7 +149,7 @@ class TodoUpdateRequest(BaseModel):
 
 
 class TaskClaimRequest(BaseModel):
-    """Payload for claiming a task-center assignment."""
+    """Internal helper."""
 
     agent_id: TodoTitle
     claim_reason: TodoContent = ""
@@ -137,19 +162,19 @@ class TaskClaimRequest(BaseModel):
 
 
 class TaskClaimNextRequest(TaskClaimRequest):
-    """Payload for claiming the next available task-center assignment."""
+    """Internal helper."""
 
     role: OptionalTodoTitle = None
 
 
 class TaskClaimBatchRequest(TaskClaimNextRequest):
-    """Payload for claiming a small batch of task-center assignments."""
+    """Internal helper."""
 
     limit: int = 1
 
 
 class TaskReturnRequest(BaseModel):
-    """Payload for returning a task-center assignment."""
+    """Internal helper."""
 
     agent_id: OptionalTodoTitle = None
     claim_token: str = ""
@@ -162,7 +187,7 @@ class TaskReturnRequest(BaseModel):
 
 
 class TaskHeartbeatRequest(BaseModel):
-    """Payload for refreshing a claimed task-center assignment heartbeat."""
+    """Internal helper."""
 
     agent_id: OptionalTodoTitle = None
     claim_token: str = ""
@@ -170,7 +195,7 @@ class TaskHeartbeatRequest(BaseModel):
 
 
 class TaskReleaseRequest(BaseModel):
-    """Payload for releasing a claimed/failed task-center assignment."""
+    """Internal helper."""
 
     agent_id: OptionalTodoTitle = None
     claim_token: str = ""
@@ -178,13 +203,13 @@ class TaskReleaseRequest(BaseModel):
 
 
 class TaskReleaseStaleRequest(TaskReleaseRequest):
-    """Payload for releasing stale claimed task-center assignments."""
+    """Internal helper."""
 
     stale_after_seconds: int = DEFAULT_STALE_CLAIMED_AFTER_SECONDS
 
 
 class TaskSweepRequest(BaseModel):
-    """Payload for Task Center maintenance sweep."""
+    """Internal helper."""
 
     stale_after_seconds: int = DEFAULT_STALE_CLAIMED_AFTER_SECONDS
     expired_lease_release_reason: TodoContent = "expired task lease"
@@ -192,7 +217,7 @@ class TaskSweepRequest(BaseModel):
 
 
 class HumanControlRequest(BaseModel):
-    """Payload for human takeover and approval actions."""
+    """Internal helper."""
 
     actor: TodoTitle = "human"
     reason: TodoContent = ""
@@ -204,12 +229,12 @@ class HumanControlRequest(BaseModel):
 
 @dataclass(slots=True)
 class ProjectTaskStatus:
-    """Board 后台任务状态。"""
+    """Internal helper."""
 
     running: bool = False
     action: str = ""
     action_label: str = ""
-    message: str = "空闲"
+    message: str = "绌洪棽"
     error: str | None = None
 
 
@@ -218,7 +243,7 @@ task_lock = Lock()
 
 
 def get_todo_service(request: Request | None = None) -> TodoService:
-    """Return the active todo service, creating it if necessary."""
+    """Internal helper."""
     if request is None:
         registry = ensure_todo_registry(app.state)
         service = registry.get("default")
@@ -233,7 +258,7 @@ def get_todo_service(request: Request | None = None) -> TodoService:
 
 
 def _ensure_todo_service() -> TodoService:
-    """Create and attach the in-memory store when it is missing."""
+    """Internal helper."""
     service = create_todo_service()
     ensure_todo_registry(app.state)["default"] = service
     return service
@@ -241,7 +266,7 @@ def _ensure_todo_service() -> TodoService:
 
 @app.middleware("http")
 async def todo_session_middleware(request: Request, call_next):
-    """Bind each client session to its own in-memory todo store."""
+    """Internal helper."""
     session_id, service = resolve_todo_service(request)
     request.state.todo_session_id = session_id
     request.state.todo_service = service
@@ -257,36 +282,182 @@ async def todo_session_middleware(request: Request, call_next):
 
 
 def refresh_engine_llm_backend() -> None:
-    """热更新当前 engine 中所有 Agent 的 LLM backend。"""
+    """Internal helper."""
     config = load_llm_runtime_config()
+    profile_disables_llm = engine.run_profile in LLM_DISABLED_RUN_PROFILES and engine.llm_harness_backend is None
+    if profile_disables_llm:
+        config = replace(config, usage=replace(config.usage, runner_enabled=False))
     llm_backend = build_default_hybrid_llm_backend(config)
     engine.llm_runtime_config = config
     engine.runner.llm_usage_policy = config.usage
+    engine.collaboration_runner.use_llm = not profile_disables_llm
     engine.registry.llm_backend = llm_backend
     for agent in engine.registry.agents:
         agent.llm_backend = llm_backend
 
 
 def refresh_engine_execution_scope() -> None:
-    """热更新当前 engine 的执行范围配置。"""
+    """Internal helper."""
     config = load_execution_scope_config()
     engine.execution_scope_config = config
     engine.planner.scope_config = config
     engine.collaboration_runner.policy.enabled = config.design_collaboration_enabled
+    _apply_engine_run_profile(config.run_profile)
+
+
+def _apply_engine_run_profile(profile: str) -> None:
+    """Internal helper."""
+    resolved = resolve_run_profile(profile)
+    engine.run_profile = resolved.profile.value
+    engine.runner.enable_api_mock_delivery = resolved.enable_api_mock_delivery
+    engine.runner.enable_api_sqlite_delivery = resolved.enable_api_sqlite_delivery
+    engine.runner.require_real_design_outputs = resolved.require_real_design_outputs
+    engine.runner.require_real_code_outputs = (
+        bool(engine.cli_selection_config.selected_cli_names)
+        if resolved.require_real_code_outputs is None
+        else resolved.require_real_code_outputs
+    )
+    engine.collaboration_runner.require_real_outputs = resolved.require_real_design_outputs
 
 
 def refresh_engine_cli_config() -> None:
-    """热更新当前 engine 的 Agent CLI 选择配置。"""
+    """Internal helper."""
     config = load_cli_selection_config()
     engine.cli_selection_config = config
     engine.runner.cli_selection_config = config
     engine.runner.agent_cli_executor.cli_selection_config = config
     engine.collaboration_runner.cli_selection_config = config
     engine.collaboration_runner.agent_cli_executor.cli_selection_config = config
+    _apply_engine_run_profile(engine.run_profile)
+
+
+def _execution_scope_has_enabled_stage(config: ExecutionScopeConfig) -> bool:
+    """Internal helper."""
+    return any(
+        [
+            config.requirement_design_enabled,
+            config.design_detail_enabled,
+            config.design_collaboration_enabled,
+            config.backend_development_enabled,
+            config.testing_enabled,
+        ]
+    )
+
+
+def _normalize_run_profile(value: object) -> str:
+    """Internal helper."""
+    try:
+        return RunProfile(str(value or RunProfile.MOCK.value)).value
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail="Unsupported run profile.") from error
+
+
+def _run_profile_options_payload() -> list[dict[str, str]]:
+    """Build run profile options with user-facing execution semantics."""
+    descriptions = {
+        RunProfile.MOCK.value: "Mock execution for workflow demos.",
+        RunProfile.API_MOCK.value: "Built-in API mock delivery.",
+        RunProfile.API_SQLITE.value: "Built-in SQLite API delivery.",
+        RunProfile.DESIGN_CLI_ONLY.value: "Real CLI output required for requirement/design stages.",
+        RunProfile.CODE_CLI.value: "Real backend CLI code changes required for development.",
+        RunProfile.FULL_CLI.value: "Real CLI output required for design, backend development, and testing.",
+    }
+    options: list[dict[str, str]] = []
+    for profile in RunProfile:
+        resolved = resolve_run_profile(profile)
+        options.append(
+            {
+                "value": profile.value,
+                "label": profile.value,
+                "description": descriptions[profile.value],
+                "cli_roles": ", ".join(resolved.cli_roles) if resolved.cli_roles else "none",
+                "tone": "warn" if profile == RunProfile.MOCK else ("bad" if resolved.cli_roles else "ok"),
+            }
+        )
+    return options
+
+
+def _runner_llm_profile_note(run_profile: str) -> str:
+    """Return the LLM settings page note for the active execution profile."""
+    if run_profile in LLM_DISABLED_RUN_PROFILES:
+        return "This run profile uses mock or built-in API delivery; saved LLM settings do not enable runner document mode."
+    return "This run profile can use runner LLM document mode when enabled."
+
+
+def _execution_health_payload() -> dict[str, object]:
+    """Summarize saved execution config for API clients."""
+    scope_config = load_execution_scope_config()
+    cli_config = load_cli_selection_config()
+    llm_config = load_llm_runtime_config()
+    run_profile = str(getattr(engine, "run_profile", "") or RunProfile.MOCK.value)
+    resolved_profile = resolve_run_profile(run_profile)
+
+    selected_cli_names = [name for name in cli_config.selected_cli_names if name]
+    selected_cli_set = set(selected_cli_names)
+    bound_roles = [role for role, cli_name in cli_config.role_cli_bindings.items() if cli_name and cli_name in selected_cli_set]
+    enabled_llm_backends = [
+        label
+        for label, backend in (("local", llm_config.local), ("cloud", llm_config.cloud))
+        if backend.enabled
+    ]
+    required_cli_roles = list(resolved_profile.cli_roles)
+    missing_required_cli_roles = [role for role in required_cli_roles if role not in bound_roles]
+    builtin_delivery_enabled = bool(resolved_profile.enable_api_mock_delivery or resolved_profile.enable_api_sqlite_delivery)
+    scope_ready = _execution_scope_has_enabled_stage(scope_config)
+    llm_runner_ready = bool(enabled_llm_backends and llm_config.usage.runner_enabled)
+    mock_profile = resolved_profile.profile == RunProfile.MOCK
+    real_executor_ready = (
+        builtin_delivery_enabled
+        or mock_profile
+        or (required_cli_roles and not missing_required_cli_roles)
+        or (not required_cli_roles and bool(bound_roles or llm_runner_ready))
+    )
+
+    warnings: list[str] = []
+    if not scope_ready:
+        warnings.append("execution scope has no enabled stage")
+    if mock_profile:
+        warnings.append("current profile is mock")
+    if missing_required_cli_roles:
+        warnings.append("missing required CLI roles: " + ", ".join(missing_required_cli_roles))
+    if not builtin_delivery_enabled and not selected_cli_names:
+        warnings.append("no Agent CLI selected")
+
+    return {
+        "run_profile": run_profile,
+        "profile_label": f"Profile {run_profile}",
+        "profile_cli_roles": required_cli_roles,
+        "profile_requires_cli": bool(required_cli_roles),
+        "profile_has_internal_executor": builtin_delivery_enabled or mock_profile,
+        "selected_cli_names": selected_cli_names,
+        "bound_roles": bound_roles,
+        "missing_required_cli_roles": missing_required_cli_roles,
+        "enabled_llm_backends": enabled_llm_backends,
+        "llm_runner_enabled": llm_config.usage.runner_enabled,
+        "llm_runner_ready": llm_runner_ready,
+        "scope_ready": scope_ready,
+        "real_executor_ready": bool(real_executor_ready),
+        "warnings": warnings,
+    }
+def _sanitize_cli_selection_config(config: CLISelectionConfig) -> CLISelectionConfig:
+    """Internal helper."""
+    selected = [name for name in config.selected_cli_names if name]
+    selected_set = set(selected)
+    sanitized_bindings = {
+        role: (cli_name if cli_name in selected_set else None)
+        for role, cli_name in config.role_cli_bindings.items()
+    }
+    return CLISelectionConfig(
+        selected_cli_names=selected,
+        role_cli_bindings=sanitized_bindings,
+        codex_model=config.codex_model,
+        codex_reasoning_effort=config.codex_reasoning_effort,
+        aspirecode_model=config.aspirecode_model,
+    )
 
 
 def match_llm_provider_preset_id(base_url: str, model_name: str, backend: str) -> str:
-    """Return the preset id matching a concrete LLM endpoint config."""
+    """Internal helper."""
     normalized_base_url = base_url.rstrip("/")
     for preset in list_llm_provider_presets(backend):
         if preset.base_url.rstrip("/") == normalized_base_url and preset.model_name == model_name:
@@ -295,7 +466,7 @@ def match_llm_provider_preset_id(base_url: str, model_name: str, backend: str) -
 
 
 def redacted_llm_runtime_config(config: LLMRuntimeConfig) -> LLMRuntimeConfig:
-    """Return LLM config safe for HTML/JSON rendering."""
+    """Internal helper."""
     return LLMRuntimeConfig(
         local=replace(config.local, api_key=None),
         cloud=replace(config.cloud, api_key=None),
@@ -305,7 +476,7 @@ def redacted_llm_runtime_config(config: LLMRuntimeConfig) -> LLMRuntimeConfig:
 
 
 def llm_settings_payload(config: LLMRuntimeConfig) -> dict[str, object]:
-    """Build the public LLM settings payload without exposing API keys."""
+    """Internal helper."""
     payload = asdict(redacted_llm_runtime_config(config))
     payload["local"]["api_key_present"] = bool(config.local.api_key)
     payload["cloud"]["api_key_present"] = bool(config.cloud.api_key)
@@ -314,7 +485,7 @@ def llm_settings_payload(config: LLMRuntimeConfig) -> dict[str, object]:
 
 
 def _payload_api_key(payload: dict, current_api_key: str | None) -> str | None:
-    """Preserve existing API keys when a settings payload leaves the field blank."""
+    """Internal helper."""
     if "api_key" not in payload:
         return current_api_key
     value = payload.get("api_key")
@@ -325,13 +496,13 @@ def _payload_api_key(payload: dict, current_api_key: str | None) -> str | None:
 
 
 def _form_api_key(form: dict[str, list[str]], name: str, current_api_key: str | None) -> str | None:
-    """Preserve existing API keys when an HTML form leaves the field blank."""
+    """Internal helper."""
     value = _optional_form_value(form, name)
     return value if value is not None else current_api_key
 
 
 def llm_config_from_settings_payload(payload: dict, existing_config: LLMRuntimeConfig) -> LLMRuntimeConfig:
-    """Build a runtime config from settings JSON, applying presets and key preservation."""
+    """Internal helper."""
     local_payload = dict(payload.get("local", {}))
     cloud_payload = dict(payload.get("cloud", {}))
     local_preset = get_llm_provider_preset(local_payload.get("preset_id"))
@@ -353,20 +524,17 @@ def llm_config_from_settings_payload(payload: dict, existing_config: LLMRuntimeC
         ),
         usage=LLMUsagePolicy(
             runner_enabled=bool(payload.get("usage", {}).get("runner_enabled", False)),
-            runner_allowed_roles=list(payload.get("usage", {}).get("runner_allowed_roles", ["designer", "backend_engineer", "frontend_engineer", "tester"])),
+            runner_allowed_roles=list(payload.get("usage", {}).get("runner_allowed_roles", ["designer", "backend_engineer", "tester"])),
             runner_allowed_kinds=list(payload.get("usage", {}).get("runner_allowed_kinds", [
                 "design_overview",
-                "ui_design",
                 "api_design",
                 "test_design",
                 "generic_implementation",
                 "api_implementation",
                 "data_implementation",
-                "ui_implementation",
                 "acceptance_check",
                 "automated_test",
                 "api_validation",
-                "ui_validation",
             ])),
             preferred_backend=str(payload.get("usage", {}).get("preferred_backend", "cloud")),
         ),
@@ -375,13 +543,13 @@ def llm_config_from_settings_payload(payload: dict, existing_config: LLMRuntimeC
 
 
 def get_project_task_status(project_id: str) -> ProjectTaskStatus:
-    """读取项目后台任务状态。"""
+    """Internal helper."""
     with task_lock:
         return task_statuses.get(project_id, ProjectTaskStatus())
 
 
 def _task_status_payload(project_id: str) -> dict[str, object]:
-    """Build a serializable task status payload."""
+    """Internal helper."""
     status = get_project_task_status(project_id)
     return {
         "running": status.running,
@@ -392,8 +560,40 @@ def _task_status_payload(project_id: str) -> dict[str, object]:
     }
 
 
+def _workitem_status_summary(snapshot) -> dict[str, int]:
+    """Internal helper."""
+    done_count = sum(1 for item in snapshot.workitems if item.status == "done")
+    failed_count = sum(1 for item in snapshot.workitems if item.status == "failed")
+    running_count = sum(1 for item in snapshot.workitems if item.status == "running")
+    pending_count = sum(1 for item in snapshot.workitems if item.status == "pending")
+    return {
+        "total": len(snapshot.workitems),
+        "done": done_count,
+        "failed": failed_count,
+        "running": running_count,
+        "pending": pending_count,
+        "open": pending_count + running_count,
+    }
+
+
+def _workitem_tail_payload(snapshot) -> list[dict[str, object]]:
+    """Internal helper."""
+    return [
+        asdict(workitem)
+        for workitem in snapshot.workitems[:7]
+    ]
+
+
+def _artifact_tail_payload(snapshot) -> list[dict[str, object]]:
+    """Internal helper."""
+    return [
+        asdict(artifact)
+        for artifact in reversed(snapshot.artifacts[-6:])
+    ]
+
+
 def _snapshot_payload(project_id: str):
-    """Build a serializable board snapshot payload."""
+    """Internal helper."""
     state = _require_project_state(project_id)
     snapshot = board_service.build_snapshot(
         state,
@@ -403,8 +603,30 @@ def _snapshot_payload(project_id: str):
     return snapshot, asdict(snapshot)
 
 
+def project_live_state(project_id: str) -> JSONResponse:
+    """Return a compact polling payload for frontend live-status panels."""
+    snapshot, snapshot_payload = _snapshot_payload(project_id)
+    stream_snapshot = engine.runtime_stream_store.snapshot(project_id)
+    return JSONResponse(
+        {
+            "project_id": project_id,
+            "project_status": snapshot.project_status,
+            "project_status_label": snapshot.project_status_label,
+            "current_stage": snapshot.current_stage,
+            "current_stage_label": snapshot.current_stage_label,
+            "task_status": _task_status_payload(snapshot.project_id),
+            "workitems": _workitem_status_summary(snapshot),
+            "recent_workitems": _workitem_tail_payload(snapshot),
+            "recent_artifacts": _artifact_tail_payload(snapshot),
+            "human_control": snapshot_payload["human_control"],
+            "runtime_stream": asdict(stream_snapshot),
+            "snapshot": snapshot_payload,
+        }
+    )
+
+
 def _human_control_response_payload(project_id: str) -> dict[str, object]:
-    """Build a human-control mutation response with a fresh snapshot."""
+    """Internal helper."""
     snapshot, snapshot_payload = _snapshot_payload(project_id)
     return {
         "project_id": project_id,
@@ -415,7 +637,7 @@ def _human_control_response_payload(project_id: str) -> dict[str, object]:
 
 
 def _human_gate_payload(payload: HumanControlRequest, state: SharedProjectState) -> dict[str, object]:
-    """Return the explicit gate payload from an API request."""
+    """Internal helper."""
     gate_payload = dict(payload.payload)
     if payload.controller_action:
         gate_payload["controller_action"] = payload.controller_action
@@ -431,7 +653,7 @@ def _human_gate_payload_or_active(
     state: SharedProjectState,
     service: HumanControlService,
 ) -> dict[str, object]:
-    """Use explicit gate payload, or inherit the currently active gate payload."""
+    """Internal helper."""
     explicit = _human_gate_payload(payload, state)
     if explicit:
         return explicit
@@ -442,15 +664,27 @@ def _human_gate_payload_or_active(
 
 
 def _require_project_state(project_id: str):
-    """Return an existing project state or raise a 404 for API callers."""
+    """Internal helper."""
     try:
         return engine.get_project(project_id)
     except KeyError as error:
         raise HTTPException(status_code=404, detail=f"Project not found: {project_id}") from error
 
 
+def _is_folder_picker_visible(path: Path) -> bool:
+    """Internal helper."""
+    name = path.name
+    if not name:
+        return True
+    if name in FOLDER_PICKER_EXCLUDED_DIRS:
+        return False
+    if name.startswith("."):
+        return False
+    return True
+
+
 def start_project_task(project_id: str, action: str, action_label: str, target: Callable[[str], object]) -> bool:
-    """启动项目后台任务；同一项目已有任务时不重复启动。"""
+    """Internal helper."""
     with task_lock:
         current = task_statuses.get(project_id)
         if current and current.running:
@@ -459,7 +693,7 @@ def start_project_task(project_id: str, action: str, action_label: str, target: 
             running=True,
             action=action,
             action_label=action_label,
-            message=f"{action_label} 已开始，页面会自动刷新状态。",
+            message=f"{action_label} started.",
         )
     Thread(
         target=run_project_task,
@@ -469,8 +703,61 @@ def start_project_task(project_id: str, action: str, action_label: str, target: 
     return True
 
 
+def _project_human_hold_reason(project_id: str) -> str | None:
+    """Internal helper."""
+    try:
+        state = _require_project_state(project_id)
+    except HTTPException as error:
+        if error.status_code == 404:
+            return None
+        raise
+    return HumanControlService(engine.state_store).controller_hold_reason(state)
+
+
+def _project_run_block_reason(project_id: str, *, require_project: bool = True) -> str | None:
+    """Internal helper."""
+    try:
+        state = _require_project_state(project_id)
+    except HTTPException as error:
+        if error.status_code == 404 and not require_project:
+            return None
+        raise
+    hold_reason = HumanControlService(engine.state_store).controller_hold_reason(state)
+    if hold_reason:
+        return hold_reason
+    if state.project_status == ProjectStatus.COMPLETED:
+        return "project_completed"
+    if state.project_status == ProjectStatus.BLOCKED:
+        return "project_blocked"
+    execution_health = _execution_health_payload()
+    missing_roles = execution_health.get("missing_required_cli_roles", [])
+    if missing_roles:
+        return "missing required CLI roles: " + ", ".join(str(role) for role in missing_roles)
+    return None
+
+
+def _blocked_project_task_response(project_id: str, action: str, action_label: str, hold_reason: str) -> JSONResponse:
+    status = ProjectTaskStatus(
+        running=False,
+        action=action,
+        action_label=action_label,
+        message=f"{action_label} 鏈惎鍔細{hold_reason}",
+        error=hold_reason,
+    )
+    return JSONResponse(
+        {
+            "project_id": project_id,
+            "accepted": False,
+            "project_status": engine.get_project(project_id).project_status.value,
+            "task_status": asdict(status),
+            "human_control": asdict(board_service.build_snapshot(engine.get_project(project_id)).human_control),
+        },
+        status_code=409,
+    )
+
+
 def run_project_task(project_id: str, action: str, action_label: str, target: Callable[[str], object]) -> None:
-    """执行项目后台任务并记录状态。"""
+    """Internal helper."""
     try:
         target(project_id)
     except Exception as error:
@@ -479,7 +766,7 @@ def run_project_task(project_id: str, action: str, action_label: str, target: Ca
                 running=False,
                 action=action,
                 action_label=action_label,
-                message=f"{action_label} 失败。",
+                message=f"{action_label} failed.",
                 error=str(error),
             )
         return
@@ -488,158 +775,16 @@ def run_project_task(project_id: str, action: str, action_label: str, target: Ca
             running=False,
             action=action,
             action_label=action_label,
-            message=f"{action_label} 已完成。",
+            message=f"{action_label} completed.",
         )
 
 
-@app.get("/", response_class=HTMLResponse)
-def board_page(request: Request) -> HTMLResponse:
-    """渲染项目列表和默认页面。"""
-    requirement = request.query_params.get("requirement", "")
-    project_root = request.query_params.get("project_root", str(ROOT_DIR))
-    states = engine.list_projects()
-    project_summaries = board_service.build_project_summaries(states)
-    selected_state = states[0] if states else None
-    snapshot = board_service.build_snapshot(
-        selected_state,
-        cli_config=engine.cli_selection_config,
-        llm_runtime_config=engine.llm_runtime_config,
-    ) if selected_state else None
-    return templates.TemplateResponse(
-        request=request,
-        name="board.html",
-        context={
-            "snapshot": snapshot,
-            "available_roles": engine.registry.list_roles(),
-            "available_role_labels": board_service.build_role_labels(engine.registry.list_roles()),
-            "requirement": requirement,
-            "project_root": project_root,
-            "project_summaries": project_summaries,
-            "task_status": get_project_task_status(snapshot.project_id) if snapshot else None,
-        },
-    )
 
-
-@app.get("/projects/create")
-def create_project(
-    requirement: str = "",
-    project_root: str | None = None,
-    requirement_file: str | None = None,
-    requirement_json_file: str | None = None,
-    requirement_json_key: str = "requirement",
-) -> RedirectResponse:
-    """创建真实项目实例并跳转到详情页。"""
-    try:
-        requirement = load_requirement_text(
-            requirement=requirement,
-            requirement_file=requirement_file,
-            requirement_json_file=requirement_json_file,
-            json_key=requirement_json_key,
-        )
-    except RequirementInputError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
-    state = engine.create_project(requirement=requirement, project_root=project_root)
-    return RedirectResponse(url=f"/projects/{state.project.id}", status_code=303)
-
-
-@app.get("/folders/pick", response_class=HTMLResponse)
-def folder_picker_page(
-    request: Request,
-    current_path: str | None = None,
-    requirement: str | None = None,
-) -> HTMLResponse:
-    """Render a filesystem folder picker page."""
-    path = Path(current_path or ROOT_DIR).expanduser().resolve()
-    if not path.exists():
-        path = ROOT_DIR
-    if path.is_file():
-        path = path.parent
-    children = []
-    try:
-        children = sorted(
-            [item for item in path.iterdir() if item.is_dir()],
-            key=lambda item: item.name.lower(),
-        )
-    except OSError:
-        children = []
-    parent_path = str(path.parent) if path.parent != path else None
-    return templates.TemplateResponse(
-        request=request,
-        name="folder_picker.html",
-        context={
-            "current_path": str(path),
-            "parent_path": parent_path,
-            "children": [str(item) for item in children[:200]],
-            "requirement": requirement or "",
-        },
-    )
-
-
-@app.get("/projects/{project_id}", response_class=HTMLResponse)
-def board_project_page(request: Request, project_id: str) -> HTMLResponse:
-    """渲染指定项目详情。"""
-    state = _require_project_state(project_id)
-    snapshot = board_service.build_snapshot(
-        state,
-        cli_config=engine.cli_selection_config,
-        llm_runtime_config=engine.llm_runtime_config,
-    )
-
-
-    return templates.TemplateResponse(
-        request=request,
-        name="board.html",
-        context={
-            "snapshot": snapshot,
-            "available_roles": engine.registry.list_roles(),
-            "available_role_labels": board_service.build_role_labels(engine.registry.list_roles()),
-            "requirement": state.project.goal,
-            "project_root": state.project.project_root,
-            "project_summaries": board_service.build_project_summaries(engine.list_projects()),
-            "task_status": get_project_task_status(project_id),
-        },
-    )
-
-
-@app.get("/projects/{project_id}/live")
-def project_live_state(project_id: str) -> JSONResponse:
-    """Return lightweight live state for partial board updates."""
-    snapshot, _ = _snapshot_payload(project_id)
-    task_status = _task_status_payload(project_id)
-    return JSONResponse(
-        {
-            "project_id": snapshot.project_id,
-            "project_status_label": snapshot.project_status_label,
-            "current_stage_label": snapshot.current_stage_label,
-            "task_status": task_status,
-            "execution_runtime": {
-                "available": snapshot.execution_runtime.available,
-                "is_running": snapshot.execution_runtime.is_running,
-                "headline": snapshot.execution_runtime.headline,
-                "workitem_id": snapshot.execution_runtime.workitem_id,
-                "workitem_kind_label": snapshot.execution_runtime.workitem_kind_label,
-                "stage_label": snapshot.execution_runtime.stage_label,
-                "agent_label": snapshot.execution_runtime.agent_label,
-                "backend_label": snapshot.execution_runtime.backend_label,
-                "cli_label": snapshot.execution_runtime.cli_label,
-                "model_label": snapshot.execution_runtime.model_label,
-                "working_directory": snapshot.execution_runtime.working_directory,
-                "execution_mode_label": snapshot.execution_runtime.execution_mode_label,
-                "state_label": snapshot.execution_runtime.state_label,
-                "stage_progress_label": snapshot.execution_runtime.stage_progress_label,
-                "stage_progress_percent": snapshot.execution_runtime.stage_progress_percent,
-                "task_position_label": snapshot.execution_runtime.task_position_label,
-                "output_summary_title": snapshot.execution_runtime.output_summary_title,
-                "output_summary": snapshot.execution_runtime.output_summary,
-            },
-            "recent_events_tail": snapshot.recent_events_tail,
-        }
-    )
 
 
 @app.get("/api/projects")
 def list_projects_api() -> JSONResponse:
-    """Return all projects for the standalone frontend."""
+    """Internal helper."""
     states = engine.list_projects()
     payload = {
         "projects": [asdict(item) for item in board_service.build_project_summaries(states)],
@@ -649,7 +794,7 @@ def list_projects_api() -> JSONResponse:
 
 @app.post("/api/projects")
 async def create_project_api(request: Request) -> JSONResponse:
-    """Create a project from JSON payload."""
+    """Internal helper."""
     payload = await request.json()
     try:
         requirement = load_requirement_text(
@@ -675,7 +820,7 @@ async def create_project_api(request: Request) -> JSONResponse:
 
 @app.get("/api/projects/{project_id}")
 def project_detail_api(project_id: str) -> JSONResponse:
-    """Return one project snapshot."""
+    """Internal helper."""
     snapshot, snapshot_payload = _snapshot_payload(project_id)
     return JSONResponse(
         {
@@ -685,9 +830,26 @@ def project_detail_api(project_id: str) -> JSONResponse:
     )
 
 
+@app.get("/api/projects/{project_id}/artifacts/{artifact_id}")
+def project_artifact_detail_api(project_id: str, artifact_id: str) -> JSONResponse:
+    """Internal helper."""
+    state = _require_project_state(project_id)
+    artifact = next((item for item in state.artifacts if item.id == artifact_id), None)
+    if artifact is None:
+        raise HTTPException(status_code=404, detail=f"Artifact not found: {artifact_id}")
+    snapshot, _ = _snapshot_payload(project_id)
+    artifact_view = next((item for item in snapshot.artifacts if item.id == artifact_id), None)
+    if artifact_view is None:
+        raise HTTPException(status_code=404, detail=f"Artifact not found: {artifact_id}")
+    payload = asdict(artifact_view)
+    payload["content"] = engine.artifact_store.read_content(artifact)
+    payload["content_source"] = "file" if artifact.path else "state"
+    return JSONResponse({"project_id": project_id, "artifact": payload})
+
+
 @app.get("/api/projects/{project_id}/human-control")
 def project_human_control_api(project_id: str) -> JSONResponse:
-    """Return the active human-control state for one project."""
+    """Internal helper."""
     _require_project_state(project_id)
     snapshot, snapshot_payload = _snapshot_payload(project_id)
     return JSONResponse(
@@ -701,7 +863,7 @@ def project_human_control_api(project_id: str) -> JSONResponse:
 
 @app.post("/api/projects/{project_id}/human-control/pause")
 async def pause_project_human_control_api(project_id: str, payload: HumanControlRequest) -> JSONResponse:
-    """Pause automatic controller advancement for one project."""
+    """Internal helper."""
     _require_project_state(project_id)
     service = HumanControlService(engine.state_store)
     state = service.pause(project_id, actor=payload.actor, reason=payload.reason)
@@ -710,7 +872,7 @@ async def pause_project_human_control_api(project_id: str, payload: HumanControl
 
 @app.post("/api/projects/{project_id}/human-control/resume")
 async def resume_project_human_control_api(project_id: str, payload: HumanControlRequest) -> JSONResponse:
-    """Resume automatic controller advancement for one project."""
+    """Internal helper."""
     _require_project_state(project_id)
     service = HumanControlService(engine.state_store)
     state = service.resume(project_id, actor=payload.actor, reason=payload.reason)
@@ -719,7 +881,7 @@ async def resume_project_human_control_api(project_id: str, payload: HumanContro
 
 @app.post("/api/projects/{project_id}/human-control/request-approval")
 async def request_project_human_approval_api(project_id: str, payload: HumanControlRequest) -> JSONResponse:
-    """Request human approval for a controller gate."""
+    """Internal helper."""
     state = _require_project_state(project_id)
     service = HumanControlService(engine.state_store)
     updated = service.request_approval(
@@ -734,7 +896,7 @@ async def request_project_human_approval_api(project_id: str, payload: HumanCont
 
 @app.post("/api/projects/{project_id}/human-control/approve")
 async def approve_project_human_control_api(project_id: str, payload: HumanControlRequest) -> JSONResponse:
-    """Approve the active human gate for one project."""
+    """Internal helper."""
     state = _require_project_state(project_id)
     service = HumanControlService(engine.state_store)
     updated = service.approve(
@@ -748,7 +910,7 @@ async def approve_project_human_control_api(project_id: str, payload: HumanContr
 
 @app.post("/api/projects/{project_id}/human-control/reject")
 async def reject_project_human_control_api(project_id: str, payload: HumanControlRequest) -> JSONResponse:
-    """Reject the active human gate for one project."""
+    """Internal helper."""
     _require_project_state(project_id)
     service = HumanControlService(engine.state_store)
     state = service.reject(project_id, actor=payload.actor, reason=payload.reason)
@@ -757,7 +919,7 @@ async def reject_project_human_control_api(project_id: str, payload: HumanContro
 
 @app.post("/api/projects/{project_id}/human-control/override")
 async def override_project_human_control_api(project_id: str, payload: HumanControlRequest) -> JSONResponse:
-    """Record a human override for one project."""
+    """Internal helper."""
     state = _require_project_state(project_id)
     service = HumanControlService(engine.state_store)
     updated = service.override(
@@ -776,7 +938,7 @@ def project_tasks_api(
     stale_only: bool = False,
     stale_after_seconds: int = DEFAULT_STALE_CLAIMED_AFTER_SECONDS,
 ) -> JSONResponse:
-    """Return task center assignments for one project, optionally filtered by status."""
+    """Internal helper."""
     state = _require_project_state(project_id)
     return JSONResponse(
         _task_center_payload(
@@ -793,20 +955,21 @@ def project_tasks_summary_api(
     project_id: str,
     stale_after_seconds: int = DEFAULT_STALE_CLAIMED_AFTER_SECONDS,
 ) -> JSONResponse:
-    """Return compact task-center summary counts for one project."""
+    """Internal helper."""
     state = _require_project_state(project_id)
     return JSONResponse(
         {
             "project_id": project_id,
             "stale_after_seconds": stale_after_seconds,
             "summary": _task_center_service().summary(state, stale_after_seconds=stale_after_seconds),
+            "snapshot": _snapshot_payload(project_id)[1],
         }
     )
 
 
 @app.get("/api/projects/{project_id}/tasks/{assignment_id}/agents")
 def project_task_agents_api(project_id: str, assignment_id: str) -> JSONResponse:
-    """Return dynamic Agent activations eligible for one task assignment."""
+    """Internal helper."""
     state = _require_project_state(project_id)
     context_builder = TaskContextBuilder(engine.artifact_store)
     try:
@@ -838,14 +1001,16 @@ def project_task_agents_api(project_id: str, assignment_id: str) -> JSONResponse
 
 @app.get("/api/projects/{project_id}/agents/{agent_id}/tasks")
 def project_agent_tasks_api(project_id: str, agent_id: str, claimable_only: bool = False) -> JSONResponse:
-    """Return task assignments that match one dynamic Agent activation."""
+    """Internal helper."""
     state = _require_project_state(project_id)
-    return JSONResponse(_agent_tasks_payload(state, agent_id=agent_id, claimable_only=claimable_only))
+    payload = _agent_tasks_payload(state, agent_id=agent_id, claimable_only=claimable_only)
+    payload["snapshot"] = _snapshot_payload(project_id)[1]
+    return JSONResponse(payload)
 
 
 @app.post("/api/projects/{project_id}/agents/{agent_id}/claim-task")
 async def claim_project_agent_task_api(project_id: str, agent_id: str, payload: TaskClaimRequest) -> JSONResponse:
-    """Claim the next task that matches one dynamic Agent activation."""
+    """Internal helper."""
     _validate_task_prompt_file_request(project_id, payload.prompt_file)
     state = _require_project_state(project_id)
     tasks_payload = _agent_tasks_payload(state, agent_id=agent_id, claimable_only=True)
@@ -874,7 +1039,7 @@ async def claim_project_agent_task_api(project_id: str, agent_id: str, payload: 
 
 @app.post("/api/projects/{project_id}/tasks/claim-batch")
 async def claim_batch_project_tasks_api(project_id: str, payload: TaskClaimBatchRequest) -> JSONResponse:
-    """Claim a small batch of queued task-center assignments."""
+    """Internal helper."""
     transition = _run_task_center_transition(
         _task_center_service().claim_batch,
         project_id,
@@ -894,13 +1059,14 @@ async def claim_batch_project_tasks_api(project_id: str, payload: TaskClaimBatch
                 _task_assignment_payload(assignment, transition.state)
                 for assignment in transition.assignments
             ],
+            "snapshot": _snapshot_payload(project_id)[1],
         }
     )
 
 
 @app.post("/api/projects/{project_id}/tasks/claim-next")
 async def claim_next_project_task_api(project_id: str, payload: TaskClaimNextRequest) -> JSONResponse:
-    """Claim the next queued task-center assignment, optionally filtered by role."""
+    """Internal helper."""
     _validate_task_prompt_file_request(project_id, payload.prompt_file)
     transition = _run_task_center_transition(
         _task_center_service().claim_next,
@@ -922,7 +1088,7 @@ async def claim_next_project_task_api(project_id: str, payload: TaskClaimNextReq
 
 @app.post("/api/projects/{project_id}/tasks/{assignment_id}/claim")
 async def claim_project_task_api(project_id: str, assignment_id: str, payload: TaskClaimRequest) -> JSONResponse:
-    """Claim one queued task-center assignment."""
+    """Internal helper."""
     _validate_task_prompt_file_request(project_id, payload.prompt_file)
     transition = _run_task_center_transition(
         _task_center_service().claim,
@@ -950,7 +1116,7 @@ def project_task_context_api(
     max_content_chars: int = 12000,
     format: str = "json",
 ):
-    """Return one assignment with input artifact content for external workers."""
+    """Internal helper."""
     if format not in {"json", "markdown"}:
         raise HTTPException(status_code=422, detail="format must be 'json' or 'markdown'")
     state = _require_project_state(project_id)
@@ -972,7 +1138,7 @@ def project_task_context_api(
 
 @app.post("/api/projects/{project_id}/tasks/{assignment_id}/complete")
 async def complete_project_task_api(project_id: str, assignment_id: str, payload: TaskReturnRequest) -> JSONResponse:
-    """Return a claimed task-center assignment as completed."""
+    """Internal helper."""
     output_artifact_ids = _task_return_output_artifact_ids(project_id, assignment_id, payload)
     transition = _run_task_center_transition(
         _task_center_service().complete,
@@ -988,13 +1154,14 @@ async def complete_project_task_api(project_id: str, assignment_id: str, payload
             "project_id": project_id,
             "summary": _task_center_service().summary(transition.state),
             "task": _task_assignment_payload(transition.assignment, transition.state),
+            "snapshot": _snapshot_payload(project_id)[1],
         }
     )
 
 
 @app.post("/api/projects/{project_id}/tasks/{assignment_id}/fail")
 async def fail_project_task_api(project_id: str, assignment_id: str, payload: TaskReturnRequest) -> JSONResponse:
-    """Return a claimed task-center assignment as failed."""
+    """Internal helper."""
     output_artifact_ids = _task_return_output_artifact_ids(project_id, assignment_id, payload)
     transition = _run_task_center_transition(
         _task_center_service().fail,
@@ -1011,6 +1178,7 @@ async def fail_project_task_api(project_id: str, assignment_id: str, payload: Ta
             "project_id": project_id,
             "summary": _task_center_service().summary(transition.state),
             "task": _task_assignment_payload(transition.assignment, transition.state),
+            "snapshot": _snapshot_payload(project_id)[1],
         }
     )
 
@@ -1021,7 +1189,7 @@ async def heartbeat_project_task_api(
     assignment_id: str,
     payload: TaskHeartbeatRequest,
 ) -> JSONResponse:
-    """Refresh one claimed task-center assignment heartbeat."""
+    """Internal helper."""
     transition = _run_task_center_transition(
         _task_center_service().heartbeat,
         project_id,
@@ -1035,13 +1203,14 @@ async def heartbeat_project_task_api(
             "project_id": project_id,
             "summary": _task_center_service().summary(transition.state),
             "task": _task_assignment_payload(transition.assignment, transition.state),
+            "snapshot": _snapshot_payload(project_id)[1],
         }
     )
 
 
 @app.post("/api/projects/{project_id}/tasks/{assignment_id}/release")
 async def release_project_task_api(project_id: str, assignment_id: str, payload: TaskReleaseRequest) -> JSONResponse:
-    """Release a claimed/failed task-center assignment back to queued."""
+    """Internal helper."""
     transition = _run_task_center_transition(
         _task_center_service().release,
         project_id,
@@ -1055,13 +1224,14 @@ async def release_project_task_api(project_id: str, assignment_id: str, payload:
             "project_id": project_id,
             "summary": _task_center_service().summary(transition.state),
             "task": _task_assignment_payload(transition.assignment, transition.state),
+            "snapshot": _snapshot_payload(project_id)[1],
         }
     )
 
 
 @app.post("/api/projects/{project_id}/tasks/release-stale")
 async def release_stale_project_tasks_api(project_id: str, payload: TaskReleaseStaleRequest) -> JSONResponse:
-    """Release stale claimed task-center assignments back to queued."""
+    """Internal helper."""
     transition = _run_task_center_transition(
         _task_center_service().release_stale,
         project_id,
@@ -1085,13 +1255,14 @@ async def release_stale_project_tasks_api(project_id: str, payload: TaskReleaseS
                 )
                 for assignment in transition.assignments
             ],
+            "snapshot": _snapshot_payload(project_id)[1],
         }
     )
 
 
 @app.post("/api/projects/{project_id}/tasks/release-expired-leases")
 async def release_expired_lease_project_tasks_api(project_id: str, payload: TaskReleaseRequest) -> JSONResponse:
-    """Release assignments whose explicit claim lease expired."""
+    """Internal helper."""
     transition = _run_task_center_transition(
         _task_center_service().release_expired_leases,
         project_id,
@@ -1109,13 +1280,14 @@ async def release_expired_lease_project_tasks_api(project_id: str, payload: Task
                 )
                 for assignment in transition.assignments
             ],
+            "snapshot": _snapshot_payload(project_id)[1],
         }
     )
 
 
 @app.post("/api/projects/{project_id}/tasks/sweep")
 async def sweep_project_tasks_api(project_id: str, payload: TaskSweepRequest) -> JSONResponse:
-    """Release expired leases and stale claimed assignments in one maintenance pass."""
+    """Internal helper."""
     transition = _run_task_center_transition(
         _task_center_service().sweep,
         project_id,
@@ -1146,6 +1318,7 @@ async def sweep_project_tasks_api(project_id: str, payload: TaskSweepRequest) ->
                 )
                 for assignment in transition.stale_assignments
             ],
+            "snapshot": _snapshot_payload(project_id)[1],
         }
     )
 
@@ -1219,6 +1392,7 @@ def _task_claim_response_payload(
             response["context_markdown"] = markdown
         elif payload.include_context:
             response["context"] = context
+    response["snapshot"] = _snapshot_payload(project_id)[1]
     return response
 
 
@@ -1228,7 +1402,7 @@ def _task_center_payload(
     stale_only: bool = False,
     stale_after_seconds: int = DEFAULT_STALE_CLAIMED_AFTER_SECONDS,
 ) -> dict[str, object]:
-    """Build the task-center response payload."""
+    """Internal helper."""
     task_center = _task_center_service()
     workitems_by_id = {item.id: item for item in state.workitems}
     artifacts_by_workitem: dict[str, list[dict[str, object]]] = {}
@@ -1281,7 +1455,7 @@ def _agent_tasks_payload(
     agent_id: str,
     claimable_only: bool = False,
 ) -> dict[str, object]:
-    """Return assignments matching a dynamic Agent activation."""
+    """Internal helper."""
     service = _task_center_service()
     activations = [activation for activation in state.agent_activations if activation.agent_id == agent_id]
     workitems_by_id = {item.id: item for item in state.workitems}
@@ -1390,7 +1564,7 @@ def _task_assignment_payload(
     artifacts: list[dict[str, object]] | None = None,
     stale_after_seconds: int = DEFAULT_STALE_CLAIMED_AFTER_SECONDS,
 ) -> dict[str, object]:
-    """Build one task-center assignment payload."""
+    """Internal helper."""
     task_center = service or _task_center_service()
     if workitem is None:
         workitem = next((item for item in state.workitems if item.id == assignment.workitem_id), None)
@@ -1444,9 +1618,13 @@ def _task_assignment_payload(
 
 
 def _task_return_api_paths(state: SharedProjectState, assignment: TaskAssignment) -> dict[str, str]:
+    base = f"/api/projects/{state.project.id}/tasks/{assignment.id}"
+    if assignment.status == TaskAssignmentStatus.FAILED:
+        return {
+            "release": f"{base}/release",
+        }
     if assignment.status != TaskAssignmentStatus.CLAIMED:
         return {}
-    base = f"/api/projects/{state.project.id}/tasks/{assignment.id}"
     return {
         "complete": f"{base}/complete",
         "fail": f"{base}/fail",
@@ -1473,12 +1651,12 @@ def _validate_task_prompt_file_request(project_id: str, prompt_file: str) -> Non
 
 
 def _task_center_service() -> TaskCenterService:
-    """Return a Task Center service bound to the current in-process engine."""
+    """Internal helper."""
     return TaskCenterService(engine.state_store, event_prefix="TaskCenter")
 
 
 def _run_task_center_transition(action: Callable, *args, **kwargs):
-    """Run one Task Center action and convert domain errors to HTTP responses."""
+    """Internal helper."""
     try:
         return action(*args, **kwargs)
     except TaskCenterError as error:
@@ -1486,7 +1664,7 @@ def _run_task_center_transition(action: Callable, *args, **kwargs):
 
 
 def _task_workitem_payload(workitem) -> dict[str, object]:
-    """Build the WorkItem subset needed by task center clients."""
+    """Internal helper."""
     if workitem is None:
         return {}
     return {
@@ -1506,9 +1684,11 @@ def _task_workitem_payload(workitem) -> dict[str, object]:
 
 @app.post("/api/projects/{project_id}/step")
 def step_project_api(project_id: str) -> JSONResponse:
-    """Start one background step for a project."""
-    _require_project_state(project_id)
-    started = start_project_task(project_id, "step", "单步推进", engine.step_project)
+    """Internal helper."""
+    block_reason = _project_run_block_reason(project_id)
+    if block_reason:
+        return _blocked_project_task_response(project_id, "step", "step", block_reason)
+    started = start_project_task(project_id, "step", "step", engine.step_project)
     return JSONResponse(
         {
             "project_id": project_id,
@@ -1521,9 +1701,11 @@ def step_project_api(project_id: str) -> JSONResponse:
 
 @app.post("/api/projects/{project_id}/run")
 def run_project_api(project_id: str) -> JSONResponse:
-    """Start a background run-to-end task for a project."""
-    _require_project_state(project_id)
-    started = start_project_task(project_id, "run", "运行到终态", engine.run_project)
+    """Internal helper."""
+    block_reason = _project_run_block_reason(project_id)
+    if block_reason:
+        return _blocked_project_task_response(project_id, "run", "run", block_reason)
+    started = start_project_task(project_id, "run", "run", engine.run_project)
     return JSONResponse(
         {
             "project_id": project_id,
@@ -1536,29 +1718,31 @@ def run_project_api(project_id: str) -> JSONResponse:
 
 @app.get("/api/projects/{project_id}/live")
 def project_live_api(project_id: str) -> JSONResponse:
-    """Return partial live state for the standalone frontend."""
+    """Internal helper."""
     return project_live_state(project_id)
 
 
 @app.get("/api/settings/execution")
 def execution_settings_api() -> JSONResponse:
-    """Return execution scope settings."""
+    """Internal helper."""
     config = load_execution_scope_config()
     return JSONResponse(asdict(config))
 
 
 @app.post("/api/settings/execution")
 async def save_execution_settings_api(request: Request) -> JSONResponse:
-    """Persist execution scope settings from JSON."""
+    """Internal helper."""
     payload = await request.json()
     config = ExecutionScopeConfig(
+        run_profile=_normalize_run_profile(payload.get("run_profile", RunProfile.MOCK.value)),
         requirement_design_enabled=bool(payload.get("requirement_design_enabled", True)),
         design_detail_enabled=bool(payload.get("design_detail_enabled", True)),
         design_collaboration_enabled=bool(payload.get("design_collaboration_enabled", True)),
         backend_development_enabled=bool(payload.get("backend_development_enabled", True)),
-        frontend_development_enabled=bool(payload.get("frontend_development_enabled", True)),
         testing_enabled=bool(payload.get("testing_enabled", True)),
     )
+    if not _execution_scope_has_enabled_stage(config):
+        raise HTTPException(status_code=400, detail="At least one execution scope stage must be enabled.")
     save_execution_scope_config(config)
     refresh_engine_execution_scope()
     return JSONResponse({"saved": True, "config": asdict(config)})
@@ -1566,7 +1750,7 @@ async def save_execution_settings_api(request: Request) -> JSONResponse:
 
 @app.get("/api/settings/cli")
 def cli_settings_api() -> JSONResponse:
-    """Return CLI binding settings and discovered tools."""
+    """Internal helper."""
     config = load_cli_selection_config()
     return JSONResponse(
         {
@@ -1579,7 +1763,7 @@ def cli_settings_api() -> JSONResponse:
 
 @app.post("/api/settings/cli")
 async def save_cli_settings_api(request: Request) -> JSONResponse:
-    """Persist CLI binding settings from JSON."""
+    """Internal helper."""
     payload = await request.json()
     config = CLISelectionConfig(
         selected_cli_names=list(payload.get("selected_cli_names", [])),
@@ -1587,6 +1771,7 @@ async def save_cli_settings_api(request: Request) -> JSONResponse:
         codex_model=str(payload.get("codex_model", "gpt-5.4-mini")),
         codex_reasoning_effort=str(payload.get("codex_reasoning_effort", "medium")),
     )
+    config = _sanitize_cli_selection_config(config)
     save_cli_selection_config(config)
     refresh_engine_cli_config()
     return JSONResponse({"saved": True, "config": asdict(config)})
@@ -1594,14 +1779,14 @@ async def save_cli_settings_api(request: Request) -> JSONResponse:
 
 @app.get("/api/settings/llm")
 def llm_settings_api() -> JSONResponse:
-    """Return LLM settings."""
+    """Internal helper."""
     config = load_llm_runtime_config()
     return JSONResponse(llm_settings_payload(config))
 
 
 @app.get("/api/diagnostics")
 def diagnostics_api(probe_cli: bool = False, probe_llm: bool = False, preflight_llm: bool = False) -> JSONResponse:
-    """Return current CLI, LLM, config, and encoding diagnostics."""
+    """Internal helper."""
     llm_runtime_config = load_llm_runtime_config()
     diagnostics = build_platform_diagnostics(
         cli_config=load_cli_selection_config(),
@@ -1623,7 +1808,7 @@ def diagnostics_api(probe_cli: bool = False, probe_llm: bool = False, preflight_
 
 @app.post("/api/settings/llm")
 async def save_llm_settings_api(request: Request) -> JSONResponse:
-    """Persist LLM settings from JSON."""
+    """Internal helper."""
     payload = await request.json()
     existing_config = load_llm_runtime_config()
     config = llm_config_from_settings_payload(payload, existing_config)
@@ -1634,7 +1819,7 @@ async def save_llm_settings_api(request: Request) -> JSONResponse:
 
 @app.post("/api/settings/llm/preflight")
 async def llm_settings_preflight_api(request: Request) -> JSONResponse:
-    """Run a lightweight LLM preflight for a saved or draft settings payload."""
+    """Internal helper."""
     payload = await request.json()
     backend = str(payload.get("backend", "cloud"))
     if backend not in {"local", "cloud"}:
@@ -1653,7 +1838,7 @@ async def llm_settings_preflight_api(request: Request) -> JSONResponse:
 
 @app.get("/projects/{project_id}/runtime/stream")
 def project_runtime_stream(project_id: str) -> StreamingResponse:
-    """Stream live CLI output for the current project."""
+    """Internal helper."""
     _require_project_state(project_id)
 
     def event_stream():
@@ -1680,161 +1865,6 @@ def project_runtime_stream(project_id: str) -> StreamingResponse:
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
-@app.get("/settings/execution", response_class=HTMLResponse)
-def execution_settings_page(request: Request, saved: str | None = None) -> HTMLResponse:
-    """渲染执行范围配置页面。"""
-    return templates.TemplateResponse(
-        request=request,
-        name="execution_config.html",
-        context={
-            "config": load_execution_scope_config(),
-            "saved": saved == "1",
-        },
-    )
-
-
-@app.get("/settings/cli", response_class=HTMLResponse)
-def cli_settings_page(request: Request, saved: str | None = None) -> HTMLResponse:
-    """渲染 Agent CLI 配置页面。"""
-    return templates.TemplateResponse(
-        request=request,
-        name="cli_config.html",
-        context={
-            "config": load_cli_selection_config(),
-            "cli_options": build_cli_options(),
-            "role_cli_options": build_role_cli_binding_options(),
-            "saved": saved == "1",
-        },
-    )
-
-
-@app.post("/settings/cli")
-async def save_cli_settings(request: Request) -> RedirectResponse:
-    """保存 Agent CLI 选择配置并热更新 engine。"""
-    body = (await request.body()).decode("utf-8")
-    form = parse_qs(body)
-    role_bindings = {}
-    for role in engine.registry.list_roles():
-        values = form.get(f"role_cli_binding_{role}", [""])
-        role_bindings[role] = values[0] or None
-    config = CLISelectionConfig(
-        selected_cli_names=form.get("selected_cli_names", []),
-        role_cli_bindings=role_bindings,
-        codex_model=_form_value(form, "codex_model", "gpt-5.4-mini"),
-        codex_reasoning_effort=_form_value(form, "codex_reasoning_effort", "medium"),
-    )
-    save_cli_selection_config(config)
-    refresh_engine_cli_config()
-    return RedirectResponse(url="/settings/cli?saved=1", status_code=303)
-
-
-@app.post("/settings/execution")
-async def save_execution_settings(request: Request) -> RedirectResponse:
-    """保存执行范围配置并热更新新项目规划策略。"""
-    body = (await request.body()).decode("utf-8")
-    form = parse_qs(body)
-    config = ExecutionScopeConfig(
-        requirement_design_enabled=_form_checked(form, "requirement_design_enabled"),
-        design_detail_enabled=_form_checked(form, "design_detail_enabled"),
-        design_collaboration_enabled=_form_checked(form, "design_collaboration_enabled"),
-        backend_development_enabled=_form_checked(form, "backend_development_enabled"),
-        frontend_development_enabled=_form_checked(form, "frontend_development_enabled"),
-        testing_enabled=_form_checked(form, "testing_enabled"),
-    )
-    save_execution_scope_config(config)
-    refresh_engine_execution_scope()
-    return RedirectResponse(url="/settings/execution?saved=1", status_code=303)
-
-
-@app.get("/projects/{project_id}/step")
-def step_project(project_id: str) -> RedirectResponse:
-    """异步推进一步。"""
-    start_project_task(project_id, "step", "单步推进", engine.step_project)
-    return RedirectResponse(url=f"/projects/{project_id}", status_code=303)
-
-
-@app.get("/projects/{project_id}/run")
-def run_project(project_id: str) -> RedirectResponse:
-    """异步持续推进到终态。"""
-    start_project_task(project_id, "run", "运行到终态", engine.run_project)
-    return RedirectResponse(url=f"/projects/{project_id}", status_code=303)
-
-
-@app.get("/settings/llm", response_class=HTMLResponse)
-def llm_settings_page(request: Request, saved: str | None = None) -> HTMLResponse:
-    """渲染 LLM 配置页面。"""
-    config = load_llm_runtime_config()
-    public_config = redacted_llm_runtime_config(config)
-    return templates.TemplateResponse(
-        request=request,
-        name="llm_config.html",
-        context={
-            "config": public_config,
-            "provider_presets": list_llm_provider_presets(),
-            "local_preset_id": match_llm_provider_preset_id(
-                config.local.base_url,
-                config.local.model_name,
-                "local",
-            ),
-            "cloud_preset_id": match_llm_provider_preset_id(
-                config.cloud.base_url,
-                config.cloud.model_name,
-                "cloud",
-            ),
-            "local_api_key_present": bool(config.local.api_key),
-            "cloud_api_key_present": bool(config.cloud.api_key),
-            "saved": saved == "1",
-        },
-    )
-
-
-@app.post("/settings/llm")
-async def save_llm_settings(request: Request) -> RedirectResponse:
-    """保存 LLM 配置并热更新 Agent backend。"""
-    body = (await request.body()).decode("utf-8")
-    form = parse_qs(body)
-    existing_config = load_llm_runtime_config()
-    local_preset = get_llm_provider_preset(_form_value(form, "local_preset_id", ""))
-    cloud_preset = get_llm_provider_preset(_form_value(form, "cloud_preset_id", ""))
-    config = LLMRuntimeConfig(
-        local=LLMHTTPConfig(
-            base_url=local_preset.base_url if local_preset else _form_value(form, "local_base_url", "http://127.0.0.1:11434/v1"),
-            model_name=local_preset.model_name if local_preset else _form_value(form, "local_model", "local-demo-model"),
-            api_key=_form_api_key(form, "local_api_key", existing_config.local.api_key),
-            timeout_seconds=local_preset.timeout_seconds if local_preset else float(_form_value(form, "local_timeout", "30.0")),
-            enabled=_form_checked(form, "local_enabled"),
-        ),
-        cloud=LLMHTTPConfig(
-            base_url=cloud_preset.base_url if cloud_preset else _form_value(form, "cloud_base_url", "https://api.openai.com/v1"),
-            model_name=cloud_preset.model_name if cloud_preset else _form_value(form, "cloud_model", "gpt-demo-model"),
-            api_key=_form_api_key(form, "cloud_api_key", existing_config.cloud.api_key),
-            timeout_seconds=cloud_preset.timeout_seconds if cloud_preset else float(_form_value(form, "cloud_timeout", "30.0")),
-            enabled=_form_checked(form, "cloud_enabled"),
-        ),
-        usage=LLMUsagePolicy(
-            runner_enabled=_form_checked(form, "runner_llm_enabled"),
-            runner_allowed_roles=["designer", "backend_engineer", "frontend_engineer", "tester"],
-            runner_allowed_kinds=[
-                "design_overview",
-                "ui_design",
-                "api_design",
-                "test_design",
-                "generic_implementation",
-                "api_implementation",
-                "data_implementation",
-                "ui_implementation",
-                "acceptance_check",
-                "automated_test",
-                "api_validation",
-                "ui_validation",
-            ],
-            preferred_backend=_form_value(form, "runner_preferred_backend", "cloud"),
-        ),
-        pricing=existing_config.pricing,
-    )
-    save_llm_runtime_config(config)
-    refresh_engine_llm_backend()
-    return RedirectResponse(url="/settings/llm?saved=1", status_code=303)
 
 
 @app.get("/api/todos")
@@ -1844,7 +1874,7 @@ def list_todos_api(
     query: str | None = None,
     q: str | None = None,
 ) -> JSONResponse:
-    """Return all to-do items."""
+    """Internal helper."""
     effective_query = q if q is not None else query
     todos = [item.to_dict() for item in get_todo_service(request).list_todos(status, effective_query)]
     return JSONResponse({"todos": todos})
@@ -1852,13 +1882,13 @@ def list_todos_api(
 
 @app.get("/api/todos/stats")
 def todo_stats_api(request: Request) -> JSONResponse:
-    """Return lightweight list statistics for the current session."""
+    """Internal helper."""
     return JSONResponse(get_todo_service(request).get_stats())
 
 
 @app.post("/api/todos", status_code=201)
 def create_todo_api(request: Request, payload: TodoCreateRequest) -> JSONResponse:
-    """Create one to-do item."""
+    """Internal helper."""
     try:
         todo = get_todo_service(request).create_todo(payload.title, payload.completed, payload.content)
     except ValueError as error:
@@ -1868,7 +1898,7 @@ def create_todo_api(request: Request, payload: TodoCreateRequest) -> JSONRespons
 
 @app.get("/api/todos/{todo_id}")
 def get_todo_api(request: Request, todo_id: str) -> JSONResponse:
-    """Fetch a to-do item by id."""
+    """Internal helper."""
     todo = get_todo_service(request).get_todo(todo_id)
     if todo is None:
         raise HTTPException(status_code=404, detail="todo not found")
@@ -1877,7 +1907,7 @@ def get_todo_api(request: Request, todo_id: str) -> JSONResponse:
 
 @app.patch("/api/todos/{todo_id}")
 def update_todo_api(request: Request, todo_id: str, payload: TodoUpdateRequest) -> JSONResponse:
-    """Update a to-do item."""
+    """Internal helper."""
     try:
         todo = get_todo_service(request).update_todo(
             todo_id,
@@ -1894,7 +1924,7 @@ def update_todo_api(request: Request, todo_id: str, payload: TodoUpdateRequest) 
 
 @app.delete("/api/todos/{todo_id}")
 def delete_todo_api(request: Request, todo_id: str) -> JSONResponse:
-    """Delete a to-do item."""
+    """Internal helper."""
     deleted = get_todo_service(request).delete_todo(todo_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="todo not found")
@@ -1902,7 +1932,7 @@ def delete_todo_api(request: Request, todo_id: str) -> JSONResponse:
 
 
 def _form_value(form: dict[str, list[str]], name: str, default: str) -> str:
-    """读取表单字符串值。"""
+    """Internal helper."""
     values = form.get(name)
     if not values or values[0] == "":
         return default
@@ -1910,11 +1940,11 @@ def _form_value(form: dict[str, list[str]], name: str, default: str) -> str:
 
 
 def _optional_form_value(form: dict[str, list[str]], name: str) -> str | None:
-    """读取可空表单字符串值。"""
+    """Internal helper."""
     value = _form_value(form, name, "")
     return value or None
 
 
 def _form_checked(form: dict[str, list[str]], name: str) -> bool:
-    """读取 checkbox 值。"""
+    """Internal helper."""
     return name in form

@@ -23,7 +23,7 @@ from conductor.board.models import (
 )
 from conductor.artifacts.scope_contract import evaluate_scope_contract
 from conductor.artifacts.store import ArtifactStore
-from conductor.domain.models import SharedProjectState
+from conductor.domain.models import ProjectStatus, SharedProjectState
 from conductor.delivery_readiness import evaluate_delivery_readiness
 from conductor.config.cli import CLISelectionConfig
 from conductor.config.llm import LLMRuntimeConfig
@@ -37,6 +37,7 @@ STAGE_LABELS = {
     "design": "设计",
     "development": "研发",
     "testing": "测试",
+    "completed": "交付",
     "-": "-",
 }
 
@@ -64,7 +65,6 @@ ROLE_LABELS = {
     "solution_designer": "方案设计",
     "designer": "产品/设计",
     "backend_engineer": "后端研发",
-    "frontend_engineer": "前端研发",
     "tester": "测试",
 }
 
@@ -73,7 +73,6 @@ AGENT_LABELS = {
     "agent-solution-designer": "方案设计 Agent",
     "agent-designer": "产品/设计 Agent",
     "agent-backend": "后端研发 Agent",
-    "agent-frontend": "前端研发 Agent",
     "agent-tester": "测试 Agent",
 }
 
@@ -82,14 +81,12 @@ ROLE_SHORT_LABELS = {
     "solution_designer": "SOL",
     "designer": "UX",
     "backend_engineer": "BE",
-    "frontend_engineer": "FE",
     "tester": "QA",
 }
 
 ROLE_POSITION_CLASSES = {
     "designer": "node-top-left",
     "backend_engineer": "node-top-right",
-    "frontend_engineer": "node-bottom-right",
     "tester": "node-bottom-left",
 }
 
@@ -98,17 +95,14 @@ WORKITEM_KIND_LABELS = {
     "frozen_requirement_spec": "冻结需求规格",
     "frozen_design_spec": "冻结设计规格",
     "design_overview": "总体设计",
-    "ui_design": "界面设计",
     "api_design": "接口设计",
     "test_design": "测试设计",
     "generic_implementation": "通用实现说明",
     "api_implementation": "后端接口说明",
     "data_implementation": "数据实现说明",
-    "ui_implementation": "前端实现说明",
     "acceptance_check": "验收检查",
     "automated_test": "自动化测试说明",
     "api_validation": "接口验证",
-    "ui_validation": "界面验证",
     "fail_once": "失败重试模拟",
     "collaboration_review": "多 Agent 协作评审",
 }
@@ -194,15 +188,15 @@ class BoardService:
         cli_config: CLISelectionConfig | None = None,
         llm_runtime_config: LLMRuntimeConfig | None = None,
     ) -> BoardSnapshot:
-        """构建页面展示快照。"""
+        """Build a board state snapshot."""
         current_stage = state.current_stage or "-"
+        display_stage = self._display_stage(state)
         project_status = state.project_status.value
         artifacts = self._build_artifact_views(state)
         code_execution_artifacts = [
             artifact
             for artifact in artifacts
-            if artifact.kind in {"api_implementation", "data_implementation", "generic_implementation", "ui_implementation"}
-            and artifact.source_backend.startswith("agent_cli/")
+            if artifact.source_backend.startswith("agent_cli/")
         ]
         task_center = TaskCenterService(_BoardStateStore(state))
         task_center_summary = task_center.summary(state)
@@ -233,6 +227,31 @@ class BoardService:
                 lease_expired=task_center.lease_expired(assignment),
                 stale_claimed=task_center.stale_claimed(assignment),
                 prompt_file=assignment.prompt_file,
+                claim_api_path=(
+                    f"/api/projects/{state.project.id}/tasks/{assignment.id}/claim"
+                    if task_center.claimable(state, assignment)
+                    else ""
+                ),
+                context_api_path=(
+                    f"/api/projects/{state.project.id}/tasks/{assignment.id}/context"
+                    "?include_content=false&max_content_chars=0"
+                ),
+                return_api_paths=(
+                    {
+                        "complete": f"/api/projects/{state.project.id}/tasks/{assignment.id}/complete",
+                        "fail": f"/api/projects/{state.project.id}/tasks/{assignment.id}/fail",
+                        "heartbeat": f"/api/projects/{state.project.id}/tasks/{assignment.id}/heartbeat",
+                        "release": f"/api/projects/{state.project.id}/tasks/{assignment.id}/release",
+                    }
+                    if assignment.status.value == "claimed"
+                    else (
+                        {
+                            "release": f"/api/projects/{state.project.id}/tasks/{assignment.id}/release",
+                        }
+                        if assignment.status.value == "failed"
+                        else {}
+                    )
+                ),
             )
             for assignment in state.task_assignments
         ]
@@ -245,7 +264,7 @@ class BoardService:
             project_status=project_status,
             project_status_label=PROJECT_STATUS_LABELS.get(project_status, project_status),
             current_stage=current_stage,
-            current_stage_label=label_stage(current_stage),
+            current_stage_label=label_stage(display_stage),
             planned_roles=state.planned_roles,
             planned_role_labels=[label_role(role) for role in state.planned_roles],
             blockers=state.blockers,
@@ -349,7 +368,7 @@ class BoardService:
                 status=state.project_status.value,
                 status_label=PROJECT_STATUS_LABELS.get(state.project_status.value, state.project_status.value),
                 current_stage=state.current_stage or "-",
-                current_stage_label=label_stage(state.current_stage or "-"),
+                current_stage_label=label_stage(self._display_stage(state)),
                 preflight_gate_status=preflight_gate.status,
                 preflight_gate_status_label=preflight_gate.status_label,
                 risk_level=run_audit.risk_level,
@@ -365,6 +384,12 @@ class BoardService:
             ))
         return summaries
 
+    def _display_stage(self, state: SharedProjectState) -> str:
+        """Return the Board-facing stage label source for lifecycle terminal states."""
+        if state.project_status == ProjectStatus.COMPLETED:
+            return "completed"
+        return state.current_stage or "-"
+
     def _build_human_control_view(self, state: SharedProjectState) -> BoardHumanControlView:
         """Build Board-facing human takeover status."""
         service = HumanControlService(_BoardStateStore(state))
@@ -373,7 +398,7 @@ class BoardService:
             return BoardHumanControlView(
                 available_actions=service.available_actions(state),
                 operator_guidance=service.operator_guidance(state),
-                operator_commands=service.operator_command_templates(state),
+                operator_commands=service.operator_command_snippets(state),
                 action_count=len(state.human_control_actions),
             )
         action = active.action.value
@@ -390,7 +415,7 @@ class BoardService:
             created_at=active.created_at,
             available_actions=service.available_actions(state),
             operator_guidance=service.operator_guidance(state),
-            operator_commands=service.operator_command_templates(state),
+            operator_commands=service.operator_command_snippets(state),
             action_count=len(state.human_control_actions),
         )
 
@@ -613,7 +638,7 @@ class BoardService:
             for item in state.workitems
             if item.retry_count > 0 or item.status.value == "failed" or bool(item.blocked_reason)
         ]
-        scope_status, scope_violation_count = self._scope_contract_status(state)
+        scope_status, scope_violation_count, scope_violations = self._scope_contract_status(state)
         delivery_readiness = evaluate_delivery_readiness(state)
         risk_level = self._risk_level(
             failed_count=len(failed_workitem_ids),
@@ -628,38 +653,49 @@ class BoardService:
             scope_contract_status=scope_status,
             scope_contract_status_label=self._scope_status_label(scope_status),
             scope_contract_violation_count=scope_violation_count,
+            scope_contract_violations=scope_violations,
             delivery_readiness_status=delivery_readiness.status,
             delivery_readiness_status_label=self._delivery_readiness_status_label(delivery_readiness.status),
             delivery_readiness_score=delivery_readiness.score,
             delivery_readiness_blocking_count=delivery_readiness.blocking_count,
             delivery_readiness_warning_count=delivery_readiness.warning_count,
+            delivery_readiness_checks=delivery_readiness.to_dict()["checks"],
             risk_level=risk_level,
             risk_level_label=self._risk_level_label(risk_level),
         )
 
-    def _scope_contract_status(self, state: SharedProjectState) -> tuple[str, int]:
+    def _scope_contract_status(self, state: SharedProjectState) -> tuple[str, int, list[dict[str, object]]]:
         """Return status and violation count for downstream scope-contract checks."""
         frozen_requirement = next(
             (artifact for artifact in reversed(state.artifacts) if artifact.kind == "frozen_requirement_spec"),
             None,
         )
         if frozen_requirement is None:
-            return "not_evaluated", 0
+            return "not_evaluated", 0, []
         artifact_store = ArtifactStore()
         checked = 0
-        violation_count = 0
+        violations: list[dict[str, object]] = []
         skipped_kinds = {"requirement_spec", "frozen_requirement_spec", "collaboration_review"}
         for artifact in state.artifacts:
             if artifact.kind in skipped_kinds:
                 continue
             checked += 1
             contract = evaluate_scope_contract(frozen_requirement, artifact_store.read_content(artifact))
-            violation_count += len(contract.violations)
+            for violation in contract.violations:
+                violations.append(
+                    {
+                        "artifact_id": artifact.id,
+                        "artifact_title": artifact.title,
+                        "rule_id": violation.rule_id,
+                        "label": violation.label,
+                        "evidence": violation.evidence,
+                    }
+                )
         if checked == 0:
-            return "not_evaluated", 0
-        if violation_count:
-            return "violation", violation_count
-        return "pass", 0
+            return "not_evaluated", 0, []
+        if violations:
+            return "violation", len(violations), violations
+        return "pass", 0, []
 
     def _scope_status_label(self, status: str) -> str:
         return {
@@ -698,6 +734,7 @@ class BoardService:
 
     def _build_artifact_views(self, state: SharedProjectState) -> list[BoardArtifactView]:
         """构建 Artifact 展示模型。"""
+        artifact_store = ArtifactStore()
         return [
             BoardArtifactView(
                 id=artifact.id,
@@ -707,13 +744,14 @@ class BoardService:
                 agent_id=artifact.agent_id,
                 agent_label=AGENT_LABELS.get(artifact.agent_id, artifact.agent_id),
                 workitem_id=artifact.workitem_id,
-                content=artifact.content,
+                content=artifact_store.read_content(artifact),
                 path=artifact.path or "-",
                 source_backend=artifact.source_backend,
                 source_backend_label=SOURCE_BACKEND_LABELS.get(artifact.source_backend, artifact.source_backend),
                 version=artifact.version,
                 parent_artifact_id=artifact.parent_artifact_id,
                 review_of=artifact.review_of,
+                detail_api_path=f"/api/projects/{state.project.id}/artifacts/{artifact.id}",
             )
             for artifact in state.artifacts
         ]
@@ -744,8 +782,8 @@ class BoardService:
                 )
                 for contribution in collaboration.contributions
             ]
-        agent_roles = ["requirement_designer", "solution_designer", "designer", "backend_engineer", "frontend_engineer", "tester"]
         active_role = self._infer_active_meeting_role(state)
+        agent_roles = ["requirement_designer", "designer", "backend_engineer", "tester"]
         agent_views = [
             BoardMeetingAgentView(
                 role=role,
@@ -758,6 +796,7 @@ class BoardService:
         ]
         return BoardDesignCollaborationView(
             enabled=bool(design_artifacts or collaboration or state.current_stage in {"requirement", "design"}),
+            status=collaboration.status.value if collaboration else "waiting",
             current_step_label=self._build_current_step_label(active_role, collaboration),
             status_label=(
                 COLLABORATION_STATUS_LABELS.get(collaboration.status.value, collaboration.status.value)
@@ -803,9 +842,7 @@ class BoardService:
             backend, cli_label = self._infer_backend_from_events(state, workitem.id)
             model_label = self._infer_model_label(cli_label, backend, cli_config, llm_runtime_config)
 
-        if workitem.kind in {"api_implementation", "data_implementation", "generic_implementation", "ui_implementation"}:
             execution_mode_label = "代码执行"
-        elif workitem.kind in {"automated_test", "api_validation", "ui_validation"}:
             execution_mode_label = "测试执行"
 
         stage_workitems = [item for item in state.workitems if item.stage == workitem.stage]
@@ -963,6 +1000,8 @@ class BoardService:
                         WORKITEM_KIND_LABELS.get(kind, kind)
                         for kind in activation.related_workitem_kinds
                     ],
+                    task_api_path=f"/api/projects/{state.project.id}/agents/{activation.agent_id}/tasks?claimable_only=true",
+                    claim_task_api_path=f"/api/projects/{state.project.id}/agents/{activation.agent_id}/claim-task",
                 )
                 for activation in state.agent_activations
             ]
@@ -991,6 +1030,8 @@ class BoardService:
                     mission=mission,
                     reason=reason,
                     related_kinds=kind_labels,
+                    task_api_path=f"/api/projects/{state.project.id}/agents/{agent_id}/tasks?claimable_only=true",
+                    claim_task_api_path=f"/api/projects/{state.project.id}/agents/{agent_id}/claim-task",
                 )
             )
         return agent_views
@@ -998,7 +1039,7 @@ class BoardService:
     def _build_activation_nodes(self, state: SharedProjectState) -> list[BoardActivationNodeView]:
         """构建按需激活 Agent 的环形节点视图。"""
         active_by_role = {agent.role: agent for agent in self._build_project_agents(state)}
-        ordered_roles = ["requirement_designer", "solution_designer", "designer", "backend_engineer", "frontend_engineer", "tester"]
+        ordered_roles = ["requirement_designer", "designer", "backend_engineer", "tester"]
         nodes: list[BoardActivationNodeView] = []
         for role in ordered_roles:
             active_agent = active_by_role.get(role)
@@ -1024,7 +1065,6 @@ class BoardService:
             "solution_designer": "从方案一致性、流程完整性和可验收性角度审查需求与设计。",
             "designer": "把自然语言需求转成结构化设计文档，并在协作评审后统一修订。",
             "backend_engineer": "从后端实现角度审阅需求和设计，并产出接口与数据结构说明。",
-            "frontend_engineer": "从前端交互与页面实现角度审阅设计，并产出页面结构说明。",
             "tester": "从可测试性和验收视角审阅文档，并产出测试计划与验收说明。",
         }.get(role, "参与当前项目流程。")
 
@@ -1032,13 +1072,11 @@ class BoardService:
         """根据 WorkItem kind 推断负责角色。"""
         if kind == "requirement_spec":
             return "requirement_designer"
-        if kind in {"design_overview", "feature_slice_plan", "ui_design", "api_design", "test_design"}:
+        if kind in {"design_overview", "feature_slice_plan", "api_design", "test_design"}:
             return "designer"
         if kind in {"api_implementation", "data_implementation", "generic_implementation"}:
             return "backend_engineer"
-        if kind == "ui_implementation":
-            return "frontend_engineer"
-        if kind in {"acceptance_check", "automated_test", "api_validation", "ui_validation"}:
+        if kind in {"acceptance_check", "automated_test", "api_validation"}:
             return "tester"
         return None
 
@@ -1049,7 +1087,6 @@ class BoardService:
             "solution_designer": "agent-solution-designer",
             "designer": "agent-designer",
             "backend_engineer": "agent-backend",
-            "frontend_engineer": "agent-frontend",
             "tester": "agent-tester",
         }.get(role, role)
 
@@ -1062,8 +1099,6 @@ class BoardService:
                 return "solution_designer"
             if "backend_engineer" in event or "agent-backend" in event:
                 return "backend_engineer"
-            if "frontend_engineer" in event or "agent-frontend" in event:
-                return "frontend_engineer"
             if "tester" in event or "agent-tester" in event:
                 return "tester"
             if "designer" in event or "agent-designer" in event or "lead=designer" in event:

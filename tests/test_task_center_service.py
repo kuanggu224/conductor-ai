@@ -88,7 +88,7 @@ def test_task_center_service_claim_batch_enforces_limit_and_audits_claims() -> N
         task_assignments=[
             TaskAssignment(id="assignment-a", workitem_id="workitem-a", role="backend_engineer"),
             TaskAssignment(id="assignment-b", workitem_id="workitem-b", role="backend_engineer"),
-            TaskAssignment(id="assignment-c", workitem_id="workitem-c", role="frontend_engineer"),
+            TaskAssignment(id="assignment-c", workitem_id="workitem-c", role="backend_engineer"),
         ],
     )
     store.save_state(state)
@@ -120,52 +120,52 @@ def test_task_center_service_claim_batch_enforces_limit_and_audits_claims() -> N
 def test_task_center_service_blocks_parallel_write_scope_conflicts() -> None:
     store = InMemoryStateStore()
     state = SharedProjectState(
-        project=Project(id="project-service", goal="Build frontend UI"),
+        project=Project(id="project-service", goal="Build backend API"),
         project_status=ProjectStatus.IN_PROGRESS,
         current_stage="development",
         workitems=[
-            WorkItem(id="workitem-layout-a", description="Implement layout A", stage="development", kind="ui_implementation"),
-            WorkItem(id="workitem-layout-b", description="Implement layout B", stage="development", kind="ui_implementation"),
+            WorkItem(id="workitem-layout-a", description="Implement layout A", stage="development", kind="api_implementation"),
+            WorkItem(id="workitem-layout-b", description="Implement layout B", stage="development", kind="api_implementation"),
         ],
         task_assignments=[
-            TaskAssignment(id="assignment-layout-a", workitem_id="workitem-layout-a", role="frontend_engineer"),
-            TaskAssignment(id="assignment-layout-b", workitem_id="workitem-layout-b", role="frontend_engineer"),
+            TaskAssignment(id="assignment-layout-a", workitem_id="workitem-layout-a", role="backend_engineer"),
+            TaskAssignment(id="assignment-layout-b", workitem_id="workitem-layout-b", role="backend_engineer"),
         ],
         agent_activations=[
             AgentActivation(
-                role="frontend_engineer",
-                agent_id="agent-frontend-layout-a",
+                role="backend_engineer",
+                agent_id="agent-backend-layout-a",
                 stage="development",
                 reason="layout scope",
-                related_workitem_kinds=["ui_implementation"],
+                related_workitem_kinds=["api_implementation"],
                 dynamic=True,
                 parallel_safe=True,
-                write_scope=["frontend layout files"],
+                write_scope=["backend layout files"],
             ),
             AgentActivation(
-                role="frontend_engineer",
-                agent_id="agent-frontend-layout-b",
+                role="backend_engineer",
+                agent_id="agent-backend-layout-b",
                 stage="development",
                 reason="layout scope",
-                related_workitem_kinds=["ui_implementation"],
+                related_workitem_kinds=["api_implementation"],
                 dynamic=True,
                 parallel_safe=True,
-                write_scope=["frontend layout files"],
+                write_scope=["backend layout files"],
             ),
         ],
     )
     store.save_state(state)
     service = TaskCenterService(store)
 
-    first = service.claim("project-service", "assignment-layout-a", agent_id="agent-frontend-layout-a")
+    first = service.claim("project-service", "assignment-layout-a", agent_id="agent-backend-layout-a")
     latest = first.state
     second = next(item for item in latest.task_assignments if item.id == "assignment-layout-b")
 
-    assert service.write_scope_conflicts(latest, second, agent_id="agent-frontend-layout-b") == ["assignment-layout-a"]
-    assert service.claimable(latest, second, agent_id="agent-frontend-layout-b") is False
+    assert service.write_scope_conflicts(latest, second, agent_id="agent-backend-layout-b") == ["assignment-layout-a"]
+    assert service.claimable(latest, second, agent_id="agent-backend-layout-b") is False
     assert service.summary(latest)["blocked_by_write_scope"] == 1
     try:
-        service.claim("project-service", "assignment-layout-b", agent_id="agent-frontend-layout-b")
+        service.claim("project-service", "assignment-layout-b", agent_id="agent-backend-layout-b")
     except TaskCenterError as error:
         assert "write scope conflicts" in str(error)
         assert "assignment-layout-a" in str(error)
@@ -176,26 +176,26 @@ def test_task_center_service_blocks_parallel_write_scope_conflicts() -> None:
 def test_task_context_exposes_parallel_protocol_for_dynamic_agents() -> None:
     store = InMemoryStateStore()
     state = SharedProjectState(
-        project=Project(id="project-parallel-protocol", goal="Build parallel UI", current_stage="development"),
+        project=Project(id="project-parallel-protocol", goal="Build parallel API", current_stage="development"),
         project_status=ProjectStatus.IN_PROGRESS,
         current_stage="development",
         workitems=[
-            WorkItem(id="workitem-ui", description="Implement UI layout", stage="development", kind="ui_implementation"),
+            WorkItem(id="workitem-api", description="Implement API layout", stage="development", kind="api_implementation"),
         ],
         task_assignments=[
-            TaskAssignment(id="assignment-ui", workitem_id="workitem-ui", role="frontend_engineer"),
+            TaskAssignment(id="assignment-api", workitem_id="workitem-api", role="backend_engineer"),
         ],
         agent_activations=[
             AgentActivation(
-                role="frontend_engineer",
-                agent_id="agent-frontend-layout",
+                role="backend_engineer",
+                agent_id="agent-backend-layout",
                 stage="development",
-                reason="parallel UI lane",
-                related_workitem_kinds=["ui_implementation"],
+                reason="parallel API lane",
+                related_workitem_kinds=["api_implementation"],
                 instance_id="ui_layout",
                 dynamic=True,
                 parallel_safe=True,
-                write_scope=["templates"],
+                write_scope=["api modules"],
             )
         ],
         agent_team_plans=[
@@ -207,16 +207,16 @@ def test_task_context_exposes_parallel_protocol_for_dynamic_agents() -> None:
                 complexity_level="standard",
                 agent_specs=[
                     DynamicAgentSpec(
-                        role="frontend_engineer",
-                        agent_id="agent-frontend-layout",
+                        role="backend_engineer",
+                        agent_id="agent-backend-layout",
                         instance_id="ui_layout",
                         stage="development",
                         mission="Implement layout",
-                        reason="parallel UI lane",
-                        scope="templates",
+                        reason="parallel API lane",
+                        scope="api modules",
                         collaboration_mode="parallel_development",
                         parallel_safe=True,
-                        write_scope=["templates"],
+                        write_scope=["api modules"],
                     )
                 ],
                 parallel_protocol={
@@ -224,15 +224,15 @@ def test_task_context_exposes_parallel_protocol_for_dynamic_agents() -> None:
                     "stage": "development",
                     "lanes": [
                         {
-                            "agent_id": "agent-frontend-layout",
-                            "role": "frontend_engineer",
+                            "agent_id": "agent-backend-layout",
+                            "role": "backend_engineer",
                             "instance_id": "ui_layout",
-                            "write_scope": ["templates"],
+                            "write_scope": ["api modules"],
                             "handoff_required": True,
                         }
                     ],
-                    "merge_order": ["agent-frontend-layout"],
-                    "integration_owner": "agent-frontend-layout",
+                    "merge_order": ["agent-backend-layout"],
+                    "integration_owner": "agent-backend-layout",
                     "shared_contracts": ["Claim before editing"],
                     "validation_gates": ["write scopes are disjoint"],
                 },
@@ -242,14 +242,14 @@ def test_task_context_exposes_parallel_protocol_for_dynamic_agents() -> None:
     store.save_state(state)
     service = TaskCenterService(store)
 
-    payload = TaskContextBuilder().build(state, "assignment-ui", service=service)
+    payload = TaskContextBuilder().build(state, "assignment-api", service=service)
 
     assert payload["parallel_protocol"]["enabled"] is True
-    assert payload["parallel_protocol"]["integration_owner"] == "agent-frontend-layout"
-    assert payload["parallel_protocol"]["matching_lanes"][0]["agent_id"] == "agent-frontend-layout"
+    assert payload["parallel_protocol"]["integration_owner"] == "agent-backend-layout"
+    assert payload["parallel_protocol"]["matching_lanes"][0]["agent_id"] == "agent-backend-layout"
     activation = payload["eligible_agent_activations"][0]
     assert activation["parallel_protocol"]["merge_order_index"] == 0
-    assert activation["parallel_lane"]["write_scope"] == ["templates"]
+    assert activation["parallel_lane"]["write_scope"] == ["api modules"]
     assert "Parallel Development Protocol" in payload["execution_brief"]
     assert "Claim before editing" in payload["execution_brief"]
 
@@ -257,7 +257,7 @@ def test_task_context_exposes_parallel_protocol_for_dynamic_agents() -> None:
 def test_task_center_audit_flags_claimed_write_scope_conflicts() -> None:
     store = InMemoryStateStore()
     state = SharedProjectState(
-        project=Project(id="project-service", goal="Build frontend UI"),
+        project=Project(id="project-service", goal="Build backend API"),
         project_status=ProjectStatus.IN_PROGRESS,
         current_stage="development",
         workitems=[
@@ -265,14 +265,14 @@ def test_task_center_audit_flags_claimed_write_scope_conflicts() -> None:
                 id="workitem-layout-a",
                 description="Implement layout A",
                 stage="development",
-                kind="ui_implementation",
+                kind="api_implementation",
                 status=WorkItemStatus.RUNNING,
             ),
             WorkItem(
                 id="workitem-layout-b",
                 description="Implement layout B",
                 stage="development",
-                kind="ui_implementation",
+                kind="api_implementation",
                 status=WorkItemStatus.RUNNING,
             ),
         ],
@@ -280,9 +280,9 @@ def test_task_center_audit_flags_claimed_write_scope_conflicts() -> None:
             TaskAssignment(
                 id="assignment-layout-a",
                 workitem_id="workitem-layout-a",
-                role="frontend_engineer",
+                role="backend_engineer",
                 status=TaskAssignmentStatus.CLAIMED,
-                assigned_agent_id="agent-frontend-layout-a",
+                assigned_agent_id="agent-backend-layout-a",
                 claim_token="token-a",
                 claimed_at="2026-05-20T00:00:00+00:00",
                 last_heartbeat_at="2026-05-20T00:00:00+00:00",
@@ -290,9 +290,9 @@ def test_task_center_audit_flags_claimed_write_scope_conflicts() -> None:
             TaskAssignment(
                 id="assignment-layout-b",
                 workitem_id="workitem-layout-b",
-                role="frontend_engineer",
+                role="backend_engineer",
                 status=TaskAssignmentStatus.CLAIMED,
-                assigned_agent_id="agent-frontend-layout-b",
+                assigned_agent_id="agent-backend-layout-b",
                 claim_token="token-b",
                 claimed_at="2026-05-20T00:00:00+00:00",
                 last_heartbeat_at="2026-05-20T00:00:00+00:00",
@@ -300,21 +300,21 @@ def test_task_center_audit_flags_claimed_write_scope_conflicts() -> None:
         ],
         agent_activations=[
             AgentActivation(
-                role="frontend_engineer",
-                agent_id="agent-frontend-layout-a",
+                role="backend_engineer",
+                agent_id="agent-backend-layout-a",
                 stage="development",
                 reason="layout scope",
-                related_workitem_kinds=["ui_implementation"],
+                related_workitem_kinds=["api_implementation"],
                 dynamic=True,
                 parallel_safe=True,
                 write_scope=["index.html"],
             ),
             AgentActivation(
-                role="frontend_engineer",
-                agent_id="agent-frontend-layout-b",
+                role="backend_engineer",
+                agent_id="agent-backend-layout-b",
                 stage="development",
                 reason="layout scope",
-                related_workitem_kinds=["ui_implementation"],
+                related_workitem_kinds=["api_implementation"],
                 dynamic=True,
                 parallel_safe=True,
                 write_scope=["index.html"],

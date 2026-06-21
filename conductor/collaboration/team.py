@@ -27,7 +27,6 @@ class RequirementTeamPlan:
 
 
 FEATURE_RULES: tuple[tuple[str, tuple[str, ...], str], ...] = (
-    ("ui", ("ui", "frontend", "page", "screen", "form", "\u9875\u9762", "\u524d\u7aef", "\u754c\u9762", "\u4ea4\u4e92", "\u8868\u5355"), "user interaction and visible states"),
     ("data", ("data", "schema", "field", "storage", "database", "\u6570\u636e", "\u5b57\u6bb5", "\u5b58\u50a8", "\u6301\u4e45\u5316"), "data model and persistence boundaries"),
     ("api", ("api", "http", "endpoint", "request", "response", "\u63a5\u53e3", "\u8bf7\u6c42", "\u54cd\u5e94", "\u540e\u7aef"), "API contracts and integration boundaries"),
     ("workflow", ("workflow", "approve", "reject", "submit", "transition", "\u6d41\u7a0b", "\u5ba1\u6279", "\u63d0\u4ea4", "\u6d41\u8f6c"), "business process and state transitions"),
@@ -57,15 +56,6 @@ def plan_requirement_review_team(
     peer_seats = [_base_seat(role, "design_peer_review") for role in peer_roles]
     functional_seats = [_base_seat(role, "cross_functional_review") for role in functional_roles]
 
-    if "ui" in features:
-        peer_seats.append(
-            ReviewSeat(
-                role="designer",
-                seat_id="designer.interaction",
-                phase="design_peer_review",
-                focus="Review interaction paths, empty/loading/error states, and screen-level acceptance criteria.",
-            )
-        )
     if {"data", "export"} & features:
         peer_seats.append(
             ReviewSeat(
@@ -102,13 +92,13 @@ def plan_requirement_review_team(
                 focus="Review API/data contracts, persistence impact, failure modes, and backend acceptance signals.",
             )
         )
-    if "ui" in features:
+    if {"data", "workflow", "roles"} <= features:
         functional_seats.append(
             ReviewSeat(
-                role="frontend_engineer",
-                seat_id="frontend_engineer.states",
+                role="backend_engineer",
+                seat_id="backend_engineer.states",
                 phase="cross_functional_review",
-                focus="Review UI states, interaction feedback, validation display, and responsive acceptance details.",
+                focus="Review backend state transitions, persisted status fields, and actor-specific data access.",
             )
         )
     if {"validation", "workflow", "export"} & features:
@@ -143,7 +133,7 @@ def _complexity_score(requirement: str, features: set[str]) -> int:
         score += 1
     if {"workflow", "roles"} <= features:
         score += 1
-    if {"api", "data", "ui"} <= features:
+    if {"api", "data"} <= features:
         score += 1
     return score
 

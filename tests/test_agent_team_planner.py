@@ -6,34 +6,34 @@ from conductor.controller.tl_agent import TechnicalLeadAgent
 from conductor.domain.models import AgentCapabilityStats, Project, ProjectStatus, SharedProjectState, WorkItem, WorkItemStatus
 
 
-def test_agent_team_planner_generates_same_role_frontend_instances() -> None:
+def test_agent_team_planner_generates_same_role_backend_instances() -> None:
     planner = AgentTeamPlanner()
     state = SharedProjectState(
-        project=Project(id="project-team", goal="Build a UI page with form validation", current_stage="development"),
+        project=Project(id="project-team", goal="Build a API page with form validation", current_stage="development"),
         project_status=ProjectStatus.IN_PROGRESS,
         current_stage="development",
         workitems=[
             WorkItem(
-                id="workitem-ui",
-                description="Implement frontend page, interactions, validation, and local state.",
+                id="workitem-api",
+                description="Implement backend page, interactions, validation, and local state.",
                 stage="development",
-                kind="ui_implementation",
+                kind="api_implementation",
             )
         ],
     )
 
     plan = planner.plan(state)
 
-    frontend_specs = [spec for spec in plan.agent_specs if spec.role == "frontend_engineer"]
+    backend_specs = [spec for spec in plan.agent_specs if spec.role == "backend_engineer"]
     assert plan.stage == "development"
-    assert len(frontend_specs) == 2
-    assert {spec.instance_id for spec in frontend_specs} == {"ui_layout", "state_logic"}
-    assert all(spec.parallel_safe for spec in frontend_specs)
-    assert all(spec.write_scope for spec in frontend_specs)
-    assert all(spec.collaboration_mode == "parallel_development" for spec in frontend_specs)
+    assert len(backend_specs) == 2
+    assert {spec.instance_id for spec in backend_specs} == {"api_contracts", "data_model"}
+    assert all(spec.parallel_safe for spec in backend_specs)
+    assert all(spec.write_scope for spec in backend_specs)
+    assert all(spec.collaboration_mode == "parallel_development" for spec in backend_specs)
     assert plan.parallel_protocol["enabled"] is True
     assert len(plan.parallel_protocol["lanes"]) == 2
-    assert plan.parallel_protocol["merge_order"] == [spec.agent_id for spec in frontend_specs]
+    assert plan.parallel_protocol["merge_order"] == [spec.agent_id for spec in backend_specs]
     assert "Each lane must claim through Task Center before editing." in plan.parallel_protocol["shared_contracts"]
     assert plan.global_strategy["posture"] == "expand_parallel"
     assert plan.global_strategy["parallel_lane_count"] == 2
@@ -42,7 +42,7 @@ def test_agent_team_planner_generates_same_role_frontend_instances() -> None:
 def test_agent_team_planner_generates_testing_peer_instances() -> None:
     planner = AgentTeamPlanner()
     state = SharedProjectState(
-        project=Project(id="project-test-team", goal="Validate UI errors and acceptance", current_stage="testing"),
+        project=Project(id="project-test-team", goal="Validate API errors and acceptance", current_stage="testing"),
         project_status=ProjectStatus.IN_PROGRESS,
         current_stage="testing",
         workitems=[
@@ -65,16 +65,16 @@ def test_agent_team_planner_generates_testing_peer_instances() -> None:
 def test_agent_team_planner_stage_scopes_planning_agent_ids() -> None:
     planner = AgentTeamPlanner()
     requirement_state = SharedProjectState(
-        project=Project(id="project-req-team", goal="Build a UI form with CSV export", current_stage="requirement"),
+        project=Project(id="project-req-team", goal="Build a API form with CSV export", current_stage="requirement"),
         project_status=ProjectStatus.IN_PROGRESS,
         current_stage="requirement",
-        workitems=[WorkItem(id="workitem-req", description="UI form with CSV export", stage="requirement", kind="requirement_spec")],
+        workitems=[WorkItem(id="workitem-req", description="API form with CSV export", stage="requirement", kind="requirement_spec")],
     )
     design_state = SharedProjectState(
-        project=Project(id="project-design-team", goal="Build a UI form with CSV export", current_stage="design"),
+        project=Project(id="project-design-team", goal="Build a API form with CSV export", current_stage="design"),
         project_status=ProjectStatus.IN_PROGRESS,
         current_stage="design",
-        workitems=[WorkItem(id="workitem-design", description="UI form with CSV export", stage="design", kind="design_overview")],
+        workitems=[WorkItem(id="workitem-design", description="API form with CSV export", stage="design", kind="design_overview")],
     )
 
     requirement_ids = {spec.agent_id for spec in planner.plan(requirement_state).agent_specs}
@@ -111,20 +111,20 @@ def test_agent_team_planner_keeps_simple_acceptance_check_linear() -> None:
 def test_agent_registry_registers_dynamic_agent_instance() -> None:
     registry = AgentRegistry()
     planner = AgentTeamPlanner()
-    base_profile = registry.get_profile_by_role("frontend_engineer")
+    base_profile = registry.get_profile_by_role("backend_engineer")
     state = SharedProjectState(
-        project=Project(id="project-registry", goal="Build frontend UI", current_stage="development"),
+        project=Project(id="project-registry", goal="Build backend API", current_stage="development"),
         project_status=ProjectStatus.IN_PROGRESS,
         current_stage="development",
-        workitems=[WorkItem(id="workitem-ui", description="UI", stage="development", kind="ui_implementation")],
+        workitems=[WorkItem(id="workitem-api", description="API", stage="development", kind="api_implementation")],
     )
-    spec = next(spec for spec in planner.plan(state).agent_specs if spec.instance_id == "ui_layout")
+    spec = next(spec for spec in planner.plan(state).agent_specs if spec.instance_id == "api_contracts")
     profile = planner.profile_for_spec(base_profile, spec)
 
     agent = registry.register_dynamic_agent(profile, agent_id=spec.agent_id, base_role=spec.role)
 
-    assert agent.id == "agent-frontend-engineer-ui-layout"
-    assert agent.role == "frontend_engineer"
+    assert agent.id == "agent-backend-engineer-api-contracts"
+    assert agent.role == "backend_engineer"
     assert registry.get_agent_by_id(agent.id) is agent
     assert agent.profile is profile
 
@@ -133,11 +133,11 @@ def test_tl_agent_owns_dynamic_team_plan_decision() -> None:
     planner = AgentTeamPlanner()
     tl_agent = TechnicalLeadAgent()
     state = SharedProjectState(
-        project=Project(id="project-tl-team", goal="Build an API and UI page with data storage.", current_stage="development"),
+        project=Project(id="project-tl-team", goal="Build an API and API page with data storage.", current_stage="development"),
         project_status=ProjectStatus.IN_PROGRESS,
         current_stage="development",
         workitems=[
-            WorkItem(id="workitem-ui", description="Implement UI page.", stage="development", kind="ui_implementation"),
+            WorkItem(id="workitem-api", description="Implement API page.", stage="development", kind="api_implementation"),
             WorkItem(id="workitem-api", description="Implement API and data model.", stage="development", kind="api_implementation"),
         ],
     )
@@ -152,8 +152,8 @@ def test_tl_agent_owns_dynamic_team_plan_decision() -> None:
     assert plan.global_strategy["recommended_next_action"] == "claim_lanes_then_integrate"
     assert plan.parallel_protocol["enabled"] is True
     assert plan.parallel_protocol["integration_owner"]
-    assert plan.parallel_protocol["guard_lanes"]
-    assert any(spec.role == "frontend_engineer" for spec in plan.agent_specs)
+    assert plan.parallel_protocol["guard_lanes"] == []
+    assert any(spec.role == "backend_engineer" for spec in plan.agent_specs)
     assert any(spec.role == "backend_engineer" for spec in plan.agent_specs)
 
 
@@ -173,23 +173,23 @@ def test_tl_agent_marks_escalation_as_human_action_required() -> None:
     assert decision.strategy["recommended_next_action"] == "wait_for_human_control"
 
 
-def test_tl_agent_adds_integration_contract_guard_for_parallel_frontend_backend_work() -> None:
+def test_tl_agent_adds_integration_contract_guard_for_parallel_backend_backend_work() -> None:
     planner = AgentTeamPlanner()
     tl_agent = TechnicalLeadAgent()
     state = SharedProjectState(
         project=Project(
             id="project-tl-integration",
-            goal="Build a UI, API, data storage, validation, and shared contract.",
+            goal="Build a API, API, data storage, validation, and shared contract.",
             current_stage="development",
         ),
         project_status=ProjectStatus.IN_PROGRESS,
         current_stage="development",
         workitems=[
             WorkItem(
-                id="workitem-ui",
-                description="Implement frontend UI with validation and API data flow.",
+                id="workitem-api",
+                description="Implement backend API with validation and API data flow.",
                 stage="development",
-                kind="ui_implementation",
+                kind="api_implementation",
             ),
             WorkItem(
                 id="workitem-api",
@@ -203,16 +203,11 @@ def test_tl_agent_adds_integration_contract_guard_for_parallel_frontend_backend_
     plan = tl_agent.plan_agent_team(state, planner)
 
     assert plan.decision_source == "tl_agent"
-    assert "integration_risk=1" in plan.decision_summary
-    assert plan.global_strategy["risk_drivers"] == ["integration_contract"]
-    guard = next(spec for spec in plan.agent_specs if spec.instance_id == "integration_contract_guard")
-    assert guard.role == "solution_designer"
-    assert guard.collaboration_mode == "sequential_review"
-    assert guard.workitem_kinds == ["ui_implementation", "api_implementation"]
-    assert "API contracts" in guard.scope
-    assert plan.parallel_protocol["integration_owner"] == guard.agent_id
-    assert "Frontend/backend changes must pass integration contract review before final validation." in plan.parallel_protocol["shared_contracts"]
-    assert any("integration contract guard" in reason for reason in plan.reasons)
+    assert "integration_risk=0" in plan.decision_summary
+    assert plan.global_strategy["risk_drivers"] == []
+    assert all(spec.instance_id != "integration_contract_guard" for spec in plan.agent_specs)
+    assert plan.parallel_protocol["integration_owner"]
+    assert "Backend/backend changes must pass integration contract review before final validation." not in plan.parallel_protocol["shared_contracts"]
 
 
 def test_tl_agent_adds_feature_slice_delivery_guard() -> None:
@@ -278,24 +273,24 @@ def test_tl_agent_uses_agent_history_to_add_quality_review() -> None:
     planner = AgentTeamPlanner()
     tl_agent = TechnicalLeadAgent()
     state = SharedProjectState(
-        project=Project(id="project-tl-history", goal="Build UI and API implementation.", current_stage="development"),
+        project=Project(id="project-tl-history", goal="Build API and API implementation.", current_stage="development"),
         project_status=ProjectStatus.IN_PROGRESS,
         current_stage="development",
         workitems=[
             WorkItem(
-                id="workitem-ui",
-                description="Implement UI page.",
+                id="workitem-api",
+                description="Implement API page.",
                 stage="development",
-                kind="ui_implementation",
+                kind="api_implementation",
             )
         ],
         agent_capability_stats=[
             AgentCapabilityStats(
-                agent_id="agent-frontend",
-                role="frontend_engineer",
+                agent_id="agent-backend",
+                role="backend_engineer",
                 completed_count=1,
                 failed_count=3,
-                workitem_kinds=["ui_implementation"],
+                workitem_kinds=["api_implementation"],
                 last_workitem_id="workitem-prior",
                 last_status="failed",
             )
@@ -306,31 +301,31 @@ def test_tl_agent_uses_agent_history_to_add_quality_review() -> None:
 
     assert plan.decision_source == "tl_agent"
     assert "history_risks=1" in plan.decision_summary
-    assert plan.complexity_level == "complex"
+    assert plan.complexity_level == "standard"
     assert any(spec.role == "tester" and spec.instance_id == "history_quality_review" for spec in plan.agent_specs)
-    assert any("weak historical performance for frontend_engineer" in reason for reason in plan.reasons)
+    assert any("weak historical performance for backend_engineer" in reason for reason in plan.reasons)
 
 
 def test_tl_agent_adds_rework_acceptance_guard_for_missing_checklist_evidence() -> None:
     planner = AgentTeamPlanner()
     tl_agent = TechnicalLeadAgent()
     state = SharedProjectState(
-        project=Project(id="project-tl-rework", goal="Fix reading list UI rework.", current_stage="development"),
+        project=Project(id="project-tl-rework", goal="Fix reading list API rework.", current_stage="development"),
         project_status=ProjectStatus.IN_PROGRESS,
         current_stage="development",
         workitems=[
             WorkItem(
                 id="workitem-rework",
-                description="Fix UI rework from failed validation.",
+                description="Fix API rework from failed validation.",
                 stage="development",
-                kind="ui_implementation",
-                feedback_from=["workitem-ui-test"],
-                rework_of="workitem-ui",
+                kind="api_implementation",
+                feedback_from=["workitem-api-test"],
+                rework_of="workitem-api",
                 acceptance_criteria=[
-                    "修复测试反馈 workitem-ui-test",
+                    "修复测试反馈 workitem-api-test",
                     (
                         "Address missing testing checklist `add_item` add item interaction: "
-                        "produce evidence browser form interaction updated visible state"
+                        "produce evidence api client form interaction updated visible state"
                     ),
                 ],
             )
@@ -345,7 +340,7 @@ def test_tl_agent_adds_rework_acceptance_guard_for_missing_checklist_evidence() 
     guard = next(spec for spec in plan.agent_specs if spec.instance_id == "rework_acceptance_guard")
     assert guard.role == "tester"
     assert guard.collaboration_mode == "sequential_review"
-    assert guard.workitem_kinds == ["ui_implementation"]
+    assert guard.workitem_kinds == ["api_implementation"]
     assert any("missing checklist evidence targets: workitem-rework" in reason for reason in plan.reasons)
 
 

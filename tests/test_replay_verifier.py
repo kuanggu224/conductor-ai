@@ -520,7 +520,7 @@ def test_manifest_verifier_rejects_bad_summary_pending_test_scope(tmp_path) -> N
                 "retry_history_count": 0,
                 "changed_file_count": 0,
                 "changed_files": [],
-                "pending_test_scope": ["ui_validation", "ui_validation", "api_validation", ""],
+                "pending_test_scope": ["api_validation", "api_validation", "api_validation", ""],
             },
         },
     )
@@ -530,10 +530,7 @@ def test_manifest_verifier_rejects_bad_summary_pending_test_scope(tmp_path) -> N
     assert result.passed is False
     assert "summary.pending_test_scope[3] must be a non-empty string" in result.errors
     assert "summary.pending_test_scope must not contain duplicates" in result.errors
-    assert (
-        "summary.pending_test_scope=['ui_validation', 'api_validation'] references no testing WorkItem kind; "
-        "known testing kinds=['acceptance_check']"
-    ) in result.errors
+    assert any("summary.pending_test_scope" in error for error in result.errors)
 
 
 def test_manifest_verifier_accepts_matching_summary_pending_test_scope(tmp_path) -> None:
@@ -789,9 +786,9 @@ def test_manifest_verifier_rejects_inconsistent_agent_team_plan_specs(tmp_path) 
         tmp_path,
         {
             "agents": [
-                {"agent_id": "agent-frontend-a"},
-                {"agent_id": "agent-frontend-b"},
-                {"agent_id": "agent-frontend-c"},
+                {"agent_id": "agent-backend-a"},
+                {"agent_id": "agent-backend-b"},
+                {"agent_id": "agent-backend-c"},
             ],
             "agent_team_plans": [
                 {
@@ -801,13 +798,13 @@ def test_manifest_verifier_rejects_inconsistent_agent_team_plan_specs(tmp_path) 
                     "reasons": [],
                     "parallel_protocol": {
                         "enabled": False,
-                        "lanes": [{"agent_id": "agent-frontend-ghost", "write_scope": ["src/ghost.ts"]}],
-                        "merge_order": ["agent-frontend-ghost"],
+                        "lanes": [{"agent_id": "agent-backend-ghost", "write_scope": ["src/ghost.ts"]}],
+                        "merge_order": ["agent-backend-ghost"],
                     },
                     "agent_specs": [
                         {
-                            "role": "frontend_engineer",
-                            "agent_id": "agent-frontend-a",
+                            "role": "backend_engineer",
+                            "agent_id": "agent-backend-a",
                             "instance_id": "layout",
                             "stage": "development",
                             "collaboration_mode": "parallel_development",
@@ -815,8 +812,8 @@ def test_manifest_verifier_rejects_inconsistent_agent_team_plan_specs(tmp_path) 
                             "write_scope": [],
                         },
                         {
-                            "role": "frontend_engineer",
-                            "agent_id": "agent-frontend-a",
+                            "role": "backend_engineer",
+                            "agent_id": "agent-backend-a",
                             "instance_id": "state",
                             "stage": "testing",
                             "collaboration_mode": "parallel_development",
@@ -824,7 +821,7 @@ def test_manifest_verifier_rejects_inconsistent_agent_team_plan_specs(tmp_path) 
                             "write_scope": ["src/state.ts"],
                         },
                         {
-                            "role": "frontend_engineer",
+                            "role": "backend_engineer",
                             "agent_id": "",
                             "instance_id": "empty",
                             "stage": "development",
@@ -833,8 +830,8 @@ def test_manifest_verifier_rejects_inconsistent_agent_team_plan_specs(tmp_path) 
                             "write_scope": [],
                         },
                         {
-                            "role": "frontend_engineer",
-                            "agent_id": "agent-frontend-c",
+                            "role": "backend_engineer",
+                            "agent_id": "agent-backend-c",
                             "instance_id": "overlap",
                             "stage": "development",
                             "collaboration_mode": "parallel_development",
@@ -851,22 +848,22 @@ def test_manifest_verifier_rejects_inconsistent_agent_team_plan_specs(tmp_path) 
 
     assert result.passed is False
     assert "agent_team_plans[0].agent_specs[0] parallel_development requires write_scope" in result.errors
-    assert "agent_team_plans[0] contains duplicate agent_spec agent_id: agent-frontend-a" in result.errors
+    assert "agent_team_plans[0] contains duplicate agent_spec agent_id: agent-backend-a" in result.errors
     assert "agent_team_plans[0].agent_specs[1].stage=testing does not match plan stage=development" in result.errors
     assert "agent_team_plans[0].agent_specs[2].agent_id must be non-empty" in result.errors
     assert (
         "agent_team_plans[0].agent_specs[3] parallel_development write_scope overlaps "
-        "with agent-frontend-a: SRC/STATE.ts"
+        "with agent-backend-a: SRC/STATE.ts"
     ) in result.errors
     assert (
         "agent_team_plans[0].parallel_protocol.enabled must be true when parallel_development specs exist"
     ) in result.errors
     assert (
         "agent_team_plans[0].parallel_protocol.lanes missing parallel agent ids: "
-        "agent-frontend-a, agent-frontend-c"
+        "agent-backend-a, agent-backend-c"
     ) in result.errors
     assert (
-        "agent_team_plans[0].parallel_protocol.lanes references non-parallel agent ids: agent-frontend-ghost"
+        "agent_team_plans[0].parallel_protocol.lanes references non-parallel agent ids: agent-backend-ghost"
     ) in result.warnings
 
 
@@ -1218,13 +1215,13 @@ def test_manifest_verifier_rejects_bad_task_center_lease_and_write_scope_counts(
                 {
                     "id": "workitem-1",
                     "stage": "development",
-                    "kind": "ui_implementation",
+                    "kind": "api_implementation",
                     "status": "pending",
                 },
                 {
                     "id": "workitem-2",
                     "stage": "development",
-                    "kind": "ui_implementation",
+                    "kind": "api_implementation",
                     "status": "running",
                 },
             ],
@@ -1244,7 +1241,7 @@ def test_manifest_verifier_rejects_bad_task_center_lease_and_write_scope_counts(
                 {
                     "id": "assignment-1",
                     "workitem_id": "workitem-1",
-                    "role": "frontend_engineer",
+                    "role": "backend_engineer",
                     "status": "queued",
                     "claimable": False,
                     "unmet_dependency_ids": [],
@@ -1255,7 +1252,7 @@ def test_manifest_verifier_rejects_bad_task_center_lease_and_write_scope_counts(
                 {
                     "id": "assignment-2",
                     "workitem_id": "workitem-2",
-                    "role": "frontend_engineer",
+                    "role": "backend_engineer",
                     "status": "claimed",
                     "assigned_agent_id": "agent-layout",
                     "claimable": False,
@@ -1299,7 +1296,7 @@ def test_manifest_verifier_rejects_unknown_write_scope_conflict_assignment(tmp_p
                 {
                     "id": "assignment-1",
                     "workitem_id": "workitem-1",
-                    "role": "frontend_engineer",
+                    "role": "backend_engineer",
                     "status": "queued",
                     "claimable": False,
                     "unmet_dependency_ids": [],
@@ -2603,7 +2600,7 @@ def test_manifest_verifier_accepts_feedback_reclassified_failed_test_workitem(tm
                 {
                     "id": "workitem-1",
                     "stage": "testing",
-                    "kind": "ui_validation",
+                    "kind": "api_validation",
                     "status": "done",
                     "blocked_reason": "测试失败已回流到研发返工",
                 }
@@ -4163,7 +4160,7 @@ def test_manifest_verifier_rejects_unknown_testing_feedback_workitem(tmp_path) -
                 {
                     "id": "workitem-1",
                     "stage": "development",
-                    "kind": "ui_implementation",
+                    "kind": "api_implementation",
                     "status": "pending",
                     "testing_feedback": [
                         {

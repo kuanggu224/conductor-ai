@@ -27,7 +27,6 @@ AGENT_CLI_TOOLS: list[tuple[str, str]] = [
 ROLE_LABELS = {
     "designer": "产品/设计 Agent",
     "backend_engineer": "后端研发 Agent",
-    "frontend_engineer": "前端研发 Agent",
     "tester": "测试 Agent",
 }
 
