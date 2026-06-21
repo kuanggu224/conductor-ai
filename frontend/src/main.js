@@ -37,7 +37,7 @@ const state = {
 
 init();
 window.addEventListener("hashchange", () => {
-  state.route = routeFromHash();
+  setRoute(routeFromHash());
   renderShell();
 });
 
@@ -56,9 +56,20 @@ function demoModeFromUrl() {
 }
 
 function navigate(route) {
-  state.route = route;
+  setRoute(route);
   if (location.hash !== `#${route}`) location.hash = route;
   else renderShell();
+}
+
+function setRoute(route) {
+  if (state.route === route) return;
+  clearRouteTransientDetail();
+  state.route = route;
+}
+
+function clearRouteTransientDetail() {
+  state.detail = null;
+  state.context = null;
 }
 
 async function refreshAll() {

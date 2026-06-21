@@ -165,3 +165,16 @@ def test_graph_renders_latest_operation_result() -> None:
     assert "Latest Result" in render_graph_result
     assert "state.detail" in render_graph_result
     assert "pretty(state.detail)" in render_graph_result
+
+
+def test_navigation_clears_cross_route_transient_detail() -> None:
+    source = _source()
+    navigate = _function_body(source, "navigate")
+    set_route = _function_body(source, "setRoute")
+    clear_detail = _function_body(source, "clearRouteTransientDetail")
+
+    assert "setRoute(route)" in navigate
+    assert "setRoute(routeFromHash())" in source
+    assert "clearRouteTransientDetail()" in set_route
+    assert "state.detail = null;" in clear_detail
+    assert "state.context = null;" in clear_detail
