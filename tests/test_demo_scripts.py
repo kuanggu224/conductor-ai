@@ -79,3 +79,22 @@ def test_demo_check_static_smoke_runs() -> None:
     assert "Demo preflight passed." in result.stdout
     assert "demo-start.ps1 -Open" in result.stdout
     assert "http://127.0.0.1:4176/?demo=1" in result.stdout
+
+
+def test_demo_docs_use_the_demo_mode_url() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    docs = [
+        repo_root / "README.md",
+        repo_root / "frontend" / "README.md",
+        repo_root / "frontend" / "DEMO_SCRIPT.md",
+    ]
+    expected_url = "http://127.0.0.1:4176/?demo=1"
+
+    for doc in docs:
+        text = doc.read_text(encoding="utf-8")
+        assert expected_url in text, f"{doc.name} should document the demo mode URL"
+
+    frontend_readme = (repo_root / "frontend" / "README.md").read_text(encoding="utf-8")
+    offline_section = frontend_readme.split("Run the offline presentation demo:", 1)[1].split("The frontend uses", 1)[0]
+    assert expected_url in offline_section
+    assert "http://127.0.0.1:4176\n" not in offline_section

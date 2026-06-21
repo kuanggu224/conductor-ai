@@ -19,7 +19,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\demo-start.ps1 -Op
 Open:
 
 ```text
-http://127.0.0.1:4176
+http://127.0.0.1:4176/?demo=1
 ```
 
 The frontend uses `http://127.0.0.1:8000` by default. Override with:
@@ -51,5 +51,5 @@ Coverage:
 - `Agents`: roster, dynamic activations, claimable task listing, agent-side claim.
 - `Review`: artifact detail, pause/resume, approval request, approve/reject/override.
 - `Logs`: recent events, routes, executions, runtime stream refresh.
-- `Settings`: API base, execution settings, CLI settings, LLM settings/preflight, diagnostics.
+- `Settings`: live API configuration in Live mode; offline runtime, diagnostics, and LLM preflight evidence in Demo mode.
 - `Todos`: list, create, read, update, delete.
