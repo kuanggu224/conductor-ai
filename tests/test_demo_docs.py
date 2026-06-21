@@ -95,6 +95,7 @@ process.stdout.write(JSON.stringify({
 
 
 def test_demo_script_documents_offline_boundaries() -> None:
+    root_readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
     demo_script = (REPO_ROOT / "frontend" / "DEMO_SCRIPT.md").read_text(encoding="utf-8")
     frontend_readme = (REPO_ROOT / "frontend" / "README.md").read_text(encoding="utf-8")
 
@@ -110,3 +111,5 @@ def test_demo_script_documents_offline_boundaries() -> None:
     assert "including static asset smoke checks" in frontend_readme
     assert "-PreflightSmokePort 4179" in frontend_readme
     assert "use `Check Backend` to confirm the configured API URL responds" in frontend_readme
+    assert "click `Load Demo` for the offline presentation path or `Settings` to check the backend URL" in root_readme
+    assert "use `Check Backend` to confirm the configured API URL responds" in root_readme
