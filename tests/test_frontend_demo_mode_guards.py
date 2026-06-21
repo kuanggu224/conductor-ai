@@ -122,3 +122,35 @@ def test_demo_todos_use_mutable_local_state() -> None:
     assert "updateDemoTodo(id, payload)" in update_todo
     assert "deleteDemoTodo(id)" in delete_todo
     assert "function demoTodoStatsFromItems" in source
+
+
+def test_task_detail_actions_clear_stale_context() -> None:
+    source = _source()
+    context_actions = ["loadTaskContext", "loadTaskAgents"]
+    detail_actions = [
+        "claimTask",
+        "claimNextTask",
+        "claimBatch",
+        "completeTask",
+        "failTask",
+        "heartbeatTask",
+        "releaseTask",
+        "releaseStale",
+        "releaseExpired",
+        "sweepTasks",
+    ]
+
+    assert "function setTaskContext" in source
+    assert "state.detail = null;" in _function_body(source, "setTaskContext")
+    assert "function setTaskDetail" in source
+    assert "state.context = null;" in _function_body(source, "setTaskDetail")
+
+    for name in context_actions:
+      body = _function_body(source, name)
+      assert "setTaskContext(" in body
+      assert "state.context =" not in body
+
+    for name in detail_actions:
+      body = _function_body(source, name)
+      assert "setTaskDetail(" in body
+      assert "state.detail =" not in body
