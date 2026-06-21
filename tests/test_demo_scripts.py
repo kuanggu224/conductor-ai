@@ -42,6 +42,25 @@ def test_demo_powershell_scripts_parse() -> None:
     assert result.returncode == 0, result.stderr or result.stdout
 
 
+def test_demo_check_static_smoke_covers_frontend_assets() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    script = (repo_root / "scripts" / "demo-check.ps1").read_text(encoding="utf-8")
+
+    for asset in [
+        "favicon.svg",
+        "src/styles.css",
+        "src/main.js",
+        "src/demo.js",
+        "src/api.js",
+        "src/utils.js",
+    ]:
+        assert f'"{asset}"' in script
+
+    assert "./src/styles.css" in script
+    assert "./src/main.js" in script
+    assert "Demo asset $path returned HTTP" in script
+
+
 def test_demo_check_static_smoke_runs() -> None:
     powershell = shutil.which("powershell") or shutil.which("pwsh")
     node = shutil.which("node")

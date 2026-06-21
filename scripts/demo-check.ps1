@@ -6,7 +6,7 @@ Usage:
 
 Optional:
   -FullBackendChecks  Also run the API delivery regression subset used by the demo path.
-  -StaticSmoke        Start a temporary static server and verify demo HTML and favicon.
+  -StaticSmoke        Start a temporary static server and verify demo HTML and frontend assets.
   -StaticSmokePort    Port used by the temporary static smoke server.
 #>
 
@@ -103,15 +103,32 @@ if ($StaticSmoke) {
 
             $baseUrl = "http://127.0.0.1:$StaticSmokePort"
             $index = Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl/?demo=1"
-            $favicon = Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl/favicon.svg"
             if ($index.StatusCode -ne 200) {
                 throw "Demo index returned HTTP $($index.StatusCode)."
             }
-            if ($favicon.StatusCode -ne 200) {
-                throw "Favicon returned HTTP $($favicon.StatusCode)."
-            }
             if (-not $index.Content.Contains("favicon.svg")) {
                 throw "Demo index does not reference favicon.svg."
+            }
+            if (-not $index.Content.Contains("./src/styles.css")) {
+                throw "Demo index does not reference src/styles.css."
+            }
+            if (-not $index.Content.Contains("./src/main.js")) {
+                throw "Demo index does not reference src/main.js."
+            }
+
+            $assetPaths = @(
+                "favicon.svg",
+                "src/styles.css",
+                "src/main.js",
+                "src/demo.js",
+                "src/api.js",
+                "src/utils.js"
+            )
+            foreach ($path in $assetPaths) {
+                $asset = Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl/$path"
+                if ($asset.StatusCode -ne 200) {
+                    throw "Demo asset $path returned HTTP $($asset.StatusCode)."
+                }
             }
         }
         finally {
