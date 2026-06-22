@@ -120,6 +120,19 @@ def test_platform_start_stop_scripts_use_recorded_pid_file() -> None:
     assert "Test-PortListening -Port $FrontendPort" in start_script
 
 
+def test_root_batch_wrappers_call_platform_scripts() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    start_batch = (repo_root / "start.bat").read_text(encoding="utf-8")
+    stop_batch = (repo_root / "stop.bat").read_text(encoding="utf-8")
+
+    assert 'cd /d "%~dp0"' in start_batch
+    assert 'cd /d "%~dp0"' in stop_batch
+    assert 'powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\\start.ps1" -Open' in start_batch
+    assert 'powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\\stop.ps1"' in stop_batch
+    assert "pause" in start_batch.lower()
+    assert "pause" in stop_batch.lower()
+
+
 def test_demo_check_static_smoke_runs() -> None:
     powershell = shutil.which("powershell") or shutil.which("pwsh")
     node = shutil.which("node")

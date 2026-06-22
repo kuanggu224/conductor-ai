@@ -43,7 +43,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\demo-check.ps1 -St
 
 Live API console:
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start.ps1 -Open
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\stop.ps1
+Double-click from the repository root:
+
+```text
+start.bat
+stop.bat
 ```

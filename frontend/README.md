@@ -4,10 +4,11 @@ C3 dependency-risk control UI for the Conductor API platform.
 
 Run locally:
 
-```powershell
-cd C:\99_self\conductor\conductor-ai
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start.ps1 -Open
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\stop.ps1
+Double-click from the repository root:
+
+```text
+start.bat
+stop.bat
 ```
 
 Run the offline presentation demo:
