@@ -6,8 +6,8 @@ Run locally:
 
 ```powershell
 cd C:\99_self\conductor\conductor-ai
-python -m uvicorn app.board:app --host 127.0.0.1 --port 8000
-python -m http.server 4176 -d frontend
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start.ps1 -Open
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\stop.ps1
 ```
 
 Run the offline presentation demo:

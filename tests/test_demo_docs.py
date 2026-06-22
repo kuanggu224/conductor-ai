@@ -113,3 +113,7 @@ def test_demo_script_documents_offline_boundaries() -> None:
     assert "use `Check Backend` to confirm the configured API URL responds" in frontend_readme
     assert "click `Load Demo` for the offline presentation path or `Settings` to check the backend URL" in root_readme
     assert "use `Check Backend` to confirm the configured API URL responds" in root_readme
+    assert ".\\scripts\\start.ps1 -Open" in root_readme
+    assert ".\\scripts\\stop.ps1" in root_readme
+    assert ".\\scripts\\start.ps1 -Open" in frontend_readme
+    assert ".\\scripts\\stop.ps1" in frontend_readme

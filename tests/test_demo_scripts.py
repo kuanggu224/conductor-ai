@@ -51,6 +51,8 @@ def test_demo_powershell_scripts_parse() -> None:
     scripts = [
         repo_root / "scripts" / "demo-check.ps1",
         repo_root / "scripts" / "demo-start.ps1",
+        repo_root / "scripts" / "start.ps1",
+        repo_root / "scripts" / "stop.ps1",
     ]
     command = "\n".join(
         [
@@ -100,6 +102,22 @@ def test_demo_start_runs_static_smoke_preflight() -> None:
     assert "[int]$PreflightSmokePort = 4178" in script
     assert "-StaticSmoke -StaticSmokePort $PreflightSmokePort" in script
     assert "-SkipCheck" in script
+
+
+def test_platform_start_stop_scripts_use_recorded_pid_file() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    start_script = (repo_root / "scripts" / "start.ps1").read_text(encoding="utf-8")
+    stop_script = (repo_root / "scripts" / "stop.ps1").read_text(encoding="utf-8")
+
+    assert ".conductor\\runtime\\platform.pid.json" in start_script
+    assert ".conductor\\runtime\\platform.pid.json" in stop_script
+    assert "Start-Process" in start_script
+    assert "-WindowStyle Hidden" in start_script
+    assert "ConvertTo-Json -Depth 5" in start_script
+    assert "Stop-Process -Id $pidValue" in stop_script
+    assert "function Test-PortListening" in start_script
+    assert "Test-PortListening -Port $BackendPort" in start_script
+    assert "Test-PortListening -Port $FrontendPort" in start_script
 
 
 def test_demo_check_static_smoke_runs() -> None:
@@ -207,3 +225,81 @@ def test_demo_start_runs_preflight_then_serves_demo() -> None:
     assert "Running frontend static HTTP smoke test" in output
     assert "Conductor demo URL:" in output
     assert f"http://127.0.0.1:{server_port}/?demo=1" in output
+
+
+def test_platform_start_and_stop_scripts_run_services(tmp_path: Path) -> None:
+    powershell = shutil.which("powershell") or shutil.which("pwsh")
+    python = shutil.which("python")
+    if powershell is None:
+        pytest.skip("PowerShell is not available")
+    if python is None:
+        pytest.skip("python is not available")
+
+    uvicorn_check = subprocess.run(
+        [python, "-c", "import uvicorn"],
+        text=True,
+        capture_output=True,
+        timeout=10,
+    )
+    if uvicorn_check.returncode != 0:
+        pytest.skip("uvicorn is not available")
+
+    repo_root = Path(__file__).resolve().parents[1]
+    backend_port = _free_tcp_port()
+    frontend_port = _free_tcp_port()
+    while frontend_port == backend_port:
+        frontend_port = _free_tcp_port()
+    pid_file = tmp_path / "platform.pid.json"
+
+    start_result = subprocess.run(
+        [
+            powershell,
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(repo_root / "scripts" / "start.ps1"),
+            "-BackendPort",
+            str(backend_port),
+            "-FrontendPort",
+            str(frontend_port),
+            "-PidFile",
+            str(pid_file),
+            "-SkipCheck",
+        ],
+        cwd=repo_root,
+        text=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=45,
+    )
+    try:
+        assert start_result.returncode == 0
+        assert pid_file.exists()
+        assert _port_is_listening(backend_port)
+        assert _port_is_listening(frontend_port)
+    finally:
+        stop_result = subprocess.run(
+            [
+                powershell,
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(repo_root / "scripts" / "stop.ps1"),
+                "-PidFile",
+                str(pid_file),
+            ],
+            cwd=repo_root,
+            text=True,
+            capture_output=True,
+            timeout=30,
+        )
+        assert stop_result.returncode == 0, stop_result.stderr or stop_result.stdout
+
+    deadline = time.time() + 10
+    while time.time() < deadline and (_port_is_listening(backend_port) or _port_is_listening(frontend_port)):
+        time.sleep(0.25)
+    assert not _port_is_listening(backend_port)
+    assert not _port_is_listening(frontend_port)
+    assert not pid_file.exists()
