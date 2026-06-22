@@ -26,7 +26,7 @@ def test_demo_docs_use_the_demo_mode_url() -> None:
         assert expected_url in text, f"{doc.name} should document the demo mode URL"
 
     frontend_readme = (REPO_ROOT / "frontend" / "README.md").read_text(encoding="utf-8")
-    offline_section = frontend_readme.split("Run the offline presentation demo:", 1)[1].split("The frontend uses", 1)[0]
+    offline_section = frontend_readme.split("运行离线演示：", 1)[1].split("前端默认使用", 1)[0]
     assert expected_url in offline_section
     assert "http://127.0.0.1:4176\n" not in offline_section
 
@@ -72,6 +72,7 @@ process.stdout.write(JSON.stringify({
         [node, str(script_path), str(demo_path)],
         cwd=REPO_ROOT,
         text=True,
+        encoding="utf-8",
         capture_output=True,
         timeout=20,
     )
@@ -80,16 +81,16 @@ process.stdout.write(JSON.stringify({
     story = json.loads(result.stdout)
     demo_script = (REPO_ROOT / "frontend" / "DEMO_SCRIPT.md").read_text(encoding="utf-8")
 
-    assert f"Top status is `{story['initialStatus']}`" in demo_script
-    assert f"Risk panel shows `{story['initialRisk']}`, `{story['initialReadiness']}`, `Claimable {story['initialClaimable']}`, `Blocked {story['initialBlocked']}`" in demo_script
-    assert f"readiness moves to `{story['steppedReadiness']}`" in demo_script
-    assert f"risk becomes `{story['steppedRisk']}`" in demo_script
-    assert f"blockers become `{story['steppedBlocked']}`" in demo_script
-    assert f"project status becomes `{story['completedStatus']}`" in demo_script
-    assert f"readiness becomes `{story['completedReadiness']}`" in demo_script
+    assert f"顶部状态为 `{story['initialStatus']}`" in demo_script
+    assert f"风险面板显示 `{story['initialRisk']}`、`{story['initialReadiness']}`、`可领取 {story['initialClaimable']}`、`阻塞 {story['initialBlocked']}`" in demo_script
+    assert f"就绪度变为 `{story['steppedReadiness']}`" in demo_script
+    assert f"风险变为 `{story['steppedRisk']}`" in demo_script
+    assert f"阻塞项变为 `{story['steppedBlocked']}`" in demo_script
+    assert f"项目状态变为 `{story['completedStatus']}`" in demo_script
+    assert f"就绪度变为 `{story['completedReadiness']}`" in demo_script
     assert story["approveEnabled"] is True
-    assert "`Approve` becomes enabled" in demo_script
-    for title in ["FastAPI SQLite Implementation", "API Contract Validation"]:
+    assert "`批准` 变为可用" in demo_script
+    for title in ["FastAPI SQLite 实现", "API 契约验证"]:
         assert title in story["artifactTitles"]
         assert title in demo_script
 
@@ -99,20 +100,20 @@ def test_demo_script_documents_offline_boundaries() -> None:
     demo_script = (REPO_ROOT / "frontend" / "DEMO_SCRIPT.md").read_text(encoding="utf-8")
     frontend_readme = (REPO_ROOT / "frontend" / "README.md").read_text(encoding="utf-8")
 
-    assert "Demo mode is deterministic and offline" in demo_script
-    assert "does not require the backend, Agent CLI, or external LLM provider" in demo_script
-    assert "Live mode should be used only when the backend is running" in demo_script
+    assert "演示模式是确定性离线模式" in demo_script
+    assert "不需要后端、Agent CLI 或外部 LLM 服务商" in demo_script
+    assert "实时模式只应在后端运行于已配置 API URL 时使用" in demo_script
     assert "demo-check.ps1 -StaticSmoke -FullBackendChecks" in demo_script
-    assert "demo-start.ps1` runs the same frontend preflight" in demo_script
+    assert "demo-start.ps1` 会先运行相同的前端预检" in demo_script
     assert "-PreflightSmokePort 4179" in demo_script
-    assert "`Check Backend` calls `/api/status`" in demo_script
-    assert "expect `Online` before running `Step` or `Run`" in demo_script
-    assert "click `Load Demo` for the offline presentation path or `Settings` to check the backend URL" in demo_script
-    assert "including static asset smoke checks" in frontend_readme
+    assert "`检查后端` 会调用 `/api/status`" in demo_script
+    assert "运行 `推进` 或 `运行` 前预期状态为 `在线`" in demo_script
+    assert "点击 `加载演示` 进入离线展示路径，或点击 `设置` 检查后端 URL" in demo_script
+    assert "包括静态资源冒烟检查" in frontend_readme
     assert "-PreflightSmokePort 4179" in frontend_readme
-    assert "use `Check Backend` to confirm the configured API URL responds" in frontend_readme
-    assert "click `Load Demo` for the offline presentation path or `Settings` to check the backend URL" in root_readme
-    assert "use `Check Backend` to confirm the configured API URL responds" in root_readme
+    assert "使用 `检查后端` 确认已配置的 API URL 可响应" in frontend_readme
+    assert "点击 `加载演示` 进入离线展示路径，或点击 `设置` 检查后端 URL" in root_readme
+    assert "使用 `检查后端` 确认已配置的 API URL 可响应" in root_readme
     assert "start.bat" in root_readme
     assert "stop.bat" in root_readme
     assert "start.bat" in frontend_readme

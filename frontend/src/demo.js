@@ -5,46 +5,46 @@ const workitems = [
     id: "workitem-requirement",
     stage: "requirement",
     kind: "frozen_requirement_spec",
-    kind_label: "Requirement Spec",
+    kind_label: "需求规格",
     status: "done",
-    status_label: "Done",
-    description: "Freeze API-only todo service scope and acceptance contract.",
+    status_label: "已完成",
+    description: "冻结纯 API Todo 服务范围和验收契约。",
   },
   {
     id: "workitem-design",
     stage: "design",
     kind: "api_design",
-    kind_label: "API Design",
+    kind_label: "API 设计",
     status: "done",
-    status_label: "Done",
-    description: "Define REST resources, SQLite persistence, validation and stats endpoints.",
+    status_label: "已完成",
+    description: "定义 REST 资源、SQLite 持久化、校验和统计端点。",
   },
   {
     id: "workitem-api",
     stage: "development",
     kind: "api_implementation",
-    kind_label: "API Implementation",
+    kind_label: "API 实现",
     status: "done",
-    status_label: "Done",
-    description: "Generate FastAPI service, contract tests and manifest evidence.",
+    status_label: "已完成",
+    description: "生成 FastAPI 服务、契约测试和清单证据。",
   },
   {
     id: "workitem-validation",
     stage: "testing",
     kind: "api_validation",
-    kind_label: "API Validation",
+    kind_label: "API 验证",
     status: "running",
-    status_label: "Running",
-    description: "Run pytest contract validation and requirement coverage checks.",
+    status_label: "运行中",
+    description: "运行 pytest 契约验证和需求覆盖检查。",
   },
   {
     id: "workitem-delivery",
     stage: "delivery",
     kind: "delivery_manifest",
-    kind_label: "Delivery Manifest",
+    kind_label: "交付清单",
     status: "pending",
-    status_label: "Pending",
-    description: "Write final report, manifest and replay audit bundle.",
+    status_label: "待处理",
+    description: "写入最终报告、清单和回放审计包。",
   },
 ];
 
@@ -53,27 +53,27 @@ const taskAssignments = [
     id: "assignment-api-validation",
     workitem_id: "workitem-validation",
     role: "tester",
-    role_label: "Tester",
+    role_label: "测试",
     status: "claimable",
-    status_label: "Claimable",
+    status_label: "可领取",
     parallel_safe: true,
   },
   {
     id: "assignment-delivery-review",
     workitem_id: "workitem-delivery",
     role: "solution_designer",
-    role_label: "Solution Designer",
+    role_label: "方案设计",
     status: "queued",
-    status_label: "Queued",
+    status_label: "排队中",
     parallel_safe: false,
   },
   {
     id: "assignment-api-rework",
     workitem_id: "workitem-api",
     role: "backend_engineer",
-    role_label: "Backend Engineer",
+    role_label: "后端工程师",
     status: "done",
-    status_label: "Done",
+    status_label: "已完成",
     parallel_safe: true,
   },
 ];
@@ -83,28 +83,28 @@ const artifacts = [
     id: "artifact-frozen-requirement",
     workitem_id: "workitem-requirement",
     kind: "frozen_requirement_spec",
-    title: "Frozen API Requirement",
+    title: "冻结 API 需求",
     version: 1,
     source_backend: "llm_harness/local",
-    content: "Goal: API-only todo service with SQLite persistence, CRUD, filters, delete and stats. Non-goals: browser UI and login.",
+    content: "目标：纯 API Todo 服务，包含 SQLite 持久化、CRUD、筛选、删除和统计。非目标：浏览器 UI 和登录。",
   },
   {
     id: "artifact-api-implementation",
     workitem_id: "workitem-api",
     kind: "api_implementation",
-    title: "FastAPI SQLite Implementation",
+    title: "FastAPI SQLite 实现",
     version: 1,
     source_backend: "api_sqlite_delivery",
-    content: "Changed files: app.py, pytest.ini, tests/test_api_contract.py. Validation: 1 passed, SQLite row_count=2.",
+    content: "变更文件：app.py、pytest.ini、tests/test_api_contract.py。验证结果：1 项通过，SQLite row_count=2。",
   },
   {
     id: "artifact-validation",
     workitem_id: "workitem-validation",
     kind: "api_validation",
-    title: "API Contract Validation",
+    title: "API 契约验证",
     version: 1,
     source_backend: "cli/shell",
-    content: "POST /api/items -> 201\nGET /api/items/stats -> 200\nRequirement Coverage: pass\nDelivery Readiness: ready / 92",
+    content: "POST /api/items -> 201\nGET /api/items/stats -> 200\n需求覆盖：通过\n交付就绪度：就绪 / 92",
   },
 ];
 
@@ -112,34 +112,34 @@ const agents = [
   {
     agent_id: "agent-requirement",
     role: "requirement_designer",
-    role_label: "Requirement",
+    role_label: "需求",
     active: false,
-    status_label: "Idle",
-    mission: "Freeze business scope and downstream acceptance contract.",
+    status_label: "空闲",
+    mission: "冻结业务范围和下游验收契约。",
   },
   {
     agent_id: "agent-backend",
     role: "backend_engineer",
-    role_label: "Backend",
+    role_label: "后端",
     active: true,
-    status_label: "Ready",
-    mission: "Own API implementation, persistence and contract-test repair.",
+    status_label: "就绪",
+    mission: "负责 API 实现、持久化和契约测试修复。",
   },
   {
     agent_id: "agent-tester",
     role: "tester",
-    role_label: "Tester",
+    role_label: "测试",
     active: true,
-    status_label: "Claimable",
-    mission: "Validate observable API behavior and requirement coverage.",
+    status_label: "可领取",
+    mission: "验证可观测 API 行为和需求覆盖。",
   },
   {
     agent_id: "agent-reviewer",
     role: "solution_designer",
-    role_label: "Reviewer",
+    role_label: "评审",
     active: false,
-    status_label: "Waiting",
-    mission: "Review delivery readiness, risks and manifest audit evidence.",
+    status_label: "等待中",
+    mission: "评审交付就绪度、风险和清单审计证据。",
   },
 ];
 
@@ -147,38 +147,38 @@ const activationNodes = [
   {
     agent_id: "dynamic-backend-contracts",
     role: "backend_engineer",
-    role_label: "Backend Contracts",
+    role_label: "后端契约",
     active: true,
-    status_label: "Active",
-    reason: "API contract and data persistence scopes were split for review.",
+    status_label: "活跃",
+    reason: "API 契约和数据持久化范围已拆分评审。",
   },
   {
     agent_id: "dynamic-tester-edge",
     role: "tester",
-    role_label: "Edge Tester",
+    role_label: "边界测试",
     active: true,
-    status_label: "Active",
-    reason: "Validation and delete/filter behavior need edge-case coverage.",
+    status_label: "活跃",
+    reason: "校验、删除和筛选行为需要边界场景覆盖。",
   },
 ];
 
 const demoTodoItems = [
   {
     id: 1,
-    title: "Verify API contract",
-    content: "Confirm POST /api/items and GET /api/items/stats evidence is visible.",
+    title: "验证 API 契约",
+    content: "确认 POST /api/items 和 GET /api/items/stats 证据可见。",
     completed: true,
   },
   {
     id: 2,
-    title: "Review delivery manifest",
-    content: "Check readiness score, artifact list, and replay verification notes.",
+    title: "评审交付清单",
+    content: "检查就绪度分数、产物列表和回放验证备注。",
     completed: false,
   },
   {
     id: 3,
-    title: "Prepare live fallback",
-    content: "Keep Demo mode available if the live backend is not running.",
+    title: "准备实时模式兜底",
+    content: "如果实时后端未运行，保留演示模式可用。",
     completed: false,
   },
 ];
@@ -199,7 +199,7 @@ const demoSettings = {
     config: {
       agent_cli_required: false,
       shell: "powershell",
-      fallback: "offline demo fixture",
+      fallback: "离线演示夹具",
       workspace: "C:/99_self/conductor/conductor-ai",
     },
     source: "demo-fixture",
@@ -210,7 +210,7 @@ const demoSettings = {
       provider: "offline",
       model: "demo-runner",
       enabled: false,
-      note: "Demo mode renders deterministic fixtures and does not call a model provider.",
+      note: "演示模式渲染确定性夹具，不调用模型服务商。",
     },
     source: "demo-fixture",
     updated_at: "2026-06-22T10:30:00+08:00",
@@ -219,40 +219,40 @@ const demoSettings = {
 
 const demoCapabilities = [
   {
-    area: "Dependency graph",
-    demo: "Local fixture with deterministic readiness progression.",
-    live: "Backed by /api/projects/{id} snapshots and runtime stream refresh.",
-    status: "aligned",
+    area: "依赖图",
+    demo: "本地夹具提供确定性的就绪度推进。",
+    live: "由 /api/projects/{id} 快照和运行时流刷新支撑。",
+    status: "已对齐",
   },
   {
-    area: "Task center",
-    demo: "Local claim, sweep and task-context results are simulated.",
-    live: "Backed by task claim, release, heartbeat, sweep and context APIs.",
-    status: "aligned",
+    area: "任务中心",
+    demo: "本地模拟领取、清理和任务上下文结果。",
+    live: "由任务领取、释放、心跳、清理和上下文 API 支撑。",
+    status: "已对齐",
   },
   {
-    area: "Agents",
-    demo: "Roster, dynamic activations and claimable work are fixture data.",
-    live: "Backed by project agent assignments and agent task APIs.",
-    status: "aligned",
+    area: "智能体",
+    demo: "花名册、动态激活和可领取工作来自夹具数据。",
+    live: "由项目智能体分配和智能体任务 API 支撑。",
+    status: "已对齐",
   },
   {
-    area: "Review artifacts",
-    demo: "FastAPI, validation and manifest evidence are fixture artifacts.",
-    live: "Backed by stored project artifacts and human-control APIs.",
-    status: "aligned",
+    area: "评审产物",
+    demo: "FastAPI、验证和清单证据来自夹具产物。",
+    live: "由已存储项目产物和人工控制 API 支撑。",
+    status: "已对齐",
   },
   {
     area: "Todo API",
-    demo: "CRUD state mutates locally in the browser session.",
-    live: "Backed by the platform Todo API and cookie-scoped session storage.",
-    status: "aligned",
+    demo: "CRUD 状态在浏览器会话中本地变更。",
+    live: "由平台 Todo API 和 Cookie 作用域会话存储支撑。",
+    status: "已对齐",
   },
   {
-    area: "External execution",
-    demo: "Agent CLI and LLM calls are not executed.",
-    live: "Requires configured Agent CLI and/or LLM backends before real runs.",
-    status: "requires setup",
+    area: "外部执行",
+    demo: "不执行 Agent CLI 和 LLM 调用。",
+    live: "真实运行前需要配置 Agent CLI 和/或 LLM 后端。",
+    status: "需要配置",
   },
 ];
 
@@ -261,7 +261,7 @@ export function demoProjects() {
     {
       project_id: DEMO_PROJECT_ID,
       status: "in_progress",
-      status_label: "Demo",
+      status_label: "演示",
       goal: demoGoal(),
     },
   ];
@@ -282,7 +282,7 @@ export function advanceDemoProject(project, action = "step") {
 
 export function demoArtifact(artifactId) {
   const artifact = artifacts.find((item) => item.id === artifactId);
-  return artifact ? { artifact, content: artifact.content } : { artifact_id: artifactId, content: "Demo artifact not found." };
+  return artifact ? { artifact, content: artifact.content } : { artifact_id: artifactId, content: "未找到演示产物。" };
 }
 
 export function demoTaskContext(assignmentId) {
@@ -290,9 +290,9 @@ export function demoTaskContext(assignmentId) {
   return {
     assignment_id: assignmentId,
     workitem_id: assignment?.workitem_id || "",
-    agent_prompt: "Execute the assigned API validation task, preserve frozen scope, and return concrete evidence.",
+    agent_prompt: "执行已分配的 API 验证任务，保持冻结范围，并返回具体证据。",
     required_inputs: ["frozen_requirement_spec", "api_implementation"],
-    expected_outputs: ["validation evidence", "coverage trace", "delivery readiness signal"],
+    expected_outputs: ["验证证据", "覆盖追踪", "交付就绪信号"],
   };
 }
 
@@ -300,7 +300,7 @@ export function demoOperationResult(label) {
   return {
     ok: true,
     mode: "demo",
-    message: `${label} recorded in local demo state.`,
+    message: `${label} 已记录到本地演示状态。`,
     timestamp: "2026-06-22T10:30:00+08:00",
   };
 }
@@ -342,9 +342,9 @@ export function demoLlmPreflight() {
     mode: "demo",
     provider: "offline",
     checks: [
-      { name: "configuration", status: "pass", detail: "Offline fixture is available." },
-      { name: "model_call", status: "skipped", detail: "Demo mode does not call an external LLM." },
-      { name: "fallback", status: "pass", detail: "Deterministic delivery data is loaded locally." },
+      { name: "configuration", status: "pass", detail: "离线夹具可用。" },
+      { name: "model_call", status: "skipped", detail: "演示模式不调用外部 LLM。" },
+      { name: "fallback", status: "pass", detail: "确定性交付数据已本地加载。" },
     ],
   };
 }
@@ -359,9 +359,9 @@ export function demoDiagnostics(probe = false) {
       frontend_fixture: "pass",
       static_assets: "pass",
       browser_smoke: "pass",
-      live_api: "not required in demo mode",
-      cli_probe: probe ? "skipped in offline demo" : "not requested",
-      llm_preflight: probe ? "offline fixture pass" : "not requested",
+      live_api: "演示模式不需要",
+      cli_probe: probe ? "离线演示中跳过" : "未请求",
+      llm_preflight: probe ? "离线夹具通过" : "未请求",
     },
     recommended_url: "http://127.0.0.1:4176/?demo=1",
   };
@@ -382,13 +382,13 @@ function demoSnapshot(step) {
     project_id: DEMO_PROJECT_ID,
     project_goal: demoGoal(),
     project_status: step >= 2 ? "ready" : "in_progress",
-    project_status_label: step >= 2 ? "Ready" : "In Progress",
+    project_status_label: step >= 2 ? "就绪" : "进行中",
     current_stage: step >= 2 ? "delivery" : step >= 1 ? "testing" : "development",
     run_audit: {
       risk_level: risk,
       risk_level_label: label(risk),
       delivery_readiness_status: step >= 2 ? "ready" : "at_risk",
-      delivery_readiness_status_label: step >= 2 ? "Ready" : "At Risk",
+      delivery_readiness_status_label: step >= 2 ? "就绪" : "有风险",
       delivery_readiness_score: readiness,
     },
     task_center_summary: {
@@ -397,11 +397,11 @@ function demoSnapshot(step) {
       claimed: step >= 1 ? 1 : 0,
       done: step >= 2 ? 3 : 2,
     },
-    blockers: step >= 1 ? [] : ["Validation scope is still running."],
+    blockers: step >= 1 ? [] : ["验证范围仍在运行。"],
     workitems: updatedWorkitems,
     task_assignments: taskAssignments.map((item) => {
-      if (item.id === "assignment-api-validation" && step >= 1) return { ...item, status: "done", status_label: "Done" };
-      if (item.id === "assignment-delivery-review" && step >= 2) return { ...item, status: "done", status_label: "Done" };
+      if (item.id === "assignment-api-validation" && step >= 1) return { ...item, status: "done", status_label: "已完成" };
+      if (item.id === "assignment-delivery-review" && step >= 2) return { ...item, status: "done", status_label: "已完成" };
       return item;
     }),
     project_agents: agents,
@@ -413,38 +413,51 @@ function demoSnapshot(step) {
       next_action: "operator_review",
     },
     operation_console: {
-      guidance: step >= 2 ? "Delivery manifest is ready for review." : "Continue validation or inspect task context before delivery.",
+      guidance: step >= 2 ? "交付清单已准备好评审。" : "交付前继续验证或检查任务上下文。",
       actions: [
-        { id: "claim-next", label: "Claim Next", enabled: step < 2, category: "task_center", api_method: "POST", api_path: `/api/projects/${DEMO_PROJECT_ID}/tasks/claim-next` },
-        { id: "sweep", label: "Sweep", enabled: true, category: "task_center", api_method: "POST", api_path: `/api/projects/${DEMO_PROJECT_ID}/tasks/sweep` },
-        { id: "approve", label: "Approve", enabled: step >= 2, category: "human_control", api_method: "POST", api_path: `/api/projects/${DEMO_PROJECT_ID}/human-control/approve` },
+        { id: "claim-next", label: "领取下一项", enabled: step < 2, category: "task_center", api_method: "POST", api_path: `/api/projects/${DEMO_PROJECT_ID}/tasks/claim-next` },
+        { id: "sweep", label: "清理任务", enabled: true, category: "task_center", api_method: "POST", api_path: `/api/projects/${DEMO_PROJECT_ID}/tasks/sweep` },
+        { id: "approve", label: "批准", enabled: step >= 2, category: "human_control", api_method: "POST", api_path: `/api/projects/${DEMO_PROJECT_ID}/human-control/approve` },
       ],
     },
     recent_events_tail: [
-      "Project demo-api-delivery created with API-only run profile.",
-      "WorkItem workitem-api uses ApiSqliteDelivery for a verifiable SQLite API service.",
+      "项目 demo-api-delivery 已按纯 API 运行配置创建。",
+      "WorkItem workitem-api 使用 ApiSqliteDelivery 生成可验证的 SQLite API 服务。",
       "POST /api/items -> status_code=201 response payload={item}",
-      step >= 1 ? "Requirement Coverage: pass; Delivery Readiness: at_risk / 92" : "Validation task is running.",
-      step >= 2 ? "Manifest verification passed; delivery report written." : "Waiting for final delivery review.",
+      step >= 1 ? "需求覆盖：通过；交付就绪度：有风险 / 92" : "验证任务运行中。",
+      step >= 2 ? "清单验证通过；交付报告已写入。" : "等待最终交付评审。",
     ],
     route_lines: [
       "requirement -> design -> development -> testing -> delivery",
       "api_implementation -> api_validation -> delivery_manifest",
     ],
     executions: [
-      { workitem_id: "workitem-api", agent_role: "backend_engineer", agent_label: "Backend", status: "success", status_label: "Success", source_backend: "api_sqlite_delivery" },
-      { workitem_id: "workitem-validation", agent_role: "tester", agent_label: "Tester", status: validationStatus === "done" ? "success" : "running", status_label: label(validationStatus), source_backend: "cli/shell" },
-      { workitem_id: "workitem-delivery", agent_role: "solution_designer", agent_label: "Reviewer", status: deliveryStatus, status_label: label(deliveryStatus), source_backend: "manifest" },
+      { workitem_id: "workitem-api", agent_role: "backend_engineer", agent_label: "后端", status: "success", status_label: "成功", source_backend: "api_sqlite_delivery" },
+      { workitem_id: "workitem-validation", agent_role: "tester", agent_label: "测试", status: validationStatus === "done" ? "success" : "running", status_label: label(validationStatus), source_backend: "cli/shell" },
+      { workitem_id: "workitem-delivery", agent_role: "solution_designer", agent_label: "评审", status: deliveryStatus, status_label: label(deliveryStatus), source_backend: "manifest" },
     ],
   };
 }
 
 function demoGoal() {
-  return "Build an API-only todo service with FastAPI, SQLite persistence, CRUD, delete, filters, stats, contract tests and manifest audit evidence.";
+  return "构建纯 API Todo 服务，包含 FastAPI、SQLite 持久化、CRUD、删除、筛选、统计、契约测试和清单审计证据。";
 }
 
 function label(value) {
-  return String(value || "").replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+  const labels = {
+    at_risk: "有风险",
+    claimable: "可领取",
+    done: "已完成",
+    in_progress: "进行中",
+    low: "低",
+    medium: "中",
+    pending: "待处理",
+    queued: "排队中",
+    ready: "就绪",
+    running: "运行中",
+    success: "成功",
+  };
+  return labels[value] || String(value || "").replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function clone(value) {

@@ -1,88 +1,88 @@
-# Conductor Demo Script
+# Conductor 演示脚本
 
-Use this script for a controlled platform demonstration when external Agent CLI or LLM bindings are not guaranteed.
+当外部 Agent CLI 或 LLM 绑定不稳定时，使用该脚本进行可控平台演示。
 
-## Start
+## 启动
 
 ```powershell
 cd C:\99_self\conductor\conductor-ai
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\demo-start.ps1 -Open
 ```
 
-Open:
+打开：
 
 ```text
 http://127.0.0.1:4176/?demo=1
 ```
 
-`demo-start.ps1` runs the same frontend preflight, including static asset smoke checks, before serving the page.
+`demo-start.ps1` 会先运行相同的前端预检，包括静态资源冒烟检查，然后再启动页面服务。
 
-Expected first screen:
+首屏预期：
 
-- Project selector shows `Demo / Build an API-only todo service...`.
-- Top status is `In Progress`.
-- Risk panel shows `Medium`, `At Risk / 78`, `Claimable 1`, `Blocked 1`.
-- Dependency graph shows requirement, design, development, testing, delivery, task assignment, agent and artifact nodes.
+- 项目选择器显示 `演示 / 构建纯 API Todo 服务...`。
+- 顶部状态为 `进行中`。
+- 风险面板显示 `中`、`有风险 / 78`、`可领取 1`、`阻塞 1`。
+- 依赖图展示需求、设计、开发、测试、交付、任务分配、智能体和产物节点。
 
-## Capability Boundaries
+## 能力边界
 
-- Demo mode is deterministic and offline: it does not require the backend, Agent CLI, or external LLM provider.
-- Demo mode exercises the operator console, dependency graph, task handoff, agents, artifacts, settings diagnostics, logs, and Todo CRUD locally.
-- The `Settings` page shows `Capability Alignment`: each demo area is paired with the live API or runtime dependency it represents.
-- In Live mode, `Check Backend` calls `/api/status` to confirm the configured API is online before project actions.
-- Live mode should be used only when the backend is running at the configured API URL.
-- The broader backend regression subset is covered by `demo-check.ps1 -StaticSmoke -FullBackendChecks`.
+- 演示模式是确定性离线模式：不需要后端、Agent CLI 或外部 LLM 服务商。
+- 演示模式会在本地覆盖操作控制台、依赖图、任务交接、智能体、产物、设置诊断、日志和 Todo CRUD。
+- `设置` 页面展示 `能力对齐`：每个演示区域都对应实时 API 或运行时依赖。
+- 在实时模式中，`检查后端` 会调用 `/api/status`，用于在项目操作前确认 API 在线。
+- 实时模式只应在后端运行于已配置 API URL 时使用。
+- 更完整的后端演示回归子集由 `demo-check.ps1 -StaticSmoke -FullBackendChecks` 覆盖。
 
-## Talk Track
+## 讲解流程
 
-1. Dependency Graph
-   - Explain that the graph is the operator view of the platform: stages, WorkItems, task assignments, agents, artifacts and human gate.
-   - Point at `Risk Control` to show readiness, blockers and claimable work.
-   - Open `Live State` to show the current project payload.
+1. 依赖图
+   - 说明依赖图是平台的操作员视图：阶段、WorkItem、任务分配、智能体、产物和人工门禁。
+   - 指向 `风险控制`，展示就绪度、阻塞项和可领取工作。
+   - 打开 `实时状态`，展示当前项目载荷。
 
-2. Task Center
-   - Click `Tasks`.
-   - Open `Context` for `assignment-api-validation`.
-   - Explain that context packages the frozen requirement, required inputs and expected outputs for an Agent.
-   - Click `Claim Next` to simulate an Agent taking the next claimable task.
+2. 任务中心
+   - 点击 `任务`。
+   - 为 `assignment-api-validation` 打开 `上下文`。
+   - 说明上下文会把冻结需求、必需输入和预期输出打包给智能体。
+   - 点击 `领取下一项`，模拟智能体领取下一个可领取任务。
 
-3. Progression
-   - Return to `Dependency Graph`.
-   - Click `Step`.
-   - Expected signal: readiness moves to `At Risk / 92`, risk becomes `Low`, blockers become `0`.
-   - Click `Run`.
-   - Expected signal: project status becomes `Ready`, readiness becomes `Ready / 96`, `Approve` becomes enabled.
+3. 进度推进
+   - 返回 `依赖图`。
+   - 点击 `推进`。
+   - 预期信号：就绪度变为 `有风险 / 92`，风险变为 `低`，阻塞项变为 `0`。
+   - 点击 `运行`。
+   - 预期信号：项目状态变为 `就绪`，就绪度变为 `就绪 / 96`，`批准` 变为可用。
 
-4. Review
-   - Click `Review`.
-   - Open `FastAPI SQLite Implementation`.
-   - Explain that the artifact records changed files, pytest contract validation and SQLite evidence.
-   - Open `API Contract Validation` to show endpoint evidence and delivery readiness.
+4. 评审
+   - 点击 `评审`。
+   - 打开 `FastAPI SQLite 实现`。
+   - 说明该产物记录了变更文件、pytest 契约验证和 SQLite 证据。
+   - 打开 `API 契约验证`，展示端点证据和交付就绪度。
 
-5. Live Mode
-   - Click `Settings` and point at `Capability Alignment` to separate deterministic demo behavior from live backend/Agent/LLM requirements.
-   - If switching to Live mode, click `Check Backend` first; expect `Online` before running `Step` or `Run`.
-   - Click `Live` in the top bar only when the backend is running at the configured API URL.
-   - If backend is not running, stay in Demo mode for the presentation.
+5. 实时模式
+   - 点击 `设置`，指向 `能力对齐`，区分确定性演示行为和实时后端/Agent/LLM 依赖。
+   - 如果要切换到实时模式，先点击 `检查后端`；运行 `推进` 或 `运行` 前预期状态为 `在线`。
+   - 只有当后端运行在已配置 API URL 时，才点击顶部的 `实时`。
+   - 如果后端没有运行，展示时保持演示模式。
 
-## Fallbacks
+## 兜底
 
-- If the project list is empty, use `?demo=1`.
-- If the Live API error banner appears, click `Load Demo` for the offline presentation path or `Settings` to check the backend URL.
-- If an operation returns a backend error, click `Demo` to reload the local fixture.
-- If port `4176` is in use, start with another port: `.\scripts\demo-start.ps1 -Port 4177`.
-- If preflight port `4178` is in use, start with another preflight port: `.\scripts\demo-start.ps1 -PreflightSmokePort 4179`.
-- If the graph looks too wide, refresh the page; the responsive layout is verified for desktop and 390px mobile width.
+- 如果项目列表为空，使用 `?demo=1`。
+- 如果出现实时 API 错误横幅，点击 `加载演示` 进入离线展示路径，或点击 `设置` 检查后端 URL。
+- 如果某个操作返回后端错误，点击 `演示` 重新加载本地夹具。
+- 如果端口 `4176` 被占用，换端口启动：`.\scripts\demo-start.ps1 -Port 4177`。
+- 如果预检端口 `4178` 被占用，换预检端口启动：`.\scripts\demo-start.ps1 -PreflightSmokePort 4179`。
+- 如果依赖图看起来过宽，刷新页面；响应式布局已按桌面和 390px 移动宽度验证。
 
-## Verification
+## 验证
 
-Before a demo run:
+演示前运行：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\demo-check.ps1 -StaticSmoke
 ```
 
-For the broader API delivery regression subset:
+更完整的 API 交付回归子集：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\demo-check.ps1 -StaticSmoke -FullBackendChecks

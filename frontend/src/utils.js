@@ -29,9 +29,9 @@ export const pretty = (value) => {
 };
 export function tone(value) {
   const text = String(value || "").toLowerCase();
-  if (["done", "completed", "ready", "success", "healthy", "approved"].some((term) => text.includes(term))) return "good";
-  if (["failed", "blocked", "error", "expired", "stale", "missing", "violation"].some((term) => text.includes(term))) return "bad";
-  if (["running", "claimed", "pending", "hold", "warning", "medium", "requires", "needs", "check"].some((term) => text.includes(term))) return "warn";
+  if (["done", "completed", "ready", "success", "healthy", "approved", "已完成", "完成", "就绪", "成功", "健康", "已批准", "已对齐", "在线", "通过"].some((term) => text.includes(term))) return "good";
+  if (["failed", "blocked", "error", "expired", "stale", "missing", "violation", "失败", "阻塞", "错误", "过期", "缺失", "违反", "不可达"].some((term) => text.includes(term))) return "bad";
+  if (["running", "claimed", "pending", "hold", "warning", "medium", "requires", "needs", "check", "运行", "待处理", "排队", "暂停", "警告", "中", "需要", "检查", "有风险", "可领取"].some((term) => text.includes(term))) return "warn";
   return "info";
 }
 export const valueOf = (id) => document.getElementById(id)?.value || "";

@@ -33,7 +33,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\demo-check.ps1 -St
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\demo-start.ps1 -Open
 ```
 
-Open `http://127.0.0.1:4176/?demo=1`. Demo mode loads a complete API-only delivery story locally, including dependency graph, task assignments, agents, artifacts, logs, runbook steps, and readiness progression. If the live API is not running and the console shows a connection error, click `Load Demo` for the offline presentation path or `Settings` to check the backend URL. In Live mode, use `Check Backend` to confirm the configured API URL responds before running project actions. Use `frontend/DEMO_SCRIPT.md` for the presentation talk track.
+打开 `http://127.0.0.1:4176/?demo=1`。演示模式会在本地加载完整的纯 API 交付故事，包括依赖图、任务分配、智能体、产物、日志、演示步骤和就绪度推进。如果实时 API 未运行并且控制台出现连接错误，点击 `加载演示` 进入离线展示路径，或点击 `设置` 检查后端 URL。在实时模式中，运行项目操作前请使用 `检查后端` 确认已配置的 API URL 可响应。演示讲解流程见 `frontend/DEMO_SCRIPT.md`。
 
 For the broader demo regression subset:
 

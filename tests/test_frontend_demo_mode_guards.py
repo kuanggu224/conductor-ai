@@ -122,8 +122,8 @@ def test_demo_todos_use_mutable_local_state() -> None:
     assert "demoTodos()" not in render_todos
     assert "renderTodoStats(statsPayload)" in render_todos
     assert "stats-grid" in render_todo_stats
-    assert "Completed" in render_todo_stats
-    assert "Active" in render_todo_stats
+    assert "已完成" in render_todo_stats
+    assert "未完成" in render_todo_stats
     assert "createDemoTodo(payload)" in create_todo
     assert "updateDemoTodo(id, payload)" in update_todo
     assert "deleteDemoTodo(id)" in delete_todo
@@ -168,7 +168,7 @@ def test_graph_renders_latest_operation_result() -> None:
     render_graph_result = _function_body(source, "renderGraphResult")
 
     assert "renderGraphResult()" in render_graph
-    assert "Latest Result" in render_graph_result
+    assert "最新结果" in render_graph_result
     assert "state.detail" in render_graph_result
     assert "pretty(state.detail)" in render_graph_result
 
@@ -181,8 +181,8 @@ def test_review_renders_artifact_summary_and_content() -> None:
     assert "renderReviewDetail(state.detail)" in render_review
     assert "detail?.artifact" in render_review_detail
     assert "artifact-detail" in render_review_detail
-    assert "metric(\"Title\"" in render_review_detail
-    assert "metric(\"Source\"" in render_review_detail
+    assert "metric(\"标题\"" in render_review_detail
+    assert "metric(\"来源\"" in render_review_detail
     assert "detail.content || artifact.content" in render_review_detail
 
 
@@ -207,16 +207,16 @@ def test_settings_render_capability_alignment() -> None:
     live_capability_matrix = _function_body(source, "liveCapabilityMatrix")
 
     assert "demoCapabilityMatrix" in source
-    assert "Live Capability Readiness" in render_settings
+    assert "实时能力就绪度" in render_settings
     assert "liveCapabilityMatrix()" in render_settings
-    assert "Capability Alignment" in render_demo_settings
+    assert "能力对齐" in render_demo_settings
     assert "demoCapabilityMatrix()" in render_demo_settings
-    assert "Demo actions are deterministic" in render_demo_settings
-    assert "External execution" in live_capability_matrix
-    assert "Run Diagnostics and LLM Preflight" in render_settings
+    assert "演示操作是确定性的" in render_demo_settings
+    assert "外部执行" in live_capability_matrix
+    assert "运行诊断和 LLM 预检" in render_settings
     assert "capability-list" in render_capability_rows
-    assert "Demo:" in render_capability_rows
-    assert "Live:" in render_capability_rows
+    assert "演示：" in render_capability_rows
+    assert "实时：" in render_capability_rows
 
 
 def test_settings_can_check_live_backend_status_without_demo_backend_calls() -> None:
@@ -229,11 +229,11 @@ def test_settings_can_check_live_backend_status_without_demo_backend_calls() -> 
 
     assert 'status() { return this.request("/api/status"); }' in api_source
     assert "renderBackendStatusCard()" in render_settings
-    assert "Check Backend" in render_backend_status_card
+    assert "检查后端" in render_backend_status_card
     assert 'api.request("/api/status")' in check_backend_status
     assert "if (state.demoMode)" in check_backend_status
     assert check_backend_status.find("if (state.demoMode)") < check_backend_status.find('api.request("/api/status")')
-    assert "Backend checks are disabled until you switch to Live mode." in render_demo_settings
+    assert "切换到实时模式前，后端检查保持禁用。" in render_demo_settings
     assert 'api.request("/api/status")' not in render_demo_settings
 
 
@@ -241,7 +241,7 @@ def test_live_error_banner_offers_demo_and_settings_recovery() -> None:
     source = _source()
     render_error_banner = _function_body(source, "renderErrorBanner")
 
-    assert "Live API unavailable" in render_error_banner
-    assert "Load the offline demo" in render_error_banner
-    assert "cmd(\"Load Demo\", enableDemoMode)" in render_error_banner
-    assert "cmd(\"Settings\", () => navigate(\"settings\"))" in render_error_banner
+    assert "实时 API 不可用" in render_error_banner
+    assert "加载离线演示" in render_error_banner
+    assert "cmd(\"加载演示\", enableDemoMode)" in render_error_banner
+    assert "cmd(\"设置\", () => navigate(\"settings\"))" in render_error_banner

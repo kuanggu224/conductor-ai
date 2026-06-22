@@ -53,12 +53,12 @@ assert.equal(demo.demoTaskContext("assignment-api-validation").workitem_id, "wor
 assert.equal(demo.demoOperationResult("Sweep").mode, "demo");
 assert.equal(demo.demoTodos().todos.length, 3);
 assert.equal(demo.demoTodoStats().total, 3);
-assert.equal(demo.demoTodoDetail(1).todo.title, "Verify API contract");
+assert.equal(demo.demoTodoDetail(1).todo.title, "验证 API 契约");
 assert.equal(demo.demoSettingsPayload().execution.config.run_profile, "api_sqlite");
 const capabilities = demo.demoCapabilityMatrix();
 assert.equal(capabilities.length, 6);
-assert.equal(capabilities.find((item) => item.area === "Task center").status, "aligned");
-assert.match(capabilities.find((item) => item.area === "External execution").live, /LLM/);
+assert.equal(capabilities.find((item) => item.area === "任务中心").status, "已对齐");
+assert.match(capabilities.find((item) => item.area === "外部执行").live, /LLM/);
 assert.equal(demo.demoDiagnostics(true).backend_required, false);
 assert.equal(demo.demoLlmPreflight().checks.find((check) => check.name === "model_call").status, "skipped");
 """.strip(),
@@ -68,6 +68,7 @@ assert.equal(demo.demoLlmPreflight().checks.find((check) => check.name === "mode
         [node, str(script_path), str(demo_path)],
         cwd=repo_root,
         text=True,
+        encoding="utf-8",
         capture_output=True,
         timeout=20,
     )
