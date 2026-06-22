@@ -1,8 +1,10 @@
 # Conductor Platform Guide
 
-Conductor is maintained as a backend/API-only orchestration platform.
+Conductor's long-term product positioning is an AI project execution platform for the full software project lifecycle. The current implementation is maintained around a backend/API execution lane while the control layer, Task Center, verification, and audit paths mature.
 
 ## Core Flow
+
+Current active flow:
 
 - Freeze requirements.
 - Produce backend/API design and feature-slice plans.
@@ -11,6 +13,8 @@ Conductor is maintained as a backend/API-only orchestration platform.
 - Generate manifests, reports, replay verification output, and delivery readiness checks.
 
 ## Supported Roles
+
+Currently active roles:
 
 - `requirement_designer`
 - `designer`
@@ -27,6 +31,8 @@ Conductor is maintained as a backend/API-only orchestration platform.
 - `code_cli`
 - `full_cli`
 
+`full_cli` currently covers the active design/backend/test roles. It does not mean full-stack project delivery is implemented.
+
 ## Supported Harnesses
 
 - ShellHarness
@@ -34,6 +40,8 @@ Conductor is maintained as a backend/API-only orchestration platform.
 - Agent CLI execution
 - API validation through generated tests and contract evidence
 
-## Removed Surface
+## Current Paused Surface
 
-Legacy product view rendering, static asset delivery, static web validation, and combined browser/API delivery are removed from the current platform scope.
+Legacy product view rendering, product static asset delivery, static web validation, combined browser/API delivery, and client implementation role/workitem kinds are removed from the current codebase.
+
+This paused surface should be treated as current implementation status. Future frontend or full-stack delivery must be deliberately redesigned and connected to the same control, task, artifact, validation, and audit systems.

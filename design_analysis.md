@@ -1,8 +1,8 @@
 # Design Analysis
 
-The current design path is backend/API-only.
+The current implementation design path is backend/API-focused because the active Planner, run profiles, validation evidence, and delivery profiles are optimized for the core control layer and backend/API execution chain.
 
-Design artifacts should cover:
+Current design artifacts should cover:
 
 - Requirement interpretation.
 - API boundaries.
@@ -11,4 +11,12 @@ Design artifacts should cover:
 - Feature-slice sequencing.
 - Test strategy and acceptance evidence.
 
-Removed design branches for client product surfaces should not be reintroduced without an explicit platform scope change.
+Legacy design branches for customer-project frontend surfaces were removed from the current codebase. Reintroducing frontend or full-stack delivery should be treated as an explicit implementation design effort, not as a change to Conductor's long-term product vision.
+
+Any future design branch should preserve the same core architecture principles:
+
+- Controller-owned stage progression and gates.
+- Structured WorkItems and Task Center handoff.
+- Artifact-backed evidence.
+- Repeatable validation.
+- Manifest, replay, and audit support.

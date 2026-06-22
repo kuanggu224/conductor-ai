@@ -2,9 +2,11 @@
 
 ## Purpose
 
-Conductor coordinates backend/API delivery work from requirement clarification to validation and audit.
+Conductor coordinates software project execution through controlled stages, structured multi-agent work, verifiable artifacts, human-control gates, and audit/replay records.
 
-## Stages
+The current manual describes the active backend/API execution lane. It does not redefine Conductor as a backend/API-only product.
+
+## Current Stages
 
 1. Requirement freeze.
 2. Backend/API design.
@@ -12,7 +14,7 @@ Conductor coordinates backend/API delivery work from requirement clarification t
 4. API validation and automated tests.
 5. Delivery readiness, manifest, report, and replay verification.
 
-## Roles
+## Current Roles
 
 - Requirement designer
 - Designer
@@ -20,7 +22,7 @@ Conductor coordinates backend/API delivery work from requirement clarification t
 - Backend engineer
 - Tester
 
-## API Validation Evidence
+## Current API Validation Evidence
 
 Validation should expose concrete signals:
 
@@ -40,6 +42,12 @@ Task Center coordinates assignment, claim, completion, failure, release, sweep, 
 
 Runtime configuration is stored under `conductor/config`. Secrets must stay out of logs, manifests, reports, and committed config examples.
 
-## Removed Capabilities
+## Platform Console
 
-The current platform manual intentionally excludes legacy product view rendering, static asset serving, static web validation, and combined browser/API delivery.
+`frontend/` is the Conductor platform console for management, observability, and human-control workflows. It is not evidence that customer-project business frontend delivery has been restored.
+
+## Paused Capabilities
+
+The current runtime excludes legacy product view rendering, product static asset serving, static web validation, combined browser/API delivery, frontend development roles, and full-stack delivery profiles.
+
+These are current implementation limits. Future delivery surfaces should be restored only through explicit design work and should plug into the existing controller, Task Center, artifact, validation, manifest, replay, and audit systems.

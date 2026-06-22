@@ -1,10 +1,10 @@
 # Conductor Platform Guide
 
-Conductor is a backend/API orchestration platform.
+Conductor is an AI project execution and multi-agent collaboration platform for software delivery. This guide describes the current runtime model, which is presently concentrated on backend/API execution and validation.
 
 ## Runtime Model
 
-The platform coordinates these stages:
+The current platform coordinates these stages:
 
 1. Requirement: clarify scope and freeze executable requirements.
 2. Design: produce backend/API design, data boundaries, and test strategy.
@@ -12,9 +12,11 @@ The platform coordinates these stages:
 4. Testing: collect endpoint, status, payload, persistence, and contract-test evidence.
 5. Release readiness: audit manifests, reports, scope contract, and delivery evidence.
 
+This current stage model should be read as the active implementation baseline, not as a permanent exclusion of frontend, full-stack, UI design, operations, data, or documentation engineering work.
+
 ## Roles
 
-Supported roles:
+Currently supported execution roles:
 
 - `requirement_designer`
 - `designer`
@@ -22,9 +24,11 @@ Supported roles:
 - `backend_engineer`
 - `tester`
 
+Frontend/project UI delivery roles are not active in the current runtime.
+
 ## Workitem Kinds
 
-Supported workitem kinds:
+Currently supported workitem kinds:
 
 - `requirement_spec`
 - `design_overview`
@@ -40,7 +44,7 @@ Supported workitem kinds:
 
 ## Execution Paths
 
-Supported execution paths:
+Currently supported execution paths:
 
 - mock planning/execution fallback
 - ShellHarness
@@ -51,8 +55,10 @@ Supported execution paths:
 
 ## Control Surface
 
-Project state, task claims, artifact content, settings, run actions, maintenance, and human-control operations are exposed through JSON APIs and CLI commands.
+Project state, task claims, artifact content, settings, run actions, maintenance, and human-control operations are exposed through JSON APIs and CLI commands. The `frontend/` web console consumes this platform control surface; it is not the same thing as customer-project frontend delivery.
 
 ## Quality Signals
 
-Quality is judged from artifacts, manifests, verifier output, benchmark reports, scope contract checks, delivery readiness, and concrete API validation evidence.
+Quality is currently judged from artifacts, manifests, verifier output, benchmark reports, scope contract checks, delivery readiness, and concrete API validation evidence.
+
+Future delivery types should add their own concrete validation evidence without bypassing the control layer, Task Center, artifact store, manifest, replay, and audit flows.
